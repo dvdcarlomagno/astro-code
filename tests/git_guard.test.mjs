@@ -259,3 +259,21 @@ test('importing the module does not block on stdin', async () => {
   });
   assert.match(r.stdout, /ok/);
 });
+
+// Regression cases a verifier executed for real in a scratch repo: each destroyed data while the
+// guard allowed it (phase 38, first verify run). Same-effect spellings (git's unambiguous long-option
+// abbreviations, an --exclude value that looks like -n, a later --no-dry-run) and wrappers that hide
+// the git command (timeout, stdbuf, exec -a NAME, env -C DIR, git global options outside a fixed list).
+const BYPASS_FORMS = [
+  'git clean -f --exclude -n', 'git clean -n --no-dry-run -f',
+  'git reset --har', 'git reset --ha',
+  'timeout 60 git reset --hard', 'timeout -s KILL 5 git stash -u', 'stdbuf -oL git clean -fd',
+  'exec -a x git stash', 'env -C /tmp git stash',
+  'git --no-advice reset --hard', 'git --glob-pathspecs stash',
+];
+
+test('C3/C4: spellings and wrappers that destroyed data in a real repo are refused', () => {
+  const { HOME, R, WT } = sandbox();
+  table(BYPASS_FORMS, [R, WT], isRefused, ENV(HOME));
+  intact(R);
+});
