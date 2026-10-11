@@ -98,3 +98,17 @@ The enforcement goal (refuse an unisolated concurrent executor) was **not reache
 
 Side finding (not this phase): worktree creation under the lean-ctx guard still fails (lean-ctx
 refuses git inside worktrees; 7 of 9 executors did nothing in both R1 and R4), as phase 37 noted.
+
+## Gates (phase 40 t5, run at head; no code changed in this task)
+
+| gate | result | criterion |
+|---|---|---|
+| `node --test tests/` | 1786 tests, 1785 pass, 0 fail, 1 skipped | C11 |
+| same with `PATH="$(dirname "$(command -v node)"):/usr/bin:/bin"` (`command -v claude` empty) | 1786 tests, 1779 pass, 0 fail, 7 skipped (Claude-requiring tests skipped, not failed) | C11 |
+| `claude plugin validate --strict` on `mods`, `mods/astro-mods`, `scripts/mods-probe` | all exit 0 | C9 |
+| `claude plugin test mods/astro-mods` | 4 pass, 0 fail, exit 0 | C9 |
+| `package.json` dependencies / devDependencies | none (0 matches) | C11 |
+| `ac models --preview`, `models fast --preview`, `models max --preview`, `config get models`, and the same under `ASTRO_LOCAL_MODEL=1` (`models --preview`, `models balanced --preview`): output at head vs pre-phase base `e89986c` (via `git worktree add`, removed after) in a sandbox `HOME` and project | byte-identical on all | C10 |
+| sandbox `HOME`: `ac mods status --json` | spawn-policy `built: false`, description `refuse a parallel executor spawned without worktree isolation (ADR-008)`; matches the NO SIGNAL verdict | C1, C5 |
+| `ac mods enable spawn-policy` / `status spawn-policy` | says `not built yet`, no haiku/pin wording (tests/mods_cli.test.mjs) | C2, C5 |
+| mod-dependency guard in `tests/hosts.test.mjs` | green within the full run above | C8 |
