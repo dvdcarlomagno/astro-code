@@ -27,18 +27,23 @@ function withEnv(home, fn) {
 
 const FIVE = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash'];
 const SCRIPT = 'astro-canon-guard.mjs';
+const GIT_SCRIPT = 'astro-git-guard.mjs';
 
 // A fake install home that really holds the guard script (guardState checks it exists).
 function installHome(fakeHome, { withScript = true } = {}) {
   const home = join(fakeHome, '.astro', 'code');
   mkdirSync(join(home, 'hooks'), { recursive: true });
-  if (withScript) writeFileSync(join(home, 'hooks', SCRIPT), '// stub\n');
+  if (withScript) for (const n of [SCRIPT, GIT_SCRIPT]) writeFileSync(join(home, 'hooks', n), '// stub\n');
   return home;
 }
 
 const guardEntries = (settings) =>
   Object.values(settings.hooks || {}).flat().filter((e) =>
     (e.hooks || []).some((h) => typeof h.command === 'string' && h.command.includes(SCRIPT)));
+
+const entriesOf = (settings, script) =>
+  Object.values(settings.hooks || {}).flat().filter((e) =>
+    (e.hooks || [e]).some((h) => typeof h.command === 'string' && h.command.includes(script)));
 
 const read = (file) => JSON.parse(readFileSync(file, 'utf8'));
 
@@ -205,6 +210,76 @@ test('cursor.registerGuard writes a native preToolUse entry, keeps user hooks, i
     const flipped = cursor.registerGuard(dir, home, spec);
     assert.equal(flipped.branch, 'import');
     assert.deepEqual(read(file), user, 'native guard stripped on import');
+  });
+});
+
+// --- Two guards side by side ------------------------------------------------------
+
+test('claude: canon-guard and git-guard coexist in one settings.json and each removes only itself', async () => {
+  const fakeHome = mkdtempSync(join(tmpdir(), 'ac-guard-both-'));
+  await withEnv(fakeHome, async () => {
+    const claude = (await import('../lib/hosts/claude.mjs')).default;
+    const { GUARD_HOOKS } = await import('../lib/hosts/guards.mjs');
+    const canon = GUARD_HOOKS['canon-guard'];
+    const gitg = GUARD_HOOKS['git-guard'];
+    const home = installHome(fakeHome);
+    const dir = join(fakeHome, '.claude');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'settings.json');
+    const before = { theme: 'dark', hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo user-hook' }] }] } };
+    writeFileSync(file, JSON.stringify(before, null, 2) + '\n');
+
+    claude.registerGuard(dir, home, canon);
+    claude.registerGuard(dir, home, gitg);
+    const both = read(file);
+    assert.equal(entriesOf(both, SCRIPT).length, 1);
+    assert.equal(entriesOf(both, GIT_SCRIPT).length, 1);
+    assert.equal(entriesOf(both, GIT_SCRIPT)[0].matcher, 'Bash');
+    assert.equal(claude.guardState(dir, home, canon), 'enforced');
+    assert.equal(claude.guardState(dir, home, gitg), 'enforced');
+
+    const withCanonOnly = (() => { claude.unregisterGuard(dir, home, gitg); return readFileSync(file, 'utf8'); })();
+    assert.equal(entriesOf(read(file), SCRIPT).length, 1, 'canon-guard intact');
+    assert.equal(entriesOf(read(file), GIT_SCRIPT).length, 0);
+    assert.ok(read(file).hooks.PreToolUse.some((e) => e.hooks.some((h) => h.command === 'echo user-hook')));
+    assert.equal(claude.guardState(dir, home, gitg), 'missing', 'missing when only canon-guard is registered');
+
+    claude.registerGuard(dir, home, gitg);
+    claude.unregisterGuard(dir, home, canon);
+    assert.equal(entriesOf(read(file), GIT_SCRIPT).length, 1, 'git-guard intact');
+    claude.unregisterGuard(dir, home, gitg);
+    assert.deepEqual(read(file), before, 'both gone: JSON-equal to the original');
+    assert.ok(withCanonOnly.length > 0);
+  });
+});
+
+test('cursor native: both guards register and each unregisters only itself', async () => {
+  const fakeHome = mkdtempSync(join(tmpdir(), 'ac-guard-both-cursor-'));
+  await withEnv(fakeHome, async () => {
+    const cursor = (await import('../lib/hosts/cursor.mjs')).default;
+    const { GUARD_HOOKS } = await import('../lib/hosts/guards.mjs');
+    const canon = GUARD_HOOKS['canon-guard'];
+    const gitg = GUARD_HOOKS['git-guard'];
+    const home = installHome(fakeHome);
+    const dir = join(fakeHome, '.cursor');
+    mkdirSync(dir, { recursive: true });
+    const file = join(dir, 'hooks.json');
+    const user = { version: 1, hooks: { preToolUse: [{ command: 'echo user-pre' }] } };
+    writeFileSync(file, JSON.stringify(user, null, 2) + '\n');
+
+    cursor.registerGuard(dir, home, canon);
+    assert.equal(cursor.registerGuard(dir, home, gitg).branch, 'native');
+    const pre = read(file).hooks.preToolUse;
+    assert.equal(pre.filter((e) => e.command.includes(GIT_SCRIPT)).length, 1);
+    assert.equal(pre.find((e) => e.command.includes(GIT_SCRIPT)).matcher, 'Shell');
+    assert.equal(pre.filter((e) => e.command.includes(SCRIPT)).length, 1);
+
+    cursor.unregisterGuard(dir, home, gitg);
+    const after = read(file).hooks.preToolUse;
+    assert.equal(after.filter((e) => e.command.includes(GIT_SCRIPT)).length, 0);
+    assert.equal(after.filter((e) => e.command.includes(SCRIPT)).length, 1, 'canon-guard intact');
+    cursor.unregisterGuard(dir, home, canon);
+    assert.deepEqual(read(file), user);
   });
 });
 
