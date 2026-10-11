@@ -79,13 +79,13 @@ function twoDirs(h) {
 
 // ── registry ────────────────────────────────────────────────────────────────
 
-test('the registry lists the eight features in order with their kinds, only canon-guard built, floor 2.1.292', async () => {
+test('the registry lists the eight features in order with their kinds, canon-guard and git-guard built, floor 2.1.292', async () => {
   const { FEATURES, MOD_FLOOR } = await mods();
   assert.equal(MOD_FLOOR, '2.1.292');
   assert.deepEqual(FEATURES.map((f) => f.name), NAMES);
   assert.deepEqual(FEATURES.map((f) => f.kind), KINDS);
   assert.deepEqual(FEATURES.map((f) => f.phase), [37, 38, 39, 40, 41, 42, 43, 44]);
-  assert.deepEqual(FEATURES.filter((f) => f.built).map((f) => f.name), ['canon-guard']);
+  assert.deepEqual(FEATURES.filter((f) => f.built).map((f) => f.name), ['canon-guard', 'git-guard']);
   assert.ok(FEATURES.every((f) => f.description.length > 10));
   assert.ok(Object.isFrozen(FEATURES));
 });
@@ -378,10 +378,13 @@ test('enableMod on a mod feature at the floor installs the plugin through ensure
 // ── canon-guard: the switch is the registration (phase 37, ADR-072) ─────────
 
 const SCRIPT = 'astro-canon-guard.mjs';
+const GIT_SCRIPT = 'astro-git-guard.mjs';
 const FIVE = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash'];
 const readJson = (f) => JSON.parse(readFileSync(f, 'utf8'));
-const ours = (settings) => Object.values(settings.hooks || {}).flat()
-  .filter((e) => (e.hooks || []).some((x) => typeof x.command === 'string' && x.command.includes(SCRIPT)));
+const entriesFor = (script) => (settings) => Object.values(settings.hooks || {}).flat()
+  .filter((e) => (e.hooks || []).some((x) => typeof x.command === 'string' && x.command.includes(script)));
+const ours = entriesFor(SCRIPT);
+const gitOurs = entriesFor(GIT_SCRIPT);
 // Claude config dirs under a fresh home; `seed` writes settings.json (an object, or a raw string).
 function claudeDirs(h, seeds) {
   const t = new Map();
@@ -396,7 +399,7 @@ function claudeDirs(h, seeds) {
 // The installed script, so guardState can tell enforced from broken.
 function installScript(h) {
   mkdirSync(join(h, '.astro', 'code', 'hooks'), { recursive: true });
-  writeFileSync(join(h, '.astro', 'code', 'hooks', SCRIPT), '// stub\n');
+  for (const n of [SCRIPT, GIT_SCRIPT]) writeFileSync(join(h, '.astro', 'code', 'hooks', n), '// stub\n');
 }
 const USER_HOOK = { hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo user-hook' }] }] } };
 
@@ -437,15 +440,39 @@ test('enableMod canon-guard registers one entry per Claude dir without spawning 
   assert.deepEqual(readJson(join(d2, 'settings.json')), before[1]);
 });
 
-test('enableMod git-guard (not built) records the switch and writes no hook entry', async () => {
-  const { enableMod, readMods } = await mods();
+test('enableMod git-guard registers one Bash entry per Claude dir beside canon-guard; each disable removes only itself', async () => {
+  const { enableMod, disableMod } = await mods();
   const h = home();
-  const targets = claudeDirs(h, { c1: { theme: 'dark' } });
-  const r = enableMod({ home: h, run: fakeClaude().run, targets, cursorTargets: new Map(), feature: 'git-guard' });
-  assert.equal(r.built, false);
-  assert.ok(!r.hooks || r.hooks.length === 0);
-  assert.equal(readMods({ home: h }).switches['git-guard'], true);
-  assert.deepEqual(readJson(join([...targets.keys()][0], 'settings.json')), { theme: 'dark' });
+  const targets = claudeDirs(h, { c1: { theme: 'dark', ...USER_HOOK }, c2: { theme: 'light' } });
+  const [d1, d2] = [...targets.keys()];
+  const before = [readJson(join(d1, 'settings.json')), readJson(join(d2, 'settings.json'))];
+  const fake = fakeClaude();
+  const args = { home: h, run: fake.run, targets, cursorTargets: new Map() };
+
+  const r = enableMod({ ...args, feature: 'git-guard' });
+  assert.equal(fake.calls.length, 0, 'a hook never spawns claude');
+  assert.deepEqual(r.hooks.map((x) => [x.host, x.outcome]), [['claude', 'added'], ['claude', 'added']]);
+  for (const d of [d1, d2]) {
+    const entries = gitOurs(readJson(join(d, 'settings.json')));
+    assert.equal(entries.length, 1);
+    assert.equal(entries[0].matcher, 'Bash');
+  }
+  assert.deepEqual(enableMod({ ...args, feature: 'git-guard' }).hooks.map((x) => x.outcome), ['already', 'already']);
+
+  enableMod({ ...args, feature: 'canon-guard' });
+  for (const d of [d1, d2]) {
+    assert.equal(gitOurs(readJson(join(d, 'settings.json'))).length, 1);
+    assert.equal(ours(readJson(join(d, 'settings.json'))).length, 1);
+  }
+
+  disableMod({ ...args, run: undefined, feature: 'git-guard' });
+  for (const d of [d1, d2]) {
+    assert.equal(gitOurs(readJson(join(d, 'settings.json'))).length, 0);
+    assert.equal(ours(readJson(join(d, 'settings.json'))).length, 1, 'canon-guard intact');
+  }
+  disableMod({ ...args, run: undefined, feature: 'canon-guard' });
+  assert.deepEqual(readJson(join(d1, 'settings.json')), before[0]);
+  assert.deepEqual(readJson(join(d2, 'settings.json')), before[1]);
 });
 
 test('syncHookFeatures makes registration follow the switch: add, restore, remove, absent, failed', async () => {
@@ -474,8 +501,14 @@ test('syncHookFeatures makes registration follow the switch: add, restore, remov
   for (const d of [d1, d2, d3]) assert.equal(ours(readJson(join(d, 'settings.json'))).length, 0);
   assert.deepEqual(sync().map((x) => x.outcome), ['absent', 'absent', 'absent']);
 
-  // only: a feature that is not a built hook yields nothing
-  assert.deepEqual(sync({ only: 'git-guard' }), []);
+  // only: a feature that is not a hook yields nothing
+  assert.deepEqual(sync({ only: 'blindfold' }), []);
+
+  // only: git-guard follows its own switch
+  setMod({ home: h, feature: 'git-guard', on: true });
+  assert.deepEqual(sync({ only: 'git-guard' }).map((x) => [x.feature, x.outcome]), [['git-guard', 'added'], ['git-guard', 'added'], ['git-guard', 'added']]);
+  setMod({ home: h, feature: 'git-guard', on: false });
+  assert.deepEqual(sync({ only: 'git-guard' }).map((x) => x.outcome), ['removed', 'removed', 'removed']);
 });
 
 test('syncHookFeatures: a missing dir is absent and not created; an unparseable file fails untouched while the others proceed', async () => {
@@ -563,5 +596,36 @@ test('modsStatus gives Cursor its own enforcement row: native, via the Claude im
     delete s.hooks;
     writeFileSync(join(h, '.claude', 'settings.json'), JSON.stringify(s));
     assert.equal(row(status(base)).state, 'not-enforced');
+  });
+});
+
+test('modsStatus carries the verdict on git-guard and canon-guard enforcement rows; off and built reads off', async () => {
+  const { modsStatus, enableMod } = await mods();
+  const cursorMod = (await import('../lib/hosts/cursor.mjs')).default;
+  const h = home();
+  installScript(h);
+  const targets = claudeDirs(h, { c1: {} });
+  const feat = (st, n) => st.features.find((f) => f.name === n);
+  const status = (extra = {}) => modsStatus({ home: h, run: fakeClaude().run, targets, cursorTargets: new Map(), ...extra });
+
+  const off = feat(status(), 'git-guard');
+  assert.equal(off.why, 'off');
+  assert.doesNotMatch(off.why, /not built/);
+
+  enableMod({ home: h, run: fakeClaude().run, targets, cursorTargets: new Map(), feature: 'git-guard' });
+  enableMod({ home: h, run: fakeClaude().run, targets, cursorTargets: new Map(), feature: 'canon-guard' });
+  const st = status();
+  assert.deepEqual(feat(st, 'git-guard').enforcement.map((r) => [r.state, r.verdict]), [['enforced', 'ask']]);
+  assert.deepEqual(feat(st, 'canon-guard').enforcement.map((r) => [r.state, r.verdict]), [['enforced', 'deny']]);
+
+  const cursorDir = join(h, 'cursor');
+  mkdirSync(cursorDir);
+  await withProcessEnv({ HOME: h, CURSOR_CONFIG_DIR: cursorDir, CLAUDE_CONFIG_DIR: undefined }, async () => {
+    const cursorTargets = cursorMod.configTargets();
+    const claudeOnly = claudeDirs(h, { claudeA: {} });
+    enableMod({ home: h, run: fakeClaude().run, targets: claudeOnly, cursorTargets, feature: 'git-guard' });
+    const row = feat(modsStatus({ home: h, run: fakeClaude().run, targets: claudeOnly, cursorTargets }), 'git-guard').enforcement.find((r) => r.host === 'cursor');
+    assert.equal(row.state, 'enforced');
+    assert.equal(row.verdict, 'deny');
   });
 });
