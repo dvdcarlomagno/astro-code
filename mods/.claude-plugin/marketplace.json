@@ -1,0 +1,12 @@
+{
+  "name": "astro-code",
+  "description": "astro-code's optional Claude Code enforcement mods, installed locally by `ac mods enable` (ADR-071).",
+  "owner": { "name": "astro-code" },
+  "plugins": [
+    {
+      "name": "astro-mods",
+      "source": "./astro-mods",
+      "description": "Optional, off-by-default enforcement of rules the astro-code canon already states. Fails open."
+    }
+  ]
+}
