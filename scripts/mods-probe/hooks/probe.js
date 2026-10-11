@@ -20,6 +20,17 @@
 //     { key: { type, length } } -- file contents and commands never reach the log;
 //   - nested objects (origin, workflow, provider) are kept to depth 2, same truncation.
 //
+// Phase 39 additions (still observe-only unless the deny env is set):
+//   - agent.spawn also logs what `next(e)` settled with ({ agentId, model, teammateId });
+//   - the FIRST tool.check of each agent loop logs `$.agent.list()` (id, type, name, status,
+//     parentId, description cut to 80), its duration, `next.origin` and a depth-4 key walk of
+//     `e` and `next`;
+//   - tool.check input logs key names for every tool plus the VALUES of file_path,
+//     notebook_path, path, pattern, glob and type (cut to 200); `command` stays 40 chars+length;
+//   - ASTRO_MODS_PROBE_DENY_AGENT=<subagentType>: that type's first Bash or Read call is
+//     answered { decision: 'deny', reason: 'probe deny' } (to see whether a deny is honoured
+//     inside a bypassPermissions subagent). The spawn-result map is the probe's own.
+//
 // The log is appended through $.fs, which only has read/write: read the file, add the
 // line, write it back, serialised on one promise chain so concurrent events never lose a
 // line. Fine for a probe; not a pattern for the shipped plugin.
@@ -47,6 +58,27 @@ function clean(key, value, depth) {
   return out
 }
 
+const VALUE_KEYS = new Set(['file_path', 'notebook_path', 'path', 'pattern', 'glob', 'type'])
+
+function inputFields(input) {
+  if (!input || typeof input !== 'object') return shape(input)
+  const out = {}
+  for (const key of Object.keys(input)) {
+    const v = input[key]
+    if (VALUE_KEYS.has(key) && typeof v === 'string') out[key] = v.length > SHORT ? { head: v.slice(0, SHORT), length: v.length } : v
+    else if (key === 'command' && typeof v === 'string') out[key] = { head: v.slice(0, 40), length: v.length }
+    else out[key] = shape(v)
+  }
+  return out
+}
+
+function walk(v, depth) {
+  if (depth <= 0 || v === null || (typeof v !== 'object' && typeof v !== 'function')) return typeof v
+  const out = {}
+  for (const k of Object.keys(v)) out[k] = walk(v[k], depth - 1)
+  return out
+}
+
 const CALL_META = new Set(['tool', 'tool_use_id', 'agentId'])
 
 function fieldsOf(event, e) {
@@ -54,10 +86,7 @@ function fieldsOf(event, e) {
   for (const k of Object.keys(e ?? {})) {
     if (event === 'tool.call' && !CALL_META.has(k)) fields[k] = shape(e[k])
     else if (k === 'input' && event === 'tool.check') {
-      const input = e[k]
-      fields[k] = input && typeof input === 'object'
-        ? Object.fromEntries(Object.keys(input).map(key => [key, shape(input[key])]))
-        : shape(input)
+      fields[k] = inputFields(e[k])
     } else fields[k] = clean(k, e[k], 0)
   }
   return fields
@@ -65,11 +94,11 @@ function fieldsOf(event, e) {
 
 let chain = Promise.resolve()
 
-async function record($, event, e, result) {
+async function record($, event, e, result, raw) {
   try {
     const path = await $.env.get('ASTRO_MODS_PROBE_LOG')
     if (!path) return
-    const line = JSON.stringify({ event, at: new Date().toISOString(), keys: Object.keys(e ?? {}), fields: fieldsOf(event, e), ...(result === undefined ? {} : { result: clean('result', result, 0) }) })
+    const line = JSON.stringify({ event, at: new Date().toISOString(), keys: Object.keys(e ?? {}), fields: fieldsOf(event, e), ...(result === undefined ? {} : { result: raw ? result : clean('result', result, 0) }) })
     chain = chain.then(async () => {
       const prior = (await $.fs.exists(path)) ? await $.fs.read(path) : ''
       await $.fs.write(path, prior + line + '\n')
@@ -88,7 +117,29 @@ async function onToolCall($, e, next) {
   await record($, 'tool.call', e)
   return next(e)
 }
+const spawned = new Map() // agentId -> subagentType, from agent.spawn results (probe-own)
+const seen = new Set()
+const denied = new Set()
+
 async function onToolCheck($, e, next) {
+  if (e.agentId && !seen.has(e.agentId)) {
+    seen.add(e.agentId)
+    const t0 = Date.now()
+    let list
+    try {
+      list = (await $.agent.list()).map(a => ({ id: a.id, type: a.type, name: a.name, status: a.status, parentId: a.parentId, description: typeof a.description === 'string' ? a.description.slice(0, 80) : a.description }))
+    } catch (err) {
+      list = { error: String(err) }
+    }
+    await record($, 'tool.check.first', e, { agentId: e.agentId, tool: e.tool, listMs: Date.now() - t0, list, spawnType: spawned.get(e.agentId) ?? null, origin: next.origin, walkE: walk(e, 4), walkNext: walk(next, 4) }, true)
+  }
+  const deny = await $.env.get('ASTRO_MODS_PROBE_DENY_AGENT')
+  if (deny && e.agentId && spawned.get(e.agentId) === deny && !denied.has(e.agentId) && (e.tool === 'Bash' || e.tool === 'Read')) {
+    denied.add(e.agentId)
+    const answer = { decision: 'deny', reason: 'probe deny' }
+    await record($, 'tool.check', e, { denied: answer })
+    return answer
+  }
   // the verdict is what next(e) answered -- logged beside the event, returned untouched
   const verdict = await next(e)
   await record($, 'tool.check', e, verdict)
@@ -96,7 +147,10 @@ async function onToolCheck($, e, next) {
 }
 async function onAgentSpawn($, e, next) {
   await record($, 'agent.spawn', e)
-  return next(e)
+  const r = await next(e)
+  if (r && r.agentId) spawned.set(r.agentId, e.subagentType)
+  await record($, 'agent.spawn.result', e, r, true)
+  return r
 }
 async function onPromptSubmit($, e, next) {
   await record($, 'prompt.submit', e)
