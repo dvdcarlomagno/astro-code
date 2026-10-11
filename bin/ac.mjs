@@ -111,6 +111,7 @@ import {
 } from '../lib/fleet.mjs';
 import { reportOutcome } from '../hooks/_astro-fleet.mjs';
 import { configTargets } from '../lib/hosts/claude.mjs';
+import { FEATURES, MOD_FLOOR, readMods, modsStatus, enableMod, disableMod } from '../lib/mods.mjs';
 
 function parseArgs(args) {
   const flags = {};
@@ -148,6 +149,10 @@ const ALLOWED_FLAGS = {
   // publishing first (`ac canon push`); a typo'd flag must not silently degrade
   // into "took the registry's copy" (ADR-029).
   'canon pull': ['force'],
+  // Phase 36 — flipping a switch writes ~/.astro/config.json and may install a plugin into every
+  // Claude profile; `status` is read-only and stays unguarded.
+  'mods enable': ['json'],
+  'mods disable': ['json'],
   'canon push': ['dry-run'],
   'canon dedupe': [],
   'decision add': ['why', 'rejected'],
@@ -398,6 +403,8 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac agent-tools [--json]             extra MCP tools each astro agent may use (~/.astro/config.json)
   ac agent-tools add|remove <agent|*> <MCP tool…>  change them — applied to the installed agents at once
   ac agent-tools clear [<agent|*>]    drop them (all, or one agent's)
+  ac mods [status [<feature>]] [--json]  optional Claude Code enforcement: what is on, and whether it can take effect here
+  ac mods enable|disable <feature>    one switch in ~/.astro/config.json; the first mod installs the astro-mods plugin
   ac milestone check "<name>"         see if a milestone with a similar name exists
   ac milestone complete [--force]     archive the current milestone + retire its claims
                                        (refuses while a phase is not complete; --force overrides)
@@ -2900,6 +2907,62 @@ async function main() {
       for (const w of applied.warnings) console.error(`⚠ ${w}`);
       console.log(`✓ saved to ~/.astro/config.json and applied: ${applied.extended.length} agent(s) extended${applied.extended.length ? ` (${applied.extended.join(', ')})` : ''}`);
       console.log('  new sessions pick it up — restart Claude Code for a session already running');
+      return;
+    }
+
+    case 'mods': {
+      // Phase 36 (ADR-071) — the optional Claude Code enforcement layer. A thin renderer: the
+      // registry, the switches and every `claude plugin` call live in lib/mods.mjs, the only
+      // writer of the `mods` key in ~/.astro/config.json.
+      for (const k of ['json', 'switches-only']) if (typeof flags[k] === 'string') { pos.push(flags[k]); flags[k] = true; }
+      const names = FEATURES.map((f) => f.name);
+      const unknownFeature = (n) => die(`unknown feature "${n}" — use one of: ${names.join(', ')}`);
+      const sub = pos[0] || 'status';
+      const feature = pos[1];
+      if (sub === 'status') {
+        if (feature !== undefined && !names.includes(feature)) unknownFeature(feature);
+        if (flags['switches-only']) {
+          // the hot path (the plugin's session.start, the settings hooks): the file and nothing else
+          const r = readMods();
+          json({ switches: r.switches, warnings: r.warnings });
+          return;
+        }
+        const st = modsStatus();
+        if (feature !== undefined) st.features = st.features.filter((f) => f.name === feature);
+        if (flags.json) { json(st); return; }
+        const cc = st.claude.found ? (st.claude.version || 'an unreadable version') : 'not found';
+        console.log(`Claude Code ${cc} · astro-mods plugin installed in ${st.plugin.dirs.filter((d) => d.installed).length}/${st.plugin.total} config dir(s)`);
+        for (const f of st.features) console.log(`  ${f.name.padEnd(14)} ${f.on ? 'on ' : 'off'}  ${f.kind.padEnd(4)}  ${f.why || 'takes effect'}`);
+        for (const w of st.warnings) console.error(`⚠ ${w}`);
+        return;
+      }
+      if (sub !== 'enable' && sub !== 'disable') die('usage: ac mods [status [<feature>]|enable <feature>|disable <feature>] [--json]');
+      checkFlags(`mods ${sub}`, flags);
+      if (!feature) die(`usage: ac mods ${sub} <feature>   (features: ${names.join(', ')})`);
+      if (sub === 'disable') {
+        const res = disableMod({ feature });
+        if (!res.ok) die(res.error);
+        if (flags.json) { json(res); return; }
+        console.log(`✓ ${feature} off${res.kind === 'mod' ? ' — the astro-mods plugin stays installed and inert' : ''}`);
+        return;
+      }
+      const res = enableMod({ feature });
+      if (!res.ok) die(res.error);
+      const failed = (res.plugin || []).some((r) => r.outcome === 'collision' || r.outcome === 'failed');
+      if (failed) process.exitCode = 1;
+      if (flags.json) { json(res); return; }
+      console.log(`✓ ${feature} on — saved to ~/.astro/config.json`);
+      if (!res.built) console.log(`• not built yet — takes effect when phase ${res.phase} lands`);
+      if (res.claude === 'absent') console.error(`⚠ ${feature} is a Claude Code mod — no Claude Code found here, so it cannot take effect (switch recorded)`);
+      else if (res.claude === 'old' || res.claude === 'unknown') console.error(`⚠ ${feature} needs Claude Code ≥ ${MOD_FLOOR} (found ${res.version || 'an unreadable version'}) — switch recorded; plugin not installed`);
+      for (const r of res.plugin || []) {
+        if (r.outcome === 'installed') console.log(`✓ astro-mods installed → ${r.dir} [${r.label}]`);
+        else if (r.outcome !== 'already') {
+          console.error(`⚠ ${r.dir} [${r.label}]: ${r.message}`);
+          if (r.fix) console.error(`  fix: ${r.fix}`);
+        }
+      }
+      if ((res.plugin || []).some((r) => r.outcome === 'installed')) console.log('• a running Claude Code session loads it on /reload-plugins');
       return;
     }
 
