@@ -31,6 +31,16 @@
 //     answered { decision: 'deny', reason: 'probe deny' } (to see whether a deny is honoured
 //     inside a bypassPermissions subagent). The spawn-result map is the probe's own.
 //
+// Phase 40 additions (spawn-time isolation / liveness / refusal):
+//   - agent.spawn logs cwd and parentAgentId in full, next.origin, what next(e) answered as
+//     { model, agentId, deny }, and a $.agent.list() snapshot taken at that moment
+//     ({ id, type, status, parentId, name } rows, or { listError });
+//   - turn.complete logs agentId and keys, its answer reduced to shape() (is a workflow
+//     executor's end observable?);
+//   - ASTRO_MODS_PROBE_DENY_INDEX=<n>: the workflow agent whose agentIndex is n is answered
+//     { deny: 'astro-mods probe: refused on purpose' } (what stops, what the workflow does
+//     next). Unset, the probe stays a pure observer.
+//
 // The log is appended through $.fs, which only has read/write: read the file, add the
 // line, write it back, serialised on one promise chain so concurrent events never lose a
 // line. Fine for a probe; not a pattern for the shipped plugin.
@@ -147,9 +157,26 @@ async function onToolCheck($, e, next) {
 }
 async function onAgentSpawn($, e, next) {
   await record($, 'agent.spawn', e)
+  let list
+  try {
+    list = (await $.agent.list()).map(a => ({ id: a.id, type: a.type, status: a.status, parentId: a.parentId, name: a.name }))
+  } catch (err) {
+    list = { listError: String(err) }
+  }
+  const idx = await $.env.get('ASTRO_MODS_PROBE_DENY_INDEX')
+  if (idx && e.workflow && String(e.workflow.agentIndex) === String(idx)) {
+    const answer = { deny: 'astro-mods probe: refused on purpose' }
+    await record($, 'agent.spawn.denied', e, { cwd: e.cwd, parentAgentId: e.parentAgentId, origin: next.origin, list, answer }, true)
+    return answer
+  }
   const r = await next(e)
   if (r && r.agentId) spawned.set(r.agentId, e.subagentType)
-  await record($, 'agent.spawn.result', e, r, true)
+  await record($, 'agent.spawn.result', e, { cwd: e.cwd, parentAgentId: e.parentAgentId, origin: next.origin, answer: { model: r?.model, agentId: r?.agentId, deny: r?.deny }, list, raw: r }, true)
+  return r
+}
+async function onTurnComplete($, e, next) {
+  const r = await next(e)
+  await record($, 'turn.complete', { agentId: e?.agentId }, { agentId: e?.agentId, keys: Object.keys(e ?? {}), answer: shape(r) }, true)
   return r
 }
 async function onPromptSubmit($, e, next) {
@@ -171,6 +198,7 @@ export function register(on) {
   on('tool.call', onToolCall).catch(pass)
   on('tool.check', onToolCheck).catch(pass)
   on('agent.spawn', onAgentSpawn).catch(pass)
+  on('turn.complete', onTurnComplete).catch(pass)
   on('prompt.submit', onPromptSubmit).catch(pass)
   on('command.run', onCommandRun).catch(pass)
 }
