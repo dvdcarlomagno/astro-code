@@ -52,6 +52,16 @@ templates/          .astrocode/ scaffolding templates
 tests/              node:test suite (engine + a real git registry integration test)
 ```
 
+### astro-mods (optional, Claude-only; ADR-071)
+
+`mods/` is a local Claude Code marketplace (`astro-code`) holding one plugin, `astro-mods`; `ac
+install` copies it to `~/.astro/code/mods` and `ac mods enable` installs it from there into every
+Claude config dir. `lib/mods.mjs` is the only writer of the per-user switches (`mods` in
+`~/.astro/config.json`); the plugin holds no state and reads them through `ac mods status --json
+--switches-only` at `session.start`, failing open if `ac` cannot answer. No command or agent
+depends on it (`tests/hosts.test.mjs` guards that). `scripts/mods-probe/` is a dev-only probe of
+Claude Code's mod events, never shipped; its findings are in phase 36's `PROBE.md`.
+
 ## The numbering registry (the core guarantee)
 
 The registry is a single `registry.json` on an orphan branch (`astro-registry` by

@@ -100,6 +100,54 @@ the verifier can't be given `Write` this way. A bad entry is reported and skippe
 breaks an install. A config dir whose `agents/` *is* the source checkout (a self-hosted dev
 setup) reads the shipped files directly, and `ac install` says so.
 
+### Enforcement mods (optional, Claude Code)
+
+astro-mods is an optional layer that *enforces* rules the canon already states, such as keeping
+the verifier plan-blind or refusing an unscoped destructive `git` command. It is **off by
+default**, one switch per feature, and nothing in the loop depends on it: no command or agent
+needs it, and on Codex, Cursor or a Claude Code without the plugin everything works as before
+(ADR-071). If a mod fails, it lets the action through and says so once.
+
+| feature | kind | lands in | does |
+|---|---|---|---|
+| `canon-guard` | hook | phase 37 | refuse hand edits to generated and registry-owned state |
+| `git-guard` | hook | phase 38 | refuse unscoped destructive git in the shared tree |
+| `blindfold` | mod | phase 39 | keep the verifier and criteria-author plan-blind |
+| `spawn-policy` | mod | phase 40 | refuse haiku, pin role models, isolate parallel waves |
+| `witness` | mod | phase 41 | tell a human acceptance from an agent's |
+| `brief-section` | mod | phase 42 | principles brief as one cached system-prompt section |
+| `phase-band` | mod | phase 43 | phase band with next-command buttons |
+| `live-capture` | mod | phase 44 | offer principle capture from human-typed prompts |
+
+All eight are **not built yet**: today you can switch one on and `ac` records it, and it takes
+effect when its phase lands. A `hook` is a plain settings hook (Cursor imports it too); a `mod`
+is part of the `astro-mods` Claude Code plugin.
+
+```bash
+ac mods                          # every feature: on/off, kind, and whether it can take effect here (--json too)
+ac mods status blindfold         # just one
+ac mods enable blindfold         # turn one on; the first mod also installs the plugin
+ac mods disable blindfold        # turn it off; the plugin stays installed and inert
+```
+
+The switches live in **`~/.astro/config.json`** under `mods`, beside `agent_tools`, per user and
+not per project (`{ "mods": { "blindfold": true } }`; a missing key is off). `ac mods` is the only
+writer; an unparseable file is refused, never overwritten, and an unknown feature name changes
+nothing.
+
+Mods need **Claude Code 2.1.292 or newer**. On an older (or no) Claude Code, `ac mods enable`
+still records the switch and warns once, but installs nothing. The first `mod` you enable adds
+a local marketplace called `astro-code` (shipped to `~/.astro/code/mods` by `ac install`) and
+installs `astro-mods@astro-code` into **every** Claude config dir `ac install` already covers,
+jean-claude profiles included. A different marketplace already named `astro-code` is never
+replaced: `ac` reports it with a `fix:` line, namely
+`CLAUDE_CONFIG_DIR=<dir> claude plugin marketplace remove astro-code` (without the prefix for the
+default dir), and the switch stays recorded. `ac install` only prints a one-line offer, and only
+on a qualifying Claude Code. `ac update` refreshes the plugin where it is installed and never
+installs it; `ac uninstall` removes the plugin and the marketplace from every dir before it
+deletes the astro home. In a session that is already running, `/reload-plugins` picks up a
+change.
+
 ### What the statusline gauges show
 
 The statusline's four gauges — **ctx** (context fill), **5h** and **7d** (quota windows) and
