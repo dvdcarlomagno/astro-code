@@ -324,7 +324,7 @@ test('modsStatus on an old claude makes no plugin call and reports meetsFloor fa
   const b = s.features.find((f) => f.name === 'blindfold');
   assert.equal(b.on, true);
   assert.equal(b.canTakeEffect, false);
-  assert.match(b.why, /2\.1\.292/);
+  assert.match(b.why, /not built yet/, 'the first failing reason wins; the floor shows in claude.meetsFloor and on enable');
 });
 
 test('modsStatus reports the plugin per dir so a partial fan-out is visible', async () => {
