@@ -113,6 +113,14 @@ test('enable and disable flip exactly one switch and keep every sibling key; not
   b.ac(['mods', 'enable', 'witness']);
   assert.match(b.ac(['mods', 'status', 'witness']).stdout, /not built yet/, 'an unbuilt feature still says so');
   b.ac(['mods', 'disable', 'witness']);
+  b.ac(['mods', 'enable', 'spawn-policy']);
+  const sp = b.ac(['mods', 'status', 'spawn-policy']);
+  assert.match(sp.stdout, /not built yet/);
+  assert.doesNotMatch(sp.stdout, /haiku|pin/i);
+  const desc = b.status().features.find((f) => f.name === 'spawn-policy').description;
+  assert.match(desc, /isolation/);
+  assert.doesNotMatch(desc, /haiku|pin/i);
+  b.ac(['mods', 'disable', 'spawn-policy']);
   b.ac(['mods', 'enable', 'blindfold']);
   assert.doesNotMatch(b.ac(['mods', 'status', 'blindfold']).stdout, /not built yet/, 'blindfold is built (phase 39)');
   b.ac(['mods', 'disable', 'blindfold']);

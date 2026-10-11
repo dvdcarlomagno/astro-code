@@ -113,7 +113,7 @@ needs it, and on Codex, Cursor or a Claude Code without the plugin everything wo
 | `canon-guard` | hook | phase 37 (built) | refuse hand edits to generated and registry-owned state |
 | `git-guard` | hook | phase 38 (built) | refuse unscoped destructive git in the shared tree |
 | `blindfold` | mod | phase 39 (built) | keep the verifier and criteria-author plan-blind |
-| `spawn-policy` | mod | phase 40 | refuse haiku, pin role models, isolate parallel waves |
+| `spawn-policy` | mod | phase 40 | refuse a parallel executor spawned without worktree isolation (ADR-008) |
 | `witness` | mod | phase 41 | tell a human acceptance from an agent's |
 | `brief-section` | mod | phase 42 | principles brief as one cached system-prompt section |
 | `phase-band` | mod | phase 43 | phase band with next-command buttons |

@@ -98,6 +98,14 @@ test('the registry lists the eight features in order with their kinds, canon-gua
   assert.ok(Object.isFrozen(FEATURES));
 });
 
+test('spawn-policy is described as isolation-only and stays unbuilt (ADR-073: no haiku refusal, no pinning)', async () => {
+  const { FEATURES } = await mods();
+  const f = FEATURES.find((x) => x.name === 'spawn-policy');
+  assert.match(f.description, /isolat/);
+  assert.doesNotMatch(f.description, /haiku|pin/i);
+  assert.equal(f.built, false);
+});
+
 // ── versions ────────────────────────────────────────────────────────────────
 
 test('parseClaudeVersion takes the leading X.Y.Z and returns null for garbage', async () => {
