@@ -275,6 +275,86 @@
       "drop_reason": "fixed in phase 39 t2: no claude plugin call against a missing config dir"
     },
     {
+      "id": "2026-10-11-blindfold-a-negated-directory-glob-does",
+      "title": "blindfold: a negated directory glob does not exclude the search root itself",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:26:07.391Z",
+      "why": "Grep path <P>/.astrocode/phases with glob !**/phases, path <P>/.astrocode with !**/.astrocode, and path …/39-x with !**/phases are allowed; real rg returned PLAN.md for all three. excludesAll ignores where the search starts.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-a-shell-glob-in-a-search-root",
+      "title": "blindfold: a shell glob in a search root is not expanded",
+      "status": "open",
+      "cost": "medium",
+      "found_at": "2026-10-11T20:26:07.532Z",
+      "why": "rg foo .astro* is allowed; bash expands it to .astrocode and rg then returned PLAN.md.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-ansi-c-quoting-hides-the-file",
+      "title": "blindfold: ANSI-C quoting hides the file name",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:26:07.684Z",
+      "why": "cat $'.astrocode/phases/39-x/\\x50LAN.md' is allowed.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-archive-and-pipe-readers-are",
+      "title": "blindfold: archive and pipe readers are not recognised",
+      "status": "open",
+      "cost": "medium",
+      "found_at": "2026-10-11T20:26:07.609Z",
+      "why": "tar cf - .astrocode | tar xOf - is allowed.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-git-diff-astrocode-is-allowed",
+      "title": "blindfold: git diff -- .astrocode is allowed",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:26:07.755Z",
+      "why": "It can print plan contents whenever the plan changed in the range.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-grep-r-with-several-include",
+      "title": "blindfold: grep -r with several --include flags returns early on the first",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:26:07.317Z",
+      "why": "grep -r x --include='*.js' --include='*.md' . is allowed; real grep returned PLAN.md.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-pushd-is-not-treated-like-cd",
+      "title": "blindfold: pushd is not treated like cd",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:26:07.462Z",
+      "why": "pushd .astrocode && cat phases/39-x/PLAN.md is allowed.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-rg-with-several-g-globs-is",
+      "title": "blindfold: rg with several -g globs is allowed when the first one is narrow",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:26:07.248Z",
+      "why": "rg x -g '*.js' -g '*.md' passes because searchRoots returns [] on the first narrowing -g; real rg ORs the globs and returned PLAN.md and SPEC.md.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
       "id": "2026-10-11-canon-guard-bash-scan-misses-deleting",
       "title": "canon-guard Bash scan misses deleting the whole .astrocode/ directory and a few other writers",
       "status": "open",
