@@ -2,7 +2,7 @@
 //
 // These lock in the speed-switch contract: the opus→sonnet-only ladder for every
 // JUDGEMENT role (no haiku among them), the sole exception being `integrator`
-// (haiku 5.5 under balanced and fast — ADR-035, revisited; mechanical git bookkeeping,
+// (haiku 5.5 under balanced and fast — #125; mechanical git bookkeeping,
 // not judgement), and that the `fast` profile keeps the verify gate on opus so
 // "go faster" can never silently cost correctness.
 import { test } from 'node:test';
@@ -47,14 +47,10 @@ test('no profile uses haiku for a judgement role (sonnet is the floor)', () => {
 // destructive git in any run, provided the integrator prompt keeps ADR-035's prohibition
 // paragraph. So haiku is allowed for the integrator ONLY; every judgement role stays opus
 // or sonnet.
-test('haiku may be the integrator and NO other role, in every profile', () => {
-  for (const name of PROFILE_NAMES) {
-    const p = profileModels(name);
-    for (const role of ROLES) {
-      assert.notEqual(p[role], 'haiku', `${name}.${role} must not be haiku`);
-    }
-    assert.ok(['haiku', 'sonnet'].includes(p.integrator), `${name}.integrator must be haiku or sonnet`);
-  }
+test('haiku appears in the profiles for the integrator only (balanced and fast)', () => {
+  const haiku = PROFILE_NAMES.flatMap((n) =>
+    Object.entries(profileModels(n)).filter(([, t]) => t === 'haiku').map(([r]) => `${n}.${r}`));
+  assert.deepEqual(haiku.sort(), ['balanced.integrator', 'fast.integrator']);
 });
 
 test('integrator tier per profile: haiku under balanced and fast, sonnet under max', () => {
@@ -77,7 +73,7 @@ test('balanced keeps opus only for planner and verifier', () => {
   assert.equal(p.discover, 'sonnet');
 });
 
-test('fast keeps opus ONLY for the verify gate; everything else sonnet', () => {
+test('fast keeps opus ONLY for the verify gate; every other judgement role sonnet', () => {
   const p = profileModels('fast');
   assert.equal(p.verifier, 'opus', 'the verify gate must stay opus so speed cannot cost correctness');
   for (const role of ['planner', 'researcher', 'executor', 'discover']) {

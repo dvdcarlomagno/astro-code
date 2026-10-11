@@ -55,7 +55,7 @@ Execute phase `$ARGUMENTS`.
      original one-executor-per-task behavior.
      **Speed override:** if the user passed `--fast`, use the JSON from
      `ac models fast --preview` as the `models` arg instead (a one-off fast preset —
-     sonnet everywhere except the opus verify gate — that is NOT persisted to config).
+     sonnet everywhere except the opus verify gate and the haiku integrator — that is NOT persisted to config).
      To make it the project default instead, they'd run `ac models fast` once.
      **Effort override:** resolve the effective effort level and pass it as `args.effort`.
      Default = `ac phase effort <slug>` (the phase's stored level, or the hardcoded
@@ -78,7 +78,7 @@ Execute phase `$ARGUMENTS`.
      wave (so dependencies see prior changes and nothing is stranded). The integrator
      runs at the `models.integrator` tier — **haiku 5.5 under the balanced and fast
      profiles, sonnet under max, and sonnet when the project config never mentions the
-     role** (ADR-035, revisited for haiku 5.5: the haiku 4.5 integrator ran a bare `git stash -u` in the
+     role** (#125, amending ADR-035: the haiku 4.5 integrator ran a bare `git stash -u` in the
      shared working tree and destroyed a completed phase plan; haiku 5.5 plus the prompt's
      prohibition paragraph did neither in the trials. `ac config set models.integrator
      sonnet` opts out).

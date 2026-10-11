@@ -113,7 +113,7 @@ needs it, and on Codex, Cursor or a Claude Code without the plugin everything wo
 | `canon-guard` | hook | phase 37 | refuse hand edits to generated and registry-owned state |
 | `git-guard` | hook | phase 38 | refuse unscoped destructive git in the shared tree |
 | `blindfold` | mod | phase 39 | keep the verifier and criteria-author plan-blind |
-| `spawn-policy` | mod | phase 40 | refuse haiku, pin role models, isolate parallel waves |
+| `spawn-policy` | mod | phase 40 | refuse haiku outside the integrator, pin role models, isolate parallel waves |
 | `witness` | mod | phase 41 | tell a human acceptance from an agent's |
 | `brief-section` | mod | phase 42 | principles brief as one cached system-prompt section |
 | `phase-band` | mod | phase 43 | phase band with next-command buttons |
@@ -645,14 +645,15 @@ always-synced codebase map.
 
 ## Models, thinking and effort
 
-`.astrocode/config.json` sets a **model tier** (`models.<role>`: opus/sonnet) and a
+`.astrocode/config.json` sets a **model tier** (`models.<role>`: opus/sonnet; haiku for the integrator only) and a
 **reasoning depth** (`reasoning.<role>`: low→max) for each of the six roles. They're
 independent and both move cost — a cheap model at `xhigh` can outspend an expensive one at
 `low` — so `ac models max|balanced|fast` sets the **pair** in one switch:
 
 - **balanced** (default) — opus + `high` for `planner` and `verifier`, sonnet + `medium`
-  elsewhere (the mechanical `discover`/`integrator` stay `low` in every profile).
-- **fast** — sonnet and `low` everywhere **except the verify gate**, which keeps opus +
+  elsewhere, and the `integrator` on haiku (the mechanical `discover`/`integrator` stay `low`
+  in every profile).
+- **fast** — sonnet (haiku for the integrator) and `low` everywhere **except the verify gate**, which keeps opus +
   `high`. Going fast can never silently cost correctness. Phases dominated by execution
   shrink the most.
 - **max** — opus everywhere (`xhigh` on planner/verifier), except `integrator`, which stays
@@ -669,7 +670,7 @@ only** (the `balanced` and `fast` profiles; `max` keeps sonnet). ADR-035 dropped
 haiku 4.5 `integrator` after benchmarking: its cherry-pick *judgement* was sound but its
 *discipline* was not — it ran a bare `git stash -u` in the shared tree and destroyed a
 completed phase plan. Haiku 5.5 is a different model at about a twentieth of sonnet's price,
-and with the integrator prompt's prohibition paragraph it did neither in 80 trial runs.
+and with the integrator prompt's prohibition paragraph it did neither in any of the 40 guarded haiku trial runs.
 Opt out with `ac config set models.integrator sonnet`. Speed for every other role comes
 from opus→sonnet, never from haiku. Hosts clamp depth to their own ceiling (Codex tops out at `xhigh`) rather than
 silently falling back; on Cursor there is no separate reasoning dial in v1 — depth lives

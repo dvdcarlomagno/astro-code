@@ -2843,7 +2843,7 @@ test('t2 (phase 14, C1): the wave integrator floors to sonnet when models.integr
   }
 
   const { calls } = await runWorkflow(baseArgs, { discoverTasks, integ })
-  assert.strictEqual(byLabel(calls, 'integrate:w1').opts.model, 'sonnet', 'no models.integrator key -> the integrate call must floor to sonnet (ADR-035 — no role runs haiku)')
+  assert.strictEqual(byLabel(calls, 'integrate:w1').opts.model, 'sonnet', 'no models.integrator key -> the integrate call must floor to sonnet (an unset key is never moved to haiku)')
   assert.strictEqual(byLabel(calls, 'heal:t2').opts.model, 'sonnet', 'heal re-runs must stay at models.executor')
   assert.strictEqual(byLabel(calls, 'testgate').opts.model, 'sonnet', 'the post-heal test gate must stay at models.executor')
   assert.strictEqual(byLabel(calls, 'teardown:w1').opts.model, 'sonnet', 'teardown must stay at models.executor')

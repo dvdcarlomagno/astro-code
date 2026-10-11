@@ -86,7 +86,7 @@ Then stop: skip the Steps and Apply below.
    The tier ladder is **opus → sonnet** for every judgement role; never offer haiku for
    planner, researcher, executor, verifier or discover. The one exception is the
    `integrator`: the Balanced and Fast profiles run it on haiku 5.5 (low reasoning),
-   which ADR-035, revisited for haiku 5.5 allows because the integrator prompt pins its git behaviour.
+   which is allowed (#125) because the integrator prompt pins its git behaviour.
    - **Balanced** (recommended): planner `opus`, researcher `sonnet`, executor
      `sonnet`, verifier `opus`, discover `sonnet`, integrator `haiku`. The default
      daily-driver.
@@ -145,7 +145,7 @@ for more clamps to the host's ceiling rather than silently falling back to its d
 - **verifier** — goal-backward verification (a false PASS is the costliest error)
 - **discover** — mechanical task/dependency parsing before execution
 - **integrator** — folds each parallel wave's worktree branches back onto the
-  branch (mechanical git, run at `sonnet` like every other role — ADR-035; anything it cannot
+  branch (mechanical git, run at `haiku` under Balanced and Fast, `sonnet` under Max and when unset — #125; anything it cannot
   pick cleanly is preserved and re-run at the executor tier)
 
 Finish by showing the result: `ac models`.

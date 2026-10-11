@@ -1163,9 +1163,9 @@ const integrateWave = (w, wave, reported = []) =>
     // at the session tier (opus) for every project predating this key, the exact
     // opposite of the goal.  The floor stays sonnet: a project that never set the key
     // is not moved to haiku behind its back.  An explicit `models.integrator` (haiku
-    // from the balanced/fast profiles, ADR-035, revisited for haiku 5.5; or `ac config set
-    // models.integrator sonnet` to opt out) always wins, and this is the ONLY role
-    // allowed to resolve to haiku.
+    // from the balanced/fast profiles, #125; or `ac config set
+    // models.integrator sonnet` to opt out) always wins; it is the only role the
+    // profiles put on haiku.
     { label: `integrate:w${w + 1}`, phase: 'Execute', agentType: 'astro-executor', model: models.integrator || (onSessionModel ? undefined : 'sonnet'), effort: reasoning.integrator, schema: INTEGRATE_SCHEMA },
   )
 
