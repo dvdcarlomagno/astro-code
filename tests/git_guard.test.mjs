@@ -75,7 +75,7 @@ function intact(R) {
 const REFUSED_FORMS = [
   'git stash', 'git stash -u', 'git stash --include-untracked', 'git stash -a', 'git stash --all',
   'git stash save "wip"', 'git stash push', 'git stash push -u', 'git stash push -m "wip"',
-  'git stash push --keep-index', 'git clean -f', 'git clean -fd', 'git clean -fdx', 'git clean --force',
+  'git stash push --keep-index', 'git clean -fd -econfig', 'git clean -fdenotes', 'git clean -fd -e n', 'git clean -f -- -n', 'git clean -f', 'git clean -fd', 'git clean -fdx', 'git clean --force',
   'git reset --hard', 'git reset --hard HEAD~1', 'git reset --hard origin/main',
   'git checkout .', 'git checkout -- .', 'git restore .', 'git restore --worktree .',
   'git restore --staged .', 'git restore --staged --worktree .',

@@ -93,10 +93,26 @@ function stashRefused(args) {
   return pushUnscoped(args);
 }
 
+// `git clean` dry-run: `--dry-run` or an `n` in a short cluster. `-e` takes a value (attached
+// or the next word), so letters after it are a pattern, not flags; words after `--` are paths.
+function cleanDryRun(args) {
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--') return false;
+    if (a === '--dry-run') return true;
+    if (a.startsWith('--') || !a.startsWith('-') || a.length < 2) continue;
+    for (let k = 1; k < a.length; k++) {
+      if (a[k] === 'n') return true;
+      if (a[k] === 'e') { if (k === a.length - 1) i++; break; }
+    }
+  }
+  return false;
+}
+
 /** The refused forms. `test(sub, args)` gets the git subcommand and its words. */
 export const REFUSED = Object.freeze([
   { id: 'stash', form: 'git stash without a `-- <path>` pathspec', test: (sub, args) => sub === 'stash' && stashRefused(args) },
-  { id: 'clean', form: 'git clean', test: (sub, args) => sub === 'clean' && !args.some((a) => a === '--dry-run' || /^-[A-Za-z]*n[A-Za-z]*$/.test(a)) },
+  { id: 'clean', form: 'git clean', test: (sub, args) => sub === 'clean' && !cleanDryRun(args) },
   { id: 'reset', form: 'git reset --hard', test: (sub, args) => sub === 'reset' && args.includes('--hard') },
   { id: 'checkout', form: 'whole-tree git checkout', test: (sub, args) => sub === 'checkout' && operands(args).some(wholeTree) },
   { id: 'restore', form: 'whole-tree git restore', test: (sub, args) => sub === 'restore' && operands(args, ['-s', '--source']).some(wholeTree) },
