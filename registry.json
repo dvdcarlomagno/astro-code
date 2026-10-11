@@ -563,6 +563,16 @@
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:22.193Z",
       "status": "active"
+    },
+    {
+      "type": "phase",
+      "number": 42,
+      "milestone": 12,
+      "name": "brief-section mod: principles brief as one cached system-prompt section",
+      "owner": "matteo.alvazzi@gmail.com",
+      "branch": "develop",
+      "claimed_at": "2026-10-11T06:24:25.133Z",
+      "status": "active"
     }
   ]
 }
