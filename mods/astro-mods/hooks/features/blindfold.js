@@ -375,9 +375,9 @@ function scan(e, names) {
   const root = typeof input.path === 'string' && input.path ? input.path : '.'
   if (e.tool === 'Grep') {
     const glob = typeof input.glob === 'string' && input.glob.trim() ? input.glob.trim() : undefined
-    const excludes = glob && glob.split(/\s+/).some((p) => p.startsWith('!')) && narrowsByGlob(glob, names)
-    const narrowed = excludes || (typeof input.type === 'string' && !/^(md|markdown)$/i.test(input.type))
-    if (!narrowed) out.roots.push(glob ? { root, glob, names } : { root })
+    // rg lets --glob override --type, so a non-md type narrows only when no glob comes with it.
+    const narrowed = !glob && typeof input.type === 'string' && !/^(md|markdown)$/i.test(input.type)
+    if (!narrowed) out.roots.push(glob ? { root, glob, names, grep: true } : { root })
   } else if (e.tool === 'Glob' && typeof input.pattern === 'string') {
     const hit = fileHit(input.pattern.replace(/^\.\//, ''), names)
     if (hit) out.hits.push(hit)
@@ -415,7 +415,7 @@ function globCanReach(kind, glob, names) {
 // The first unnarrowed search that can reach the phases tree, or null.
 async function firstReach($, roots) {
   for (const r of roots) {
-    if (r.glob !== undefined && /^([/]|[a-zA-Z]:[/\\])/.test(r.glob)) {
+    if (r.glob !== undefined && !r.grep && /^([/]|[a-zA-Z]:[/\\])/.test(r.glob)) {
       let cwd
       try { cwd = await $.session.cwd() } catch { cwd = null }
       if (typeof cwd !== 'string') continue
@@ -428,9 +428,60 @@ async function firstReach($, roots) {
     const need = { phasedir: 1, file: 0, phases: 2, astrocode: 3 }[kind] ?? 4
     if (r.maxdepth !== undefined && r.maxdepth < need) continue // `find -maxdepth` too shallow to reach a plan
     if (r.glob === undefined) return r.root
-    if (globCanReach(kind, r.glob, r.names)) return r.root
+    if (globListCanReach(kind, r.glob, r.names, r.grep)) return r.root
   }
   return null
+}
+
+// The pieces Claude Code's Grep hands rg as separate --glob arguments: split on whitespace, then
+// on commas outside braces. Glob passes its pattern whole.
+function globPieces(glob, grep) {
+  if (!grep) return [String(glob)]
+  const out = []
+  for (const w of String(glob).split(/\s+/).filter(Boolean)) {
+    if (w.includes('{')) { out.push(w); continue }
+    out.push(...w.split(',').filter(Boolean))
+  }
+  return out
+}
+
+// `a{b,c}d` -> [abd, acd], nested and repeated; capped so a hostile pattern can't blow up.
+function expandBraces(p, budget = 64) {
+  const open = p.indexOf('{')
+  if (open < 0) return [p]
+  let depth = 0
+  let close = -1
+  const commas = []
+  for (let i = open; i < p.length; i++) {
+    if (p[i] === '{') depth++
+    else if (p[i] === '}' && --depth === 0) { close = i; break } else if (p[i] === ',' && depth === 1) commas.push(i)
+  }
+  if (close < 0 || !commas.length) return [p]
+  const alts = []
+  let from = open + 1
+  for (const c of [...commas, close]) { alts.push(p.slice(from, c)); from = c + 1 }
+  const out = []
+  for (const a of alts) {
+    for (const x of expandBraces(p.slice(0, open) + a + p.slice(close + 1), budget)) {
+      out.push(x)
+      if (out.length >= budget) return out
+    }
+  }
+  return out
+}
+
+// A glob list reaches the plan when any positive piece can; a list of negations only narrows when
+// it excludes the phases tree or every forbidden name (rg --glob '!x' includes everything else).
+function globListCanReach(kind, glob, names, grep) {
+  const pieces = globPieces(glob, grep)
+  const positive = pieces.filter((p) => !p.startsWith('!'))
+  if (!positive.length) return !narrowsByGlob(pieces.join(' '), names)
+  for (const piece of positive) {
+    // In rg a leading `/` anchors the glob at the search root, it is not a filesystem path.
+    const anchored = grep ? piece.replace(/^\/+/, '') : piece
+    if (expandBraces(anchored).some((p) => globCanReach(kind, p, names))) return true
+  }
+  return false
 }
 
 function reason(tool, what, role) {

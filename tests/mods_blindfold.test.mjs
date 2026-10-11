@@ -209,6 +209,23 @@ for (const path of PATHS) {
       ['deny', 'Glob **/39-x/*', 'Glob', { pattern: '**/39-x/*' }],
       ['deny', 'Glob 39-x/* under phases', 'Glob', { pattern: '39-x/*', path: `${P}/.astrocode/phases` }],
       ['allow', 'Grep glob src/**/*.md over the project', 'Grep', { pattern: 'x', path: P, glob: 'src/**/*.md' }],
+      // Phase 39 third verify: how Claude's Grep hands globs to rg (split on whitespace and commas
+      // outside braces, --glob overriding --type, a leading / anchored at the root, negation-only
+      // lists including everything else). Real rg returned PLAN.md for each.
+      ['deny', 'Grep glob {**/PLAN.md,x}', 'Grep', { pattern: 'x', path: P, glob: '{**/PLAN.md,x}' }],
+      ['deny', 'Grep glob {phases plan,src}', 'Grep', { pattern: 'x', path: P, glob: '{.astrocode/phases/*/PLAN.md,src/*.js}' }],
+      ['deny', 'Grep glob /.astrocode/**', 'Grep', { pattern: 'x', path: P, glob: '/.astrocode/**' }],
+      ['deny', 'Grep glob list (space)', 'Grep', { pattern: 'x', path: P, glob: 'src/*.js .astrocode/phases/*/PLAN.md' }],
+      ['deny', 'Grep glob list (comma)', 'Grep', { pattern: 'x', path: P, glob: 'src/*.js,.astrocode/phases/*/PLAN.md' }],
+      ['deny', 'Grep glob !src/**', 'Grep', { pattern: 'x', path: P, glob: '!src/**' }],
+      ['deny', 'Grep glob !*.js', 'Grep', { pattern: 'x', path: P, glob: '!*.js' }],
+      ['deny', 'Grep type js + glob *.md', 'Grep', { pattern: 'x', path: P, type: 'js', glob: '*.md' }],
+      ['deny', 'Grep phases type js + glob *.md', 'Grep', { pattern: 'x', path: `${P}/.astrocode/phases`, type: 'js', glob: '*.md' }],
+      ['deny', 'Grep phases glob !*.js', 'Grep', { pattern: 'x', path: `${P}/.astrocode/phases`, glob: '!*.js' }],
+      ['deny', 'Glob {**/PLAN.md,x}', 'Glob', { pattern: '{**/PLAN.md,x}' }],
+      ['deny', 'Glob {phases plan,src}', 'Glob', { pattern: '{.astrocode/phases/*/PLAN.md,src/*.js}' }],
+      ['allow', 'Grep glob list of code only', 'Grep', { pattern: 'x', path: P, glob: 'src/*.js,lib/*.mjs' }],
+      ['allow', 'Grep glob !.astrocode/**', 'Grep', { pattern: 'x', path: P, glob: '!.astrocode/**' }],
     ];
     const results = [];
     for (const [, , tool, input] of rows) results.push(await check(eng, id, tool, input));
