@@ -157,7 +157,7 @@ const CMD_DENIED = [
 ];
 const CMD_ALLOWED = [
   'node --test tests/', 'cat .astrocode/phases/39-x/CRITERIA.md', 'git log --oneline -5', 'ls src',
-  'cat docs/PLAN.md', 'cd src && cat ./PLAN.md', 'find . -maxdepth 1 -type f', 'cd .astrocode/phases/39-x && cat ./CRITERIA.md', 'grep -rn foo src', 'cat .astrocode/PROJECT.md',
+  'cat docs/PLAN.md', 'cd src && cat ./PLAN.md', 'find . -maxdepth 1 -type f', 'cat .astrocode/phases/39-x/PLAN.md.orig', 'cd .astrocode/phases/39-x && cat ./CRITERIA.md', 'grep -rn foo src', 'cat .astrocode/PROJECT.md',
 ];
 
 for (const path of PATHS) {
@@ -199,6 +199,16 @@ for (const path of PATHS) {
       ['allow', 'Grep glob *.mjs over the project', 'Grep', { pattern: 'x', path: P, glob: '*.mjs' }],
       ['allow', 'Glob src/**/*.js', 'Glob', { pattern: 'src/**/*.js' }],
       ['allow', 'Glob .astrocode/phases/*/CRITERIA.md', 'Glob', { pattern: '.astrocode/phases/*/CRITERIA.md' }],
+      // Phase 39 verify: a glob aimed at the phases tree is not a narrowing (rg --hidden --glob
+      // really returned PLAN.md for each of these).
+      ['deny', 'Grep glob .astrocode/phases/*/PLAN.md', 'Grep', { pattern: 'x', path: P, glob: '.astrocode/phases/*/PLAN.md' }],
+      ['deny', 'Grep glob **/39-x/*', 'Grep', { pattern: 'x', path: P, glob: '**/39-x/*' }],
+      ['deny', 'Grep glob **/phases/**/*.md', 'Grep', { pattern: 'x', path: P, glob: '**/phases/**/*.md' }],
+      ['deny', 'Grep glob .astrocode/**', 'Grep', { pattern: 'x', path: P, glob: '.astrocode/**' }],
+      ['deny', 'Grep phases root, glob 39-x/*', 'Grep', { pattern: 'x', path: `${P}/.astrocode/phases`, glob: '39-x/*' }],
+      ['deny', 'Glob **/39-x/*', 'Glob', { pattern: '**/39-x/*' }],
+      ['deny', 'Glob 39-x/* under phases', 'Glob', { pattern: '39-x/*', path: `${P}/.astrocode/phases` }],
+      ['allow', 'Grep glob src/**/*.md over the project', 'Grep', { pattern: 'x', path: P, glob: 'src/**/*.md' }],
     ];
     const results = [];
     for (const [, , tool, input] of rows) results.push(await check(eng, id, tool, input));

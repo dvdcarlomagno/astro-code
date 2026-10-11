@@ -374,9 +374,10 @@ function scan(e, names) {
   }
   const root = typeof input.path === 'string' && input.path ? input.path : '.'
   if (e.tool === 'Grep') {
-    const narrowed = (typeof input.glob === 'string' && narrowsByGlob(input.glob, names))
-      || (typeof input.type === 'string' && !/^(md|markdown)$/i.test(input.type))
-    if (!narrowed) out.roots.push({ root })
+    const glob = typeof input.glob === 'string' && input.glob.trim() ? input.glob.trim() : undefined
+    const excludes = glob && glob.split(/\s+/).some((p) => p.startsWith('!')) && narrowsByGlob(glob, names)
+    const narrowed = excludes || (typeof input.type === 'string' && !/^(md|markdown)$/i.test(input.type))
+    if (!narrowed) out.roots.push(glob ? { root, glob, names } : { root })
   } else if (e.tool === 'Glob' && typeof input.pattern === 'string') {
     const hit = fileHit(input.pattern.replace(/^\.\//, ''), names)
     if (hit) out.hits.push(hit)
@@ -386,20 +387,29 @@ function scan(e, names) {
     bashScan(input.command, names, out, false, 0)
     // Any word, however wrapped (node -e, python -c, deep nesting), that spells out a forbidden
     // file inside a phase dir. Text only: a plan path named in a command is reading it.
-    for (const m of input.command.matchAll(/\.astrocode[\\/]+phases[\\/]+[^\s'"`]+?[\\/]+([^\\/\s'"`]+\.md)\b/gi)) {
+    for (const m of input.command.matchAll(/\.astrocode[\\/]+phases[\\/]+[^\s'"`]+?[\\/]+([^\\/\s'"`]+\.md)(?![\w.-])/gi)) {
       if (names.includes(m[1].toLowerCase())) out.hits.push(m[1])
     }
   }
   return out
 }
 
-// Candidate paths, relative to a root of each kind, that a Glob could return.
-function candidates(kind, names) {
-  const f = (prefix) => names.map((n) => prefix + n)
-  if (kind === 'phasedir') return f('')
-  if (kind === 'phases') return f('x/')
-  if (kind === 'astrocode') return f('phases/x/')
-  return [...f('.astrocode/phases/x/'), ...f('y/.astrocode/phases/x/'), ...f('y/z/.astrocode/phases/x/')]
+// Could a glob, relative to a root of `kind`, select a forbidden file in a phase dir? Unsure means
+// yes: its last segment must be unable to name a forbidden file, or its leading literal directory
+// must lead away from the phases tree. A literal-x stand-in for the phase dir (the old check) let
+// `**/39-x/*`, `.astrocode/**` and `.astrocode/phases/*/PLAN.md` through (phase 39 verify).
+function globCanReach(kind, glob, names) {
+  const segs = String(glob).replace(/\\/g, '/').replace(/^\.\//, '').split('/').filter(Boolean)
+  if (!segs.length) return true
+  const last = globRe(segs[segs.length - 1])
+  if (!segs[segs.length - 1].includes('**') && !names.some((n) => last.test(n))) return false
+  const first = segs[0]
+  if (segs.length > 1 && !GLOB_CHARS.test(first) && first !== '..') {
+    const lead = first.toLowerCase()
+    if (kind === 'astrocode') return lead === 'phases'
+    if (kind !== 'phases' && kind !== 'phasedir') return lead === '.astrocode'
+  }
+  return true
 }
 
 // The first unnarrowed search that can reach the phases tree, or null.
@@ -418,8 +428,7 @@ async function firstReach($, roots) {
     const need = { phasedir: 1, file: 0, phases: 2, astrocode: 3 }[kind] ?? 4
     if (r.maxdepth !== undefined && r.maxdepth < need) continue // `find -maxdepth` too shallow to reach a plan
     if (r.glob === undefined) return r.root
-    const re = globRe(r.glob)
-    if (candidates(kind, r.names).some((c) => re.test(c))) return r.root
+    if (globCanReach(kind, r.glob, r.names)) return r.root
   }
   return null
 }
