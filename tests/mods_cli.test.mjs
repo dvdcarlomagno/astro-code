@@ -101,13 +101,14 @@ test('enable and disable flip exactly one switch and keep every sibling key; not
   const b = box({ config: { agent_tools: { '*': ['mcp__x__y'] }, other: 1 } });
   const e = b.ac(['mods', 'enable', 'canon-guard']);
   assert.equal(e.status, 0, out(e));
-  assert.match(e.stdout, /not built yet/);
+  assert.doesNotMatch(e.stdout, /not built yet/, 'canon-guard is built (phase 37)');
   let on = b.status().features.filter((f) => f.on).map((f) => f.name);
   assert.deepEqual(on, ['canon-guard']);
   assert.deepEqual(readCfg(b).agent_tools, { '*': ['mcp__x__y'] });
   assert.equal(readCfg(b).other, 1);
   assert.equal(readCfg(b).mods['canon-guard'], true);
-  b.ac(['mods', 'enable', 'git-guard']);
+  const g = b.ac(['mods', 'enable', 'git-guard']);
+  assert.match(g.stdout, /not built yet/, 'git-guard stays unbuilt until phase 38');
   const d = b.ac(['mods', 'disable', 'canon-guard']);
   assert.equal(d.status, 0, out(d));
   on = b.status().features.filter((f) => f.on).map((f) => f.name);
@@ -270,4 +271,161 @@ test('an unknown flag on enable fails and writes nothing', () => {
   assert.notEqual(r.status, 0);
   assert.equal(existsSync(b.cfg), false);
   assert.ok(!/plugin/.test(b.log()));
+});
+
+// ── Phase 37: canon-guard is a settings-hook registration ───────────────────
+// RED until t10: enable/disable/status wire, remove and report the entry per config dir.
+
+const GUARD = 'astro-canon-guard.mjs';
+const FIVE = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash'];
+const jread = (f) => JSON.parse(readFileSync(f, 'utf8'));
+const guardEntries = (settings) => Object.values(settings.hooks || {}).flat()
+  .filter((e) => (e.hooks || []).some((h) => String(h.command).includes(GUARD)));
+
+// Claude base dir + a jean-claude profile `work`, each holding a user PreToolUse hook and an
+// unrelated key; `ac install` has run (it ships the hook script), then the files are copied.
+function twoProfiles(b, extra = {}) {
+  const work = join(b.T, '.claude-work');
+  mkdirSync(join(b.T, '.claude', '.jean-claude'), { recursive: true });
+  mkdirSync(work, { recursive: true });
+  writeFileSync(join(b.T, '.claude', '.jean-claude', 'profiles.json'), JSON.stringify({ profiles: { work: { configDir: work } } }));
+  const dirs = [join(b.T, '.claude'), work];
+  for (const d of dirs) {
+    writeFileSync(join(d, 'settings.json'), JSON.stringify({ keep: d, hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo user-hook' }] }] } }));
+  }
+  assert.equal(b.ac(['install'], extra).status, 0);
+  return { dirs, saved: dirs.map((d) => jread(join(d, 'settings.json'))) };
+}
+// A temp project holding a protected file; feed `command` the Claude PreToolUse event.
+function feedWrite(b, command, file = '.astrocode/state.json') {
+  const P = mkdtempSync(join(tmpdir(), 'ac-modsproj-'));
+  mkdirSync(join(P, '.astrocode'), { recursive: true });
+  writeFileSync(join(P, '.astrocode', 'state.json'), '{}');
+  const payload = { hook_event_name: 'PreToolUse', cwd: P, tool_name: 'Write', tool_input: { file_path: join(P, file), content: 'x' } };
+  return spawnSync('/bin/sh', ['-c', command], { input: JSON.stringify(payload), encoding: 'utf8', env: { HOME: b.T, PATH: b.PATH } });
+}
+function denied(r) {
+  if (r.status === 2) return true;
+  try { return JSON.parse(r.stdout).hookSpecificOutput.permissionDecision === 'deny'; } catch { return false; }
+}
+
+test('enable canon-guard registers exactly one five-tool entry per Claude profile, twice over, and the entry denies', () => {
+  const b = box();
+  const { dirs } = twoProfiles(b);
+  for (let i = 0; i < 2; i++) {
+    const r = b.ac(['mods', 'enable', 'canon-guard']);
+    assert.equal(r.status, 0, out(r));
+  }
+  for (const d of dirs) {
+    const s = jread(join(d, 'settings.json'));
+    const g = guardEntries(s);
+    assert.equal(g.length, 1, `${d}: one guard entry`);
+    assert.deepEqual(FIVE.filter((t) => !g[0].matcher.split('|').includes(t)), [], 'matcher covers all five tools');
+    assert.ok(s.hooks.PreToolUse.some((e) => e.hooks.some((h) => h.command === 'echo user-hook')), 'user hook kept');
+    const cmd = g[0].hooks.find((h) => h.command.includes(GUARD)).command;
+    assert.ok(denied(feedWrite(b, cmd)), `${d}: a Write to .astrocode/state.json is denied`);
+    assert.ok(!denied(feedWrite(b, cmd, 'src/a.js')), 'an unprotected Write is allowed');
+  }
+});
+
+test('status canon-guard reports on and enforced per profile, and missing after a hand-deleted entry', () => {
+  const b = box();
+  const { dirs } = twoProfiles(b);
+  b.ac(['mods', 'enable', 'canon-guard']);
+  const feature = () => b.status().features.find((f) => f.name === 'canon-guard');
+  const rows = () => feature().enforcement.filter((x) => x.host === 'claude');
+  assert.equal(feature().on, true);
+  assert.deepEqual(rows().map((x) => [x.dir, x.state]), dirs.map((d) => [d, 'enforced']));
+  const human = b.ac(['mods', 'status', 'canon-guard']);
+  assert.equal(human.status, 0, out(human));
+  assert.doesNotMatch(human.stdout, /not built yet/);
+  assert.ok((human.stdout.match(/enforced/g) || []).length >= 2, human.stdout);
+  // hand-delete the entry from the work profile
+  const file = join(dirs[1], 'settings.json');
+  const s = jread(file);
+  s.hooks.PreToolUse = s.hooks.PreToolUse.filter((e) => guardEntries({ hooks: { x: [e] } }).length === 0);
+  writeFileSync(file, JSON.stringify(s));
+  assert.deepEqual(rows().map((x) => x.state), ['enforced', 'missing']);
+  assert.match(b.ac(['mods', 'status', 'canon-guard']).stdout, /missing/);
+});
+
+test('with Cursor present, status states the Cursor position explicitly', () => {
+  const b = box();
+  twoProfiles(b);
+  const CURSOR_CONFIG_DIR = join(b.T, 'cursor');
+  mkdirSync(CURSOR_CONFIG_DIR);
+  b.ac(['mods', 'enable', 'canon-guard'], { CURSOR_CONFIG_DIR });
+  const f = b.status({ CURSOR_CONFIG_DIR }).features.find((x) => x.name === 'canon-guard');
+  const c = f.enforcement.filter((x) => x.host === 'cursor');
+  assert.equal(c.length, 1);
+  assert.match(c[0].state, /^(enforced|via-claude-import|not-enforced)$/);
+  assert.match(b.ac(['mods', 'status', 'canon-guard'], { CURSOR_CONFIG_DIR }).stdout, /cursor/i);
+});
+
+test('disable canon-guard leaves every settings.json JSON-equal to its pre-enable copy', () => {
+  const b = box();
+  const { dirs, saved } = twoProfiles(b);
+  assert.equal(b.ac(['mods', 'enable', 'canon-guard']).status, 0);
+  const d = b.ac(['mods', 'disable', 'canon-guard']);
+  assert.equal(d.status, 0, out(d));
+  dirs.forEach((dir, i) => assert.deepEqual(jread(join(dir, 'settings.json')), saved[i], dir));
+});
+
+// ── Phase 37 C12: Cursor wiring ─────────────────────────────────────────────
+
+function cursorBox() {
+  const b = box();
+  const CURSOR_CONFIG_DIR = join(b.T, 'cursor');
+  mkdirSync(CURSOR_CONFIG_DIR);
+  const hooks = join(CURSOR_CONFIG_DIR, 'hooks.json');
+  writeFileSync(hooks, JSON.stringify({ version: 1, hooks: { sessionStart: [
+    { command: 'echo mine' },
+    { command: 'node /old/place/.astro/code/hooks/astro-update.mjs' },
+  ] } }));
+  const read = () => (existsSync(hooks) ? jread(hooks) : { hooks: {} });
+  const all = () => Object.values(read().hooks || {}).flat().map((h) => h.command);
+  return { b, env: { CURSOR_CONFIG_DIR }, read, all };
+}
+
+test('Cursor only: install then enable gives one native guard, one astro-update, and echo mine intact; disable removes only the guard', () => {
+  const { b, env, read, all } = cursorBox();
+  assert.equal(b.ac(['install'], env).status, 0);
+  const r = b.ac(['mods', 'enable', 'canon-guard'], env);
+  assert.equal(r.status, 0, out(r));
+  const h = read().hooks;
+  assert.equal(all().filter((c) => c.includes(GUARD)).length, 1);
+  assert.equal(h.preToolUse.filter((e) => e.command.includes(GUARD)).length, 1);
+  assert.equal(all().filter((c) => c.includes('astro-update.mjs')).length, 1, 'stale-path entry re-pointed, not duplicated');
+  assert.ok(all().includes('echo mine'));
+  // the native entry blocks, answering in Cursor's own shape
+  const cmd = h.preToolUse.find((e) => e.command.includes(GUARD)).command;
+  const P = mkdtempSync(join(tmpdir(), 'ac-modsproj-'));
+  mkdirSync(join(P, '.astrocode'), { recursive: true });
+  const ev = { hook_event_name: 'preToolUse', cwd: P, tool_name: 'Write', tool_input: { file_path: join(P, '.astrocode', 'state.json'), content: 'x' } };
+  const f = spawnSync('/bin/sh', ['-c', cmd], { input: JSON.stringify(ev), encoding: 'utf8', env: { HOME: b.T, PATH: b.PATH } });
+  assert.equal(JSON.parse(f.stdout).permission, 'deny', f.stdout + f.stderr);
+  // disable removes only the guard
+  assert.equal(b.ac(['mods', 'disable', 'canon-guard'], env).status, 0);
+  assert.equal(all().filter((c) => c.includes(GUARD)).length, 0);
+  assert.equal(all().filter((c) => c.includes('astro-update.mjs')).length, 1);
+  assert.ok(all().includes('echo mine'));
+});
+
+test('Cursor only: when Claude appears, install removes every astro entry (stale path and guard included), leaving echo mine', () => {
+  const { b, env, all } = cursorBox();
+  b.ac(['install'], env);
+  b.ac(['mods', 'enable', 'canon-guard'], env);
+  mkdirSync(join(b.T, '.claude'));
+  assert.equal(b.ac(['install'], env).status, 0);
+  assert.deepEqual(all().filter((c) => /astro-/.test(c)), []);
+  assert.ok(all().includes('echo mine'));
+});
+
+test('both hosts present: Claude carries the guard and Cursor has no native entry', () => {
+  const { b, env, all } = cursorBox();
+  mkdirSync(join(b.T, '.claude'));
+  assert.equal(b.ac(['install'], env).status, 0);
+  assert.equal(b.ac(['mods', 'enable', 'canon-guard'], env).status, 0);
+  assert.equal(guardEntries(jread(join(b.T, '.claude', 'settings.json'))).length, 1);
+  assert.equal(all().filter((c) => c.includes(GUARD)).length, 0, "no native guard: Cursor imports Claude's");
 });
