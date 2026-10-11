@@ -494,6 +494,15 @@
       "branch": "develop",
       "claimed_at": "2026-10-07T10:46:31.064Z",
       "status": "complete"
+    },
+    {
+      "type": "milestone",
+      "number": 12,
+      "name": "astro-mods: optional Claude Code enforcement layer",
+      "owner": "matteo.alvazzi@gmail.com",
+      "branch": "develop",
+      "claimed_at": "2026-10-11T06:23:47.048Z",
+      "status": "active"
     }
   ]
 }
