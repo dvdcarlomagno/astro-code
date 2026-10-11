@@ -258,6 +258,10 @@ test('C5: obvious Bash writes to a protected file are denied, segment by segment
       ['git status; rm .astrocode/debt.json', P],
       ['cat src/a.js | tee .astrocode/roadmap.json', P],
       ['echo x > ../.astrocode/state.json', join(P, 'src')],
+      ['(echo x > .astrocode/state.json)', P],
+      ['(rm .astrocode/state.json)', P],
+      ['(cp /tmp/x .astrocode/roadmap.json)', P],
+      ['(cd .astrocode && echo x > state.json)', P],
       [`echo x > ${P}/.astrocode/state.json`, '/tmp'],
     ];
     for (const [command, cwd] of cases) {
@@ -268,6 +272,9 @@ test('C5: obvious Bash writes to a protected file are denied, segment by segment
 });
 
 const BASH_ALLOW = [
+  "perl -Ilib -ne 'print' .astrocode/state.json",
+  "perl -Mwarnings -ne 'print' .astrocode/roadmap.json",
+  "perl -Mstrict -e 'print 1' .astrocode/state.json",
   'ac phase add "x"',
   'ac roadmap render',
   'ac debt list',

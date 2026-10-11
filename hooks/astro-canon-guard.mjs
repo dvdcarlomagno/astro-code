@@ -177,7 +177,7 @@ function tokenize(s, env) {
         }
         i = p - 1;
       }
-    } else if (c === ';') endSeg();
+    } else if (c === ';' || c === '(' || c === ')') endSeg();
     else if (c === '|') { if (s[i + 1] === '|' || s[i + 1] === '&') i++; endSeg(); }
     else if (c === '&') {
       if (s[i + 1] === '>') {
@@ -241,7 +241,7 @@ function inPlaceTargets(args) {
       else if (w.startsWith('--expression=') || w.startsWith('--file=')) hasScript = true;
       continue;
     }
-    if (/^-[A-Za-z]*i/.test(w)) inplace = true;
+    if (/^-[nEpalsSTtuUwWXrzb0-9]*i/.test(w)) inplace = true; // flags that take an attached value (-Ilib, -Mstrict) end the bundle
     if (/^-[A-Za-z]*[ef]$/.test(w)) { hasScript = true; i++; }
   }
   if (!inplace) return [];
