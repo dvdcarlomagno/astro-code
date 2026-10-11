@@ -6,7 +6,7 @@
       "number": 36,
       "name": "astro-mods foundation: ADR, API probe, plugin skeleton and per-feature ac mods toggles",
       "slug": "36-astro-mods-foundation-adr-api-probe",
-      "status": "pending",
+      "status": "verified",
       "milestone": 12
     },
     {

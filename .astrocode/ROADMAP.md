@@ -2,7 +2,7 @@
 
 **Milestone 12**
 
-- [ ] Phase 36 — astro-mods foundation: ADR, API probe, plugin skeleton and per-feature ac mods toggles `pending`
+- [ ] Phase 36 — astro-mods foundation: ADR, API probe, plugin skeleton and per-feature ac mods toggles `verified` · planned
 - [ ] Phase 37 — canon-guard: PreToolUse settings hook refusing hand edits to generated and registry-owned state `pending`
 - [ ] Phase 38 — git-guard: PreToolUse settings hook refusing unscoped destructive git in the shared tree `pending`
 - [ ] Phase 39 — blindfold mod: plan-blind verifier and criteria-author enforced per agent `pending`
