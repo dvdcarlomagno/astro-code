@@ -299,3 +299,22 @@ test('C3/C4: whole-tree pathspecs, env -S, $(…) values and unreadable calls ar
   table(UNSURE_FORMS(R), [R], isRefused, ENV(HOME));
   intact(R);
 });
+
+// Round four (phase 38, fourth verify run): each ran for real and destroyed work while allowed.
+const ROUND4_FORMS = [
+  "bash -c -- 'git stash -u'", "sh -c -- 'git reset --hard'",
+  'git -c alias.x=stash x -u', "git -c alias.x='reset --hard' x", "git -c alias.wipe='clean -fd' wipe",
+  'git -c alias.co=checkout co .', "git -c 'alias.x=!git stash -u' x", 'git -c help.autocorrect=immediate stsh -u',
+  'git stash push -m -- -u', 'git stash -m -- -u', 'git stash push -m -- -a', 'git stash push --message -- --include-untracked',
+  "printf '.\\n' | git stash push --pathspec-from-file=-", "printf '.\\n' | git stash push --pathspec-from-file=- -u",
+  "printf '.\\n' | git checkout --pathspec-from-file=- HEAD", "printf '.\\n' | git restore --pathspec-from-file=-",
+  'git checkout -f', 'git checkout -f HEAD', 'git checkout --force main', 'git switch -f main', 'git switch --discard-changes main',
+  `bash -c "bash -c \\"bash -c 'git stash -u'\\""`, "x='git stash -u'; $x", `C='git reset --hard'; bash -c "$C"`,
+  "echo 'git stash -u' | bash",
+];
+
+test('C3/C4: round-four spellings (aliases, -c --, -m values, pathspec files, -f, nesting, stdin) are asked about', () => {
+  const { HOME, R } = sandbox();
+  table(ROUND4_FORMS, [R], isRefused, ENV(HOME));
+  intact(R);
+});

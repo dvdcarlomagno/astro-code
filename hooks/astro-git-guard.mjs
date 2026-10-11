@@ -66,7 +66,13 @@ export const CURSOR_VERDICT = 'deny';
 
 // The subcommands whose unscoped form destroys work. A git call reaching one of these that the
 // guard cannot read fully is asked about (see "Ask when unsure").
-const DANGER = new Set(['stash', 'clean', 'reset', 'checkout', 'restore']);
+const DANGER = new Set(['stash', 'clean', 'reset', 'checkout', 'restore', 'switch']);
+
+// The whole command line being judged, set per call by decide(). A shell fed from stdin or a
+// variable used as the command can carry a git command the parser never sees as words; when the
+// text mentions git together with a destructive subcommand, that is enough to ask.
+let TEXT = '';
+const mentionsDanger = () => /\bgit\b/.test(TEXT) && /\b(stash|clean|reset|checkout|restore|switch)\b/.test(TEXT);
 
 // An expansion the guard cannot resolve: `$VAR`, `$(…)`, backticks.
 const dynamic = (w) => /[$`]/.test(w);
@@ -101,9 +107,16 @@ function operands(args, valueFlags = []) {
 const STASH_SAFE = new Set(['pop', 'apply', 'list', 'show', 'drop', 'branch', 'clear', 'create', 'store']);
 
 // `git stash push` and bare `git stash <flags>`: only a pathspec after `--` makes it scoped.
+// `-m`/`--message` take a value, so in `git stash -m -- -u` the `--` is the message and `-u` a
+// flag: the separator is the first `--` not eaten as a value. (--pathspec-from-file is asked
+// about before this runs; see judgeGit.)
 function pushUnscoped(args) {
-  if (args.some((a) => a === '--pathspec-from-file' || a.startsWith('--pathspec-from-file='))) return false;
-  const dd = args.indexOf('--');
+  let dd = -1;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '-m' || (a.length >= 4 && '--message'.startsWith(a))) { i++; continue; }
+    if (a === '--') { dd = i; break; }
+  }
   if (dd < 0) return true;
   const paths = args.slice(dd + 1);
   return paths.length === 0 || paths.some(wholeTree);
@@ -150,6 +163,9 @@ export const REFUSED = Object.freeze([
   { id: 'reset', form: 'git reset --hard', test: (sub, args) => sub === 'reset' && args.some((a) => a.length >= 3 && '--hard'.startsWith(a)) },
   { id: 'checkout', form: 'whole-tree git checkout', test: (sub, args) => sub === 'checkout' && operands(args).some(wholeTree) },
   { id: 'restore', form: 'whole-tree git restore', test: (sub, args) => sub === 'restore' && operands(args, ['-s', '--source']).some(wholeTree) },
+  // Same effect as `git checkout .`: discard every local change in the tree.
+  { id: 'force', form: 'git checkout/switch that discards local changes', test: (sub, args) => (sub === 'checkout' || sub === 'switch')
+    && args.some((a) => (/^-[A-Za-z]*f/.test(a) && !a.startsWith('--')) || (a.length >= 4 && '--force'.startsWith(a)) || (a.length >= 4 && '--discard-changes'.startsWith(a))) },
 ]);
 
 // ---------------------------------------------------------------- parsing
@@ -323,6 +339,10 @@ function judgeGit(words, depth) {
   let i = 1;
   while (i < words.length) {
     const t = words[i];
+    // An inline alias or autocorrect turns any word into stash/reset/clean (`git -c alias.x=stash x`,
+    // `-c help.autocorrect=immediate stsh`); the guard can't know what runs, so it asks.
+    const cfg = t === '-c' || t === '--config-env' ? words[i + 1] : t.startsWith('-c') ? t.slice(2) : t.startsWith('--config-env=') ? t.slice(13) : null;
+    if (cfg != null && /^(alias\.|help\.autocorrect)/i.test(cfg)) return { ...UNSURE, segment: words.join(' ') };
     if (GIT_VALUE_OPTS.has(t) || GIT_VALUE_LONG.includes(t)) i += 2;
     else if (GIT_FLAGS.has(t) || GIT_VALUE_LONG.some((o) => t.startsWith(`${o}=`)) || /^-c./.test(t) || /^-C./.test(t)) i++;
     else if (t.startsWith('-') && t.length > 1) return unsure(words.slice(i)); // unknown: may eat the next word
@@ -332,6 +352,8 @@ function judgeGit(words, depth) {
   if (!sub) return null;
   if (dynamic(sub)) return { ...UNSURE, segment: words.join(' ') }; // could be any subcommand
   const args = words.slice(i + 1);
+  // Paths read from a file or stdin can name the whole tree; the guard can't see them.
+  if (DANGER.has(sub) && args.some((a) => a.startsWith('--pathspec-from'))) return { ...UNSURE, segment: words.join(' ') };
   const hit = REFUSED.find((r) => r.test(sub, args));
   if (hit) return { id: hit.id, form: hit.form, segment: words.join(' ') };
   // A destructive subcommand the refused set let through, with an argument the guard can't read.
@@ -347,11 +369,14 @@ function judgeSegment(raw, depth) {
   if (cmd === 'git') return judgeGit(words, depth);
   if (SHELLS.has(cmd) || cmd === 'lean-ctx') {
     const ci = words.findIndex((a, k) => k > 0 && (cmd === 'lean-ctx' ? a === '-c' : /^-[A-Za-z]*c[A-Za-z]*$/.test(a)));
-    if (ci > 0 && typeof words[ci + 1] === 'string') return judgeCommand(words[ci + 1], depth + 1);
+    const body = ci > 0 ? (words[ci + 1] === '--' ? words[ci + 2] : words[ci + 1]) : undefined; // `bash -c -- '<cmd>'`
+    if (typeof body === 'string') return judgeCommand(body, depth + 1);
+    // A shell with no -c and no script reads its commands from stdin (`echo '…' | bash`).
+    if (ci < 0 && SHELLS.has(cmd) && !words.slice(1).some((w) => !w.startsWith('-')) && mentionsDanger()) return { ...UNSURE, segment: words.join(' ') };
   }
   if (cmd === 'eval') return judgeCommand(words.slice(1).join(' '), depth + 1);
   // `$GIT stash -u`, `"$(which git)" reset --hard`: the command word itself is an expansion.
-  if (dynamic(words[0])) return unsure(words.slice(1));
+  if (dynamic(words[0])) return unsure(words.slice(1)) ?? (mentionsDanger() ? { ...UNSURE, segment: words.join(' ') } : null);
   // An unknown wrapper in front of a bare `git` word (`xargs git clean -f`, `watch git reset
   // --hard`): judge from that word. A git command quoted inside one argument is one word, not `git`.
   const gi = words.findIndex((w, k) => k > 0 && base(w) === 'git');
@@ -360,7 +385,7 @@ function judgeSegment(raw, depth) {
 }
 
 function judgeCommand(command, depth = 0) {
-  if (depth >= 3) return null;
+  if (depth >= 3) return mentionsDanger() ? { ...UNSURE, segment: command } : null; // too deep to read: ask, don't allow
   for (const seg of segments(command)) {
     const hit = judgeSegment(seg, depth);
     if (hit) return hit;
@@ -392,6 +417,7 @@ export function decide(input, { cursor = false } = {}) {
   const command = input.tool_input?.command;
   if (typeof command !== 'string') return null;
   CWD = typeof input.cwd === 'string' && isAbsolute(input.cwd) ? input.cwd : null;
+  TEXT = command;
   const hit = judgeCommand(command);
   if (!hit) return null;
   const isCursor = cursor || input.hook_event_name === 'preToolUse';
