@@ -111,7 +111,7 @@ needs it, and on Codex, Cursor or a Claude Code without the plugin everything wo
 | feature | kind | lands in | does |
 |---|---|---|---|
 | `canon-guard` | hook | phase 37 (built) | refuse hand edits to generated and registry-owned state |
-| `git-guard` | hook | phase 38 | refuse unscoped destructive git in the shared tree |
+| `git-guard` | hook | phase 38 (built) | refuse unscoped destructive git in the shared tree |
 | `blindfold` | mod | phase 39 | keep the verifier and criteria-author plan-blind |
 | `spawn-policy` | mod | phase 40 | refuse haiku, pin role models, isolate parallel waves |
 | `witness` | mod | phase 41 | tell a human acceptance from an agent's |
@@ -119,7 +119,7 @@ needs it, and on Codex, Cursor or a Claude Code without the plugin everything wo
 | `phase-band` | mod | phase 43 | phase band with next-command buttons |
 | `live-capture` | mod | phase 44 | offer principle capture from human-typed prompts |
 
-`canon-guard` is built; the other seven are **not built yet**: today you can switch one on and
+`canon-guard` and `git-guard` are built; the other six are **not built yet**: today you can switch one on and
 `ac` records it, and it takes effect when its phase lands. A `hook` is a plain settings hook
 (Cursor imports it too); a `mod` is part of the `astro-mods` Claude Code plugin.
 
@@ -143,6 +143,29 @@ names the rule, the `ac` verb to use for that file, and the escapes:
 - The switch is the registration: `ac mods enable canon-guard` writes the entry into each profile,
   `disable` removes exactly it, and `ac install` / `ac update` re-sync the entries to the switch (a
   profile added later gets it; a stale entry is removed).
+
+**git-guard** refuses unscoped destructive git, the rule ADR-035 and ADR-038 put in every
+executor prompt. The reason names the rule, why, the scoped alternative and the escape:
+
+- Refused: `git stash` with no `-- <path>` pathspec (bare, `-u`/`-a`/`-k`, `save`, `push` without
+  `--`), `git clean` unless `-n`/`--dry-run`, `git reset --hard`, and a whole-tree
+  `git checkout`/`git restore` (`.`, `-- .`, `HEAD -- .`, `--staged .`). The same in an agent
+  worktree: the stash stack is repository-wide.
+- Allowed: `git stash push -- <path>…`, `stash pop|apply|list|show|drop`, `git clean -n`, every other
+  `reset`, path-scoped `checkout`/`restore`, and all other git (force push, `branch -D` and
+  `worktree remove --force` are out of scope without an ADR).
+- Parsing: a mistake-catcher, not a sandbox. Compound commands, `cd`/env/`command`/`exec`/`sudo`
+  prefixes, `git -C/-c/--git-dir`, `sh -c`/`bash -c` and the lean-ctx `-c` wrapper are seen;
+  aliases, `eval`, scripts, `$(…)` and lean-ctx's `ctx_shell` are not. A git command merely quoted
+  in `echo`, `grep` or a commit message never trips it.
+- Verdict: Claude Code **asks**; a headless or Workflow agent cannot answer, so for it an ask is a
+  refusal. Cursor **denies**, because it cannot ask from `preToolUse`. `ac mods status` says
+  which (`asks` / `denies`) per place.
+- Escapes: approve the prompt if you meant it, or `ac mods disable git-guard`. There is no
+  environment-variable escape.
+- Where it is enforced, and the re-sync on `ac install` / `ac update`: as for canon-guard.
+- Not seen: `ac`'s and the workflow's own git calls run through `child_process`, not the Bash tool.
+  That is why `NO_BROAD_STASH` stays in the prompts.
 
 ```bash
 ac mods                          # every feature: on/off, kind, and whether it can take effect here (--json too)

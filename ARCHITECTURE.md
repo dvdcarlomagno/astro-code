@@ -67,7 +67,7 @@ guard (script, per-host event and matcher) and the one ownership rule (an entry 
 filename, never by path), and the host adapters register from it. A hook's switch is its
 registration: `lib/mods.mjs` `syncHookFeatures` writes or removes the entry in every Claude profile
 (and Cursor's `hooks.json` when it is not importing Claude's), `ac install`/`update` re-run it, and
-the hook script itself never reads a switch. Phase 37's `PROBE.md` records what blocks on each host.
+the hook script itself never reads a switch. Phase 37's `PROBE.md` records what blocks on each host. `git-guard` (phase 38) is a second `GUARD_HOOKS` entry, and the spec carries the per-host `verdict` (Claude asks, Cursor denies) that the script and `ac mods status` both read; phase 38's `PROBE.md` records why.
 
 ## The numbering registry (the core guarantee)
 

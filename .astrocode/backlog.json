@@ -49,6 +49,20 @@
       "note": "Dropped milestone 10 (phases 28–32, never discussed) on 2026-09-25: a local model already runs under Claude Code. Planned shape: cross-host parity guard → Pi adapter → Pi runtime extension (Workflow surface, structured output, ask-user) → per-host model roles → Pi status/hooks/miner. Prior research: session 8b9eeb49 (2026-09-05, 2026-09-14) and astro-fleet milestone 1 phase 01 notes/spike-pi.md. Snapshot: .astrocode/milestones/10/.",
       "status": "open",
       "captured_at": "2026-09-25T15:13:44.789Z"
+    },
+    {
+      "id": "2026-10-11-astro-mods-slash-command-over-ac-mods",
+      "title": "/astro-mods slash command over ac mods (status/enable/disable)",
+      "note": "phase 38 CONTEXT out-of-scope: principle give-every-user-facing-capability-a-2310",
+      "status": "open",
+      "captured_at": "2026-10-11T16:37:29.656Z"
+    },
+    {
+      "id": "2026-10-11-implement-the-haiku-per-role-adr-let",
+      "title": "Implement the haiku-per-role ADR: let lib/config.mjs and lib/models.mjs accept haiku for any role, update their comments and tests",
+      "note": "Follows the ADR lifting ADR-035's haiku ban (2026-10-11, phase 40 discussion). Today config and models reject haiku everywhere, so the canon and the code disagree until this lands.",
+      "status": "open",
+      "captured_at": "2026-10-11T16:35:41.716Z"
     }
   ]
 }
