@@ -261,6 +261,26 @@
       "file": "lib/mods.mjs"
     },
     {
+      "id": "2026-10-11-ac-mods-status-creates-claude-as-a-side",
+      "title": "ac mods status creates ~/.claude as a side effect",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T16:21:56.687Z",
+      "why": "It runs the claude binary, which makes ~/.claude and ~/.claude.json. On a Cursor-only machine that also has claude installed, the next ac install treats Claude as present: it drops Cursor's native guard and switches Cursor to importing Claude's hooks. The claude binary does this itself, and no criterion covers what status writes.",
+      "phase": "37",
+      "file": "lib/mods.mjs"
+    },
+    {
+      "id": "2026-10-11-canon-guard-bash-scan-misses-deleting",
+      "title": "canon-guard Bash scan misses deleting the whole .astrocode/ directory and a few other writers",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T16:21:56.544Z",
+      "why": "rm -rf .astrocode, touch .astrocode/state.json, ln -sf /tmp/x .astrocode/state.json, install … .astrocode/state.json and xargs rm <<< .astrocode/state.json are all allowed. None is in C5's list, and the phase decision covers only targets named as protected paths.",
+      "phase": "37",
+      "file": "hooks/astro-canon-guard.mjs"
+    },
+    {
       "id": "2026-10-11-parity-guard-scans-commands-md-and",
       "title": "Parity guard scans commands/*.md and agents/*.md but not the agent prompts embedded in workflows/*.mjs",
       "status": "open",

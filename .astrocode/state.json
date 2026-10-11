@@ -2,13 +2,10 @@
   "version": 1,
   "project": "astro-code",
   "active_milestone": 12,
-  "active_phase": "37-canon-guard-pretooluse-settings-hook",
+  "active_phase": null,
   "status": "planning",
   "decisions": [],
   "blockers": [],
-  "updated_at": "2026-10-11T11:56:43.736Z",
-  "activity": {
-    "text": "⚙ executing",
-    "at": 1791719803
-  }
+  "updated_at": "2026-10-11T16:24:00.814Z",
+  "activity": null
 }

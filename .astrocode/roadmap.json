@@ -6,15 +6,21 @@
       "number": 36,
       "name": "astro-mods foundation: ADR, API probe, plugin skeleton and per-feature ac mods toggles",
       "slug": "36-astro-mods-foundation-adr-api-probe",
-      "status": "verified",
-      "milestone": 12
+      "status": "complete",
+      "milestone": 12,
+      "accepted_by": "matteo.alvazzi@gmail.com",
+      "accepted_kind": "human",
+      "accepted_at": "2026-10-11T16:23:18.458Z"
     },
     {
       "number": 37,
       "name": "canon-guard: PreToolUse settings hook refusing hand edits to generated and registry-owned state",
       "slug": "37-canon-guard-pretooluse-settings-hook",
-      "status": "pending",
-      "milestone": 12
+      "status": "complete",
+      "milestone": 12,
+      "accepted_by": "matteo.alvazzi@gmail.com",
+      "accepted_kind": "human",
+      "accepted_at": "2026-10-11T16:24:00.806Z"
     },
     {
       "number": 38,

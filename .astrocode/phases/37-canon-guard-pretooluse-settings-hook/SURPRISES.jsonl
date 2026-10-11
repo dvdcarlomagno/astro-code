@@ -1,0 +1,2 @@
+{"at":"2026-10-11T13:47:48.490Z","phase":"37-canon-guard-pretooluse-settings-hook","signals":["remediation","no-progress"],"note":"case-insensitive APFS: guard compared on-disk case only, so a not-yet-existing FIXES.json slipped through; Linux CI skipped the case test"}
+{"at":"2026-10-11T16:03:31.847Z","phase":"37-canon-guard-pretooluse-settings-hook","signals":["remediation","max-cycles"],"note":"C3 case fix landed, then the verifier found a new C5 gap: shell keywords and ac/git segments dropped redirect targets in segmentTargets"}
