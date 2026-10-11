@@ -433,6 +433,26 @@
       "why": "The ADR-071 rule (b) guard in tests/hosts.test.mjs walks only the commands and agents dirs. workflows/execute-phase.mjs and plan-phase.mjs carry the prompts handed to spawned agents, so a mod dependency written there would go unnoticed. C14 and ADR-071 scope the rule to command and agent bodies, which the canon's file layout lists separately from workflows, so this sits outside the bar.",
       "phase": "36",
       "file": "tests/hosts.test.mjs"
+    },
+    {
+      "id": "2026-10-11-phase-37-worktree-residue-still-checked",
+      "title": "Phase-37 worktree residue still checked out at .claude/worktrees/wf_6a116c1d-67a-9 (branch worktree-wf_6a116c1d-67a-9)",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:44:10.720Z",
+      "why": "`git cherry HEAD` shows the branch is fully integrated (it is an ancestor of HEAD), so nothing is stranded. But the worktree and branch are still present and show up as untracked .claude/worktrees/ in git status.",
+      "phase": "40",
+      "file": ".claude/worktrees/wf_6a116c1d-67a-9"
+    },
+    {
+      "id": "2026-10-11-unbuilt-feature-enable-message-promises",
+      "title": "Unbuilt-feature enable message promises 'takes effect when phase 40 lands' even though phase 40 has landed as no-signal",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:44:10.630Z",
+      "why": "`ac mods enable spawn-policy` prints 'not built yet — takes effect when phase 40 lands'. Once phase 40 is accepted, that tells the user the switch will start working, which is false: spawn-policy stays unbuilt until a re-probe. The template is generic to every unbuilt feature. C2's bar ('says not built') is met and the blocker is recorded in PROBE.md, so no criterion covers this wording.",
+      "phase": "40",
+      "file": "lib/mods.mjs"
     }
   ]
 }
