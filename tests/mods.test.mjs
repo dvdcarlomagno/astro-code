@@ -480,7 +480,7 @@ test('syncHookFeatures makes registration follow the switch: add, restore, remov
   const h = home();
   const targets = claudeDirs(h, { c1: {}, c2: { ...USER_HOOK }, c3: null });
   const [d1, d2, d3] = [...targets.keys()];
-  const sync = (extra = {}) => syncHookFeatures({ home: h, targets, cursorTargets: new Map(), ...extra });
+  const sync = (extra = {}) => syncHookFeatures({ home: h, targets, cursorTargets: new Map(), only: 'canon-guard', ...extra });
 
   setMod({ home: h, feature: 'canon-guard', on: true });
   const first = sync();
@@ -518,7 +518,7 @@ test('syncHookFeatures: a missing dir is absent and not created; an unparseable 
   const targets = claudeDirs(h, { bad: '{nope', good: {} });
   const ghost = join(h, 'ghost');
   targets.set(ghost, 'ghost');
-  const out = syncHookFeatures({ home: h, targets, cursorTargets: new Map() });
+  const out = syncHookFeatures({ home: h, targets, cursorTargets: new Map(), only: 'canon-guard' });
   const by = Object.fromEntries(out.map((x) => [x.label, x]));
   assert.equal(by.ghost.outcome, 'absent');
   assert.ok(!existsSync(ghost), 'a Claude dir is never created');
