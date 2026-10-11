@@ -87,6 +87,28 @@
   subcommand; one level of `sh -c`/`bash -c` or the lean-ctx wrapper hides it; the phase never
   established which form the guard receives under lean-ctx.
 
+#### Amendment to C3 and C4 (2026-10-11, approved by the user after verify round 4)
+Four verify rounds each found new same-effect spellings, and Bash is open-ended:
+`echo Z2l0IHN0YXNoIC11 | base64 -d | bash` runs `git stash -u` with no git word in the text. No
+parser can refuse every spelling, and CONTEXT already scopes the guard as "catch mistakes, not a
+sandbox". So "same-effect spelling" in C3/C4 is **bounded to a corpus**:
+- the forms listed above;
+- every spelling the verify rounds found destroying data in a real repo, kept as the regression
+  arrays `BYPASS_FORMS`, `UNSURE_FORMS` and `ROUND4_FORMS` in `tests/git_guard.test.mjs`.
+
+**Observe:** additionally execute each corpus form for real in a scratch repo (a modified tracked
+file plus an untracked file), and confirm the guard's verdict is refused (`ask`) for every one.
+
+**Fails if:**
+- any corpus form is allowed;
+- the corpus arrays were shrunk;
+- a corpus test was weakened.
+
+A NEW spelling found outside the corpus is **not** a C3/C4 failure. Report it as a finding
+(`outsideCriteria: true`), so it lands in the debt register and can be added to the corpus.
+Encodings, scripts on disk, and aliases or config defined outside the command line are explicitly
+out of scope.
+
 ### C5 — Scoped, read-only and out-of-scope git (and mere mentions of git) are never refused
 - **Observe:** Feed Bash events (`cwd=$R`, and the scoped-stash cases also from the worktree cwd)
   for: `git stash push -- src/a.js`; `git stash push -m "wip" -- src/a.js notes.txt`;
