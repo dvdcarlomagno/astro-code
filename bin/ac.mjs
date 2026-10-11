@@ -2996,7 +2996,7 @@ async function main() {
       if (failed) process.exitCode = 1;
       if (flags.json) { json(res); return; }
       console.log(`✓ ${feature} on — saved to ~/.astro/config.json`);
-      if (!res.built) console.log(`• not built yet — takes effect when phase ${res.phase} lands`);
+      if (!res.built) console.log(res.parked ? `• parked — ${res.parked}; the switch is recorded but does nothing yet` : `• not built yet — takes effect when phase ${res.phase} lands`);
       for (const r of res.hooks || []) {
         if (r.host === 'claude') {
           if (r.outcome === 'added') console.log(`✓ guard → ${r.dir} [${r.label}]`);
