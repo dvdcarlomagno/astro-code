@@ -6,13 +6,13 @@
   "registry_branch": "astro-registry",
   "registry_remote": "origin",
   "models": {
-    "_comment": "Per-role model tier: opus | sonnet for EVERY role — haiku is excluded everywhere, including integrator (ADR-035 reverts the ADR-027 carve-out). Switch all at once with `ac models max|balanced|fast`. Remove a role to inherit the session model.",
+    "_comment": "Per-role model tier: opus | sonnet for every judgement role; haiku is allowed for integrator ONLY (haiku 5.5, ADR-035, revisited for haiku 5.5). `ac config set models.integrator sonnet` opts out. Switch all at once with `ac models max|balanced|fast`. Remove a role to inherit the session model.",
     "planner": "opus",
     "researcher": "sonnet",
     "executor": "sonnet",
     "verifier": "opus",
     "discover": "sonnet",
-    "integrator": "sonnet"
+    "integrator": "haiku"
   },
   "reasoning": {
     "_comment": "Per-role REASONING depth: low | medium | high | xhigh | max. Independent of the model tier above — both move cost, so `ac models max|balanced|fast` sets the pair together. NOT the same as a phase's `effort` (ADR-022), which budgets verify→remediate cycles. Remove a role to inherit the host default.",

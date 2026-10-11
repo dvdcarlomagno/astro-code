@@ -1161,8 +1161,11 @@ const integrateWave = (w, wave, reported = []) =>
     // Phase-14 t2 (ADR-027 decision 7): a FLOOR, not the usual "unset = inherit the
     // session model" every other role gets — inheriting here would run the integrator
     // at the session tier (opus) for every project predating this key, the exact
-    // opposite of the goal.  Mirrors leanExecutionEnabled's default-on reasoning.  An
-    // explicit `ac config set models.integrator sonnet` (or a profile) still wins.
+    // opposite of the goal.  The floor stays sonnet: a project that never set the key
+    // is not moved to haiku behind its back.  An explicit `models.integrator` (haiku
+    // from the balanced/fast profiles, ADR-035, revisited for haiku 5.5; or `ac config set
+    // models.integrator sonnet` to opt out) always wins, and this is the ONLY role
+    // allowed to resolve to haiku.
     { label: `integrate:w${w + 1}`, phase: 'Execute', agentType: 'astro-executor', model: models.integrator || (onSessionModel ? undefined : 'sonnet'), effort: reasoning.integrator, schema: INTEGRATE_SCHEMA },
   )
 
