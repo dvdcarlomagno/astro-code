@@ -83,16 +83,17 @@ Then stop: skip the Steps and Apply below.
    `sources`: whether each role's value comes from this `project`, the `user` default in
    `~/.astro/config.json`, or — a role in neither — the built-in default).
 2. Ask the user how to set them with **AskUserQuestion** — start with a profile pick.
-   The tier ladder is **opus → sonnet** for EVERY role. haiku is excluded everywhere,
-   integrator included: ADR-035 reverted the ADR-027 carve-out after a haiku integrator
-   ran a bare `git stash -u` in the shared working tree and destroyed a completed phase
-   plan. Never offer haiku for any role.
+   The tier ladder is **opus → sonnet** for every judgement role; never offer haiku for
+   planner, researcher, executor, verifier or discover. The one exception is the
+   `integrator`: the Balanced and Fast profiles run it on haiku 5.5 (low reasoning),
+   which ADR-035, revisited for haiku 5.5 allows because the integrator prompt pins its git behaviour.
    - **Balanced** (recommended): planner `opus`, researcher `sonnet`, executor
-     `sonnet`, verifier `opus`, discover `sonnet`, integrator `sonnet`. The default
+     `sonnet`, verifier `opus`, discover `sonnet`, integrator `haiku`. The default
      daily-driver.
    - **Fast**: planner `sonnet`, researcher `sonnet`, executor `sonnet`, verifier
-     `opus`, discover `sonnet`, integrator `sonnet`. Everything sonnet except the
-     verify gate (kept opus so speed never costs correctness). Fastest sane setting.
+     `opus`, discover `sonnet`, integrator `haiku`. Everything sonnet except the
+     verify gate (kept opus so speed never costs correctness) and the haiku integrator.
+     Fastest sane setting.
    - **Max quality**: every role `opus`, except integrator which is `sonnet` — opus
      on a cherry-pick is waste. Slowest, best.
    - **Custom**: choose each role yourself.
@@ -100,7 +101,7 @@ Then stop: skip the Steps and Apply below.
    allows ≤4 questions per call, so use **two calls**: first
    `[planner, researcher, executor, verifier]`, then `[discover, integrator]`. For
    every role, the options are: `opus`, `sonnet`, `inherit` (use the session model) —
-   **never** offer haiku, for any role. For `integrator` do not offer `inherit` either,
+   offer haiku for the `integrator` only, never for another role. For `integrator` do not offer `inherit`,
    because unset floors to `sonnet` there rather than inheriting the session model (the
    one way it still differs from the others).
 

@@ -76,10 +76,12 @@ Execute phase `$ARGUMENTS`.
      wide phases run each wave's tasks **in parallel inside isolated worktrees** and
      then an **integrator agent folds the wave back onto the branch** before the next
      wave (so dependencies see prior changes and nothing is stranded). The integrator
-     runs at the `models.integrator` tier — **sonnet by default, even when the project
-     config never mentions the role** (ADR-035; the ADR-027 haiku carve-out was reverted
-     after a haiku integrator ran a bare `git stash -u` in the shared working tree and
-     destroyed a completed phase plan).
+     runs at the `models.integrator` tier — **haiku 5.5 under the balanced and fast
+     profiles, sonnet under max, and sonnet when the project config never mentions the
+     role** (ADR-035, revisited for haiku 5.5: the haiku 4.5 integrator ran a bare `git stash -u` in the
+     shared working tree and destroyed a completed phase plan; haiku 5.5 plus the prompt's
+     prohibition paragraph did neither in the trials. `ac config set models.integrator
+     sonnet` opts out).
      Its job is mechanical git (a stamp-mapped cherry-pick), so the bail a user
      actually sees stays per-branch, not per-wave: a stale, peer-colliding, or
      conflicted branch is **preserved and reported** while its clean peers still land

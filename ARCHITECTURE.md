@@ -216,13 +216,16 @@ move cost, so `ac models max|balanced|fast` sets the pair in one switch. The def
 | executor   | sonnet | most tasks; `deep` effort escalates it to opus for one phase |
 | verifier   | opus   | a false PASS is the costliest error |
 | discover   | sonnet | mechanical task/dependency parsing |
-| integrator | sonnet | mechanical wave-fold: stamp-mapped cherry-picks; anything unclean is preserved and healed at executor tier |
+| integrator | haiku | mechanical wave-fold: stamp-mapped cherry-picks; anything unclean is preserved and healed at executor tier (`max` keeps sonnet) |
 
-Tiers are the short names `opus | sonnet` — what the agent tooling accepts, resolved by the
-host to its current model. **haiku is excluded from every role** (ADR-035): its cherry-pick
+Tiers are the short names `opus | sonnet | haiku` — what the agent tooling accepts, resolved by
+the host to its current model. **haiku is excluded from every judgement role; only the
+integrator may run it.** ADR-035 dropped haiku 4.5 there after benchmark #2: its cherry-pick
 judgement was sound but its discipline was not — it ran a bare `git stash -u` in the shared
-tree and destroyed a completed plan. Speed comes from opus → sonnet, never from haiku. The
-integrator floors to sonnet even when unset. An unset role inherits the session model.
+tree and destroyed a completed plan. Haiku 5.5 is a different model at about a twentieth of
+sonnet's price; with the prompt's prohibition paragraph it was 20/20 on that scenario and
+never stashed. Speed otherwise comes from opus → sonnet. The integrator floors to sonnet when
+unset; `ac config set models.integrator sonnet` opts out of haiku. An unset role inherits the session model.
 
 **Local models (ADR-067).** A Claude Code session pointed at a local endpoint (e.g. Qwen
 behind `ANTHROPIC_BASE_URL`) serves one model and none of the Claude tiers. `ac` detects it

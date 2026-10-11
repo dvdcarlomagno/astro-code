@@ -664,11 +664,14 @@ then the built-in one; `ac models` shows which (`sources`). A new project leaves
 you set unset, so it follows your default; an existing one keeps its own until you
 `ac config unset models.<role>` there.
 
-The tier ladder is **opus→sonnet for every role; haiku is excluded everywhere**. ADR-035
-reverted the old `integrator` carve-out: benchmarking showed haiku's cherry-pick *judgement*
-was sound but its *discipline* was not — it ran a bare `git stash -u` in the shared tree and
-destroyed a completed phase plan. Speed comes from opus→sonnet, never from dropping a role
-to haiku. Hosts clamp depth to their own ceiling (Codex tops out at `xhigh`) rather than
+The tier ladder is **opus→sonnet for every judgement role; haiku runs the `integrator`
+only** (the `balanced` and `fast` profiles; `max` keeps sonnet). ADR-035 dropped the old
+haiku 4.5 `integrator` after benchmarking: its cherry-pick *judgement* was sound but its
+*discipline* was not — it ran a bare `git stash -u` in the shared tree and destroyed a
+completed phase plan. Haiku 5.5 is a different model at about a twentieth of sonnet's price,
+and with the integrator prompt's prohibition paragraph it did neither in 80 trial runs.
+Opt out with `ac config set models.integrator sonnet`. Speed for every other role comes
+from opus→sonnet, never from haiku. Hosts clamp depth to their own ceiling (Codex tops out at `xhigh`) rather than
 silently falling back; on Cursor there is no separate reasoning dial in v1 — depth lives
 in the model id suffix, so `reasoning.<role>` is not applied there.
 
