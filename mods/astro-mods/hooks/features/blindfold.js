@@ -290,6 +290,7 @@ function searchRoots(kind, cmd, args, names) {
 function bashScan(command, names, out, phaseNamed, depth) {
   const segments = tokenize(command)
   const named = phaseNamed || segments.some((seg) => seg.some(namesPhaseDir))
+  let dir = '' // the directory the last `cd` moved to, so a later relative operand is read from there
   for (const words of segments) {
     for (const w of words) {
       const tail = (ch) => (w.includes(ch) ? w.slice(w.lastIndexOf(ch) + 1) : '')
@@ -297,6 +298,8 @@ function bashScan(command, names, out, phaseNamed, depth) {
         if (!cand) continue
         const hit = fileHit(cand, names)
         if (hit) { out.hits.push(hit); continue }
+        const moved = dir && !/^([/\\]|[a-zA-Z]:)/.test(cand) ? fileHit(dir + '/' + cand, names) : null
+        if (moved) { out.hits.push(moved); continue }
         if (named && !cand.includes('/') && !cand.includes('\\') && (names.includes(cand.toLowerCase()) || (GLOB_CHARS.test(cand) && names.some((n) => globRe(cand).test(n))))) out.hits.push(cand)
       }
     }
@@ -314,6 +317,7 @@ function bashScan(command, names, out, phaseNamed, depth) {
     if (i >= words.length) continue
     const cmd = base(words[i])
     const args = words.slice(i + 1)
+    if (cmd === 'cd' && args[0] !== undefined) dir = /^([/\\]|[a-zA-Z]:)/.test(args[0]) || !dir ? args[0] : dir + '/' + args[0]
     if (SHELLS.has(cmd) || cmd === 'lean-ctx') {
       const ci = args.findIndex((a) => (cmd === 'lean-ctx' ? a === '-c' : /^-[a-z]*c[a-z]*$/.test(a)))
       if (ci >= 0 && args[ci + 1] !== undefined) {

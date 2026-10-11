@@ -129,6 +129,10 @@ const CMD_DENIED = [
   'rg TODO .astrocode/phases',
   'grep -r foo .astrocode/phases/39-x',
   'cd .astrocode/phases/39-x && cat PLAN.md',
+  'cd .astrocode/phases/39-x && cat ./PLAN.md',
+  'cd /work/proj/.astrocode/phases/39-x && head ./SPEC.md',
+  'cd .astrocode/phases && cat 39-x/PLAN.md',
+  'cd .astrocode && cat phases/39-x/SPEC.md',
   'git show HEAD:.astrocode/phases/39-x/PLAN.md',
   "bash -c 'cat .astrocode/phases/39-x/SPEC.md'",
   "/usr/local/bin/lean-ctx -c 'cat .astrocode/phases/39-x/PLAN.md'",
@@ -137,7 +141,7 @@ const CMD_DENIED = [
 ];
 const CMD_ALLOWED = [
   'node --test tests/', 'cat .astrocode/phases/39-x/CRITERIA.md', 'git log --oneline -5', 'ls src',
-  'cat docs/PLAN.md', 'grep -rn foo src', 'cat .astrocode/PROJECT.md',
+  'cat docs/PLAN.md', 'cd src && cat ./PLAN.md', 'cd .astrocode/phases/39-x && cat ./CRITERIA.md', 'grep -rn foo src', 'cat .astrocode/PROJECT.md',
 ];
 
 for (const path of PATHS) {
