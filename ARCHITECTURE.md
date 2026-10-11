@@ -60,7 +60,7 @@ Claude config dir. `lib/mods.mjs` is the only writer of the per-user switches (`
 `~/.astro/config.json`); the plugin holds no state and reads them through `ac mods status --json
 --switches-only` at `session.start`, failing open if `ac` cannot answer. No command or agent
 depends on it (`tests/hosts.test.mjs` guards that). `scripts/mods-probe/` is a dev-only probe of
-Claude Code's mod events, never shipped; its findings are in phase 36's `PROBE.md`.
+Claude Code's mod events, never shipped; its findings are in phase 36's `PROBE.md`. `blindfold` (phase 39) is the first `hooks/features/*.js` mod: it identifies an agent by pairing the `agentId` that `agent.spawn`'s `next(e)` settles with against `subagentType` in an in-memory map (`$.agent.list()` misses Workflow agents), as phase 39's `PROBE.md` observed.
 
 A `hook` feature is not part of the plugin: `lib/hosts/guards.mjs` is the data-only spec of each
 guard (script, per-host event and matcher) and the one ownership rule (an entry is ours by script

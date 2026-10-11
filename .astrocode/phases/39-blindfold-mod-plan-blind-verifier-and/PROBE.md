@@ -106,3 +106,23 @@ and pairs `r.agentId` with `e.subagentType`; the later `tool.check` `agentId` eq
 observed for the SAME agent on BOTH paths, with the type string the spawner passed.
 
 Verdict: join found — source: S2 (`agent.spawn` `next(e).agentId` + `subagentType` -> `tool.check` `agentId`)
+
+## Recheck (shipped plugin)
+
+Claude Code 2.1.292, 2026-10-11, after t5/t6 (blindfold built).
+
+- Setup: scratch `HOME` (with an empty `.claude`), `CLAUDE_CONFIG_DIR` unset for `ac`: `ac install`,
+  then `ac mods enable blindfold` -> `✓ astro-mods installed`, `ac mods status blindfold` -> `on  mod  takes effect`.
+- Run: scratch project (fresh copy of the throwaway phase), `HOME=<scratch>` so the plugin's `ac` reads
+  the scratch switch, `claude -p --plugin-dir <HOME>/.astro/code/mods/astro-mods --permission-mode bypassPermissions --output-format json`,
+  one prompt asking the main session to Read PLAN.md and an Agent-tool `astro-verifier` to Read PLAN.md then CRITERIA.md.
+
+| observation | result |
+|---|---|
+| verifier Read of PLAN.md | **refused**; relayed reason: `Permission to use Read denied by plugin astro-mods: blindfold: Read refused — PLAN.md is closed to astro-verifier (ADR-021: the bar is the goal and CRITERIA.md, never the plan).` then `Your own rule: "Do NOT read \`PLAN.md\`. Do NOT read \`SPEC.md\`."` then the CRITERIA.md line; `permission_denials` lists the Read |
+| verifier Read of CRITERIA.md | read normally; it reported `C1` as the first criterion |
+| main-session Read of PLAN.md | allowed (it named task `t1 — write alpha`) |
+| hang | none (run took 26 s) |
+
+The reason carries no way to switch the guard off. Workflow-spawned verifier on the shipped plugin: not
+re-run here (the engine tests and run 4's deny cover that path).

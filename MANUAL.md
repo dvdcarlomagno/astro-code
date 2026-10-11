@@ -112,14 +112,14 @@ needs it, and on Codex, Cursor or a Claude Code without the plugin everything wo
 |---|---|---|---|
 | `canon-guard` | hook | phase 37 (built) | refuse hand edits to generated and registry-owned state |
 | `git-guard` | hook | phase 38 (built) | refuse unscoped destructive git in the shared tree |
-| `blindfold` | mod | phase 39 | keep the verifier and criteria-author plan-blind |
+| `blindfold` | mod | phase 39 (built) | keep the verifier and criteria-author plan-blind |
 | `spawn-policy` | mod | phase 40 | refuse haiku, pin role models, isolate parallel waves |
 | `witness` | mod | phase 41 | tell a human acceptance from an agent's |
 | `brief-section` | mod | phase 42 | principles brief as one cached system-prompt section |
 | `phase-band` | mod | phase 43 | phase band with next-command buttons |
 | `live-capture` | mod | phase 44 | offer principle capture from human-typed prompts |
 
-`canon-guard` and `git-guard` are built; the other six are **not built yet**: today you can switch one on and
+`canon-guard`, `git-guard` and `blindfold` are built; the other five are **not built yet**: today you can switch one on and
 `ac` records it, and it takes effect when its phase lands. A `hook` is a plain settings hook
 (Cursor imports it too); a `mod` is part of the `astro-mods` Claude Code plugin.
 
@@ -166,6 +166,34 @@ executor prompt. The reason names the rule, why, the scoped alternative and the 
 - Where it is enforced, and the re-sync on `ac install` / `ac update`: as for canon-guard.
 - Not seen: `ac`'s and the workflow's own git calls run through `child_process`, not the Bash tool.
   That is why `NO_BROAD_STASH` stays in the prompts.
+
+**blindfold** keeps the two plan-blind agents plan-blind, the rule ADR-021 and the agents' own prose
+already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces it per agent:
+
+- Who it binds: `astro-verifier` (denied `PLAN.md`, `SPEC.md`) and `astro-criteria-author` (denied
+  `PLAN.md`, `ACCEPTANCE.md`, `SPEC.md`). Nobody else: executors, planners, researchers, workflow
+  agents, other agent types and the main session read the plan as before. An agent the plugin did not
+  see being spawned is not identified, and an unidentified agent is allowed.
+- Which files: those names, any letter case, inside any `.astrocode/phases/<dir>/`. A `PLAN.md`
+  elsewhere (say `docs/PLAN.md`) is not a phase plan and stays readable; so do `CRITERIA.md`,
+  `CONTEXT.md`, the canon, source and tests.
+- Tools: Read, Edit and anything with a `file_path` or `notebook_path`; Bash commands that name a
+  forbidden file (`cat`, `head`, `sed`, `grep`, `cp`, `git show HEAD:…`, a `cd` into the phase dir
+  then a bare name, `bash -c '…'`, the lean-ctx `-c` wrapper); Grep, Glob and recursive shell searches
+  (`grep -r`, `rg`, `ag`, `ack`, `fd`, `find`, `git grep`) whose root can reach `.astrocode/phases`.
+- Narrowing: a search is allowed when it cannot select a forbidden file, such as a `glob` of `*.mjs`,
+  a path outside the phases tree, a non-markdown `--type`, or an exclusion of `.astrocode`.
+- Verdict: **deny, not ask**. A subagent cannot answer a prompt, and a Workflow agent never could. The
+  reason quotes ADR-021 and the agent's own line, names the refused file and points at `CRITERIA.md`;
+  it does not say how to switch the guard off, which is for you (`ac mods disable blindfold`).
+- Fail open: if the plugin breaks, the action goes through, you get one notice, and every mod is off
+  until the next session.
+- Not seen (a mistake-catcher, not a sandbox): `$(…)`, backticks, `eval`, `xargs`, `python -c` or
+  `node -e` reads; symlinks; a search rooted at a worktree the plugin cannot place; MCP search tools
+  with no `path` or `command`.
+- Reload: the plugin reads the switch at session start, so run `/reload-plugins` after
+  `ac mods enable|disable blindfold`. Agents already running when it reloads are not identified.
+- Codex and Cursor keep the prose rule in the agent files; the mod is Claude Code only.
 
 ```bash
 ac mods                          # every feature: on/off, kind, and whether it can take effect here (--json too)
