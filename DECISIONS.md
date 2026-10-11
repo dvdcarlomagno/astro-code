@@ -465,3 +465,10 @@ _2026-10-11 · at 9f04e5d_
 
 **Rejected:** plugin userConfig switches (per profile, invisible to settings hooks); one switch for the whole plugin; a public marketplace; making every feature a settings hook
 
+## ADR-072 — A hook-kind astro-mods feature's switch is its registration: ac mods enable writes its settings-hook entry into every Claude profile (and Cursor's native hooks.json when used), disable removes it, ac install/update re-sync entries to the switches; the hook script never reads the switch
+_2026-10-11 · at b0bdfde_
+
+**Why:** A PreToolUse guard runs on every tool call; registering only when on makes an off feature cost nothing and keeps the script free of config reads, while re-sync on install/update covers profiles added later. Applies to canon-guard (phase 37) and git-guard (phase 38).
+
+**Rejected:** one always-registered entry that reads ~/.astro/config.json on each call (a node start per tool call even when off)
+
