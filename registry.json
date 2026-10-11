@@ -523,6 +523,16 @@
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:11.250Z",
       "status": "active"
+    },
+    {
+      "type": "phase",
+      "number": 38,
+      "milestone": 12,
+      "name": "git-guard: PreToolUse settings hook refusing unscoped destructive git in the shared tree",
+      "owner": "matteo.alvazzi@gmail.com",
+      "branch": "develop",
+      "claimed_at": "2026-10-11T06:24:14.069Z",
+      "status": "active"
     }
   ]
 }
