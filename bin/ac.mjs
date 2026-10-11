@@ -29,6 +29,25 @@ function claudeMeetsModFloor() {
   return !!(cv.found && cv.version && compareVersions(cv.version, MOD_FLOOR) >= 0);
 }
 // #93 — one line for what `agent_tools` in ~/.astro/config.json added, warnings on stderr.
+// Guard re-sync outcomes from install/update: only a change (or a failure) is worth a line.
+function reportGuards(res) {
+  for (const g of (res && res.guards) || []) {
+    if (g.outcome === 'added') console.log(`✓ ${g.feature} → ${g.dir} [${g.label}]`);
+    else if (g.outcome === 'removed') console.log(`✓ ${g.feature} removed → ${g.dir} [${g.label}]`);
+    else if (g.outcome === 'failed') console.error(`⚠ ${g.feature}: ${g.dir} — ${g.error}`);
+  }
+}
+
+// One `ac mods status` line for an enforcement row of a hook feature.
+function enforcementLine(r) {
+  if (r.host === 'cursor') {
+    const word = { enforced: 'enforced (native preToolUse)', 'via-claude-import': 'via Claude Code import' }[r.state] || 'not enforced on Cursor';
+    return `cursor ${r.dir}: ${word}`;
+  }
+  const word = { enforced: 'enforced', missing: 'missing — run ac install', broken: 'broken — run ac install', unreadable: 'unreadable', 'no-dir': 'no config dir' }[r.state] || r.state;
+  return `claude ${r.dir} [${r.label}]: ${word}`;
+}
+
 function reportAgentTools(res) {
   const at = res && res.agentTools;
   if (!at) return;
@@ -2875,6 +2894,7 @@ async function main() {
         reportHookSkips(t);
       }
       reportAgentTools(res);
+      reportGuards(res);
       if (claudeMeetsModFloor()) console.log('• optional on Claude Code: enforcement mods — see `ac mods status`, turn one on with `ac mods enable <feature>`');
       console.log('  after pulling updates, refresh the global CLI: npm install -g .');
       return;
@@ -2941,7 +2961,10 @@ async function main() {
         if (flags.json) { json(st); return; }
         const cc = st.claude.found ? (st.claude.version || 'an unreadable version') : 'not found';
         console.log(`Claude Code ${cc} · astro-mods plugin installed in ${st.plugin.dirs.filter((d) => d.installed).length}/${st.plugin.total} config dir(s)`);
-        for (const f of st.features) console.log(`  ${f.name.padEnd(14)} ${f.on ? 'on ' : 'off'}  ${f.kind.padEnd(4)}  ${f.why || 'takes effect'}`);
+        for (const f of st.features) {
+          console.log(`  ${f.name.padEnd(14)} ${f.on ? 'on ' : 'off'}  ${f.kind.padEnd(4)}  ${f.why || 'takes effect'}`);
+          if (f.on) for (const r of f.enforcement || []) console.log(`    ${enforcementLine(r)}`);
+        }
         for (const w of st.warnings) console.error(`⚠ ${w}`);
         return;
       }
@@ -2952,16 +2975,31 @@ async function main() {
         const res = disableMod({ feature });
         if (!res.ok) die(res.error);
         if (flags.json) { json(res); return; }
+        if (res.hooks) {
+          const n = res.hooks.filter((r) => r.outcome === 'removed').length;
+          console.log(`✓ ${feature} off — guard removed from ${n} config dir(s)`);
+          for (const r of res.hooks.filter((x) => x.outcome === 'failed')) console.error(`⚠ ${r.dir} [${r.label}]: ${r.error}`);
+          return;
+        }
         console.log(`✓ ${feature} off${res.kind === 'mod' ? ' — the astro-mods plugin stays installed and inert' : ''}`);
         return;
       }
       const res = enableMod({ feature });
       if (!res.ok) die(res.error);
-      const failed = (res.plugin || []).some((r) => r.outcome === 'collision' || r.outcome === 'failed');
+      const failed = (res.plugin || []).some((r) => r.outcome === 'collision' || r.outcome === 'failed')
+        || (res.hooks || []).some((r) => r.host === 'claude' && r.outcome === 'failed');
       if (failed) process.exitCode = 1;
       if (flags.json) { json(res); return; }
       console.log(`✓ ${feature} on — saved to ~/.astro/config.json`);
       if (!res.built) console.log(`• not built yet — takes effect when phase ${res.phase} lands`);
+      for (const r of res.hooks || []) {
+        if (r.host === 'claude') {
+          if (r.outcome === 'added') console.log(`✓ guard → ${r.dir} [${r.label}]`);
+          else if (r.outcome === 'failed') console.error(`⚠ ${r.dir} [${r.label}]: ${r.error}`);
+        } else if (r.outcome === 'native') console.log(`✓ Cursor: native preToolUse → ${r.dir}`);
+        else if (r.outcome === 'import') console.log('• Cursor: via Claude Code import');
+        else console.error(`⚠ Cursor: not enforced (${r.error || r.outcome})`);
+      }
       if (res.claude === 'absent') console.error(`⚠ ${feature} is a Claude Code mod — no Claude Code found here, so it cannot take effect (switch recorded)`);
       else if (res.claude === 'old' || res.claude === 'unknown') console.error(`⚠ ${feature} needs Claude Code ≥ ${MOD_FLOOR} (found ${res.version || 'an unreadable version'}) — switch recorded; plugin not installed`);
       for (const r of res.plugin || []) {
@@ -3066,6 +3104,7 @@ async function main() {
         }
       }
       reportAgentTools(res);
+      reportGuards(res);
       // refresh astro-mods only where it is installed; an absent plugin is never installed here
       if (claudeMeetsModFloor()) {
         for (const r of updatePlugin()) {
