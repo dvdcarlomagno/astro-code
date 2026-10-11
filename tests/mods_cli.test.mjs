@@ -110,8 +110,11 @@ test('enable and disable flip exactly one switch and keep every sibling key; not
   assert.equal(readCfg(b).mods['canon-guard'], true);
   const g = b.ac(['mods', 'enable', 'git-guard']);
   assert.doesNotMatch(g.stdout, /not built yet/, 'git-guard is built (phase 38)');
+  b.ac(['mods', 'enable', 'witness']);
+  assert.match(b.ac(['mods', 'status', 'witness']).stdout, /not built yet/, 'an unbuilt feature still says so');
+  b.ac(['mods', 'disable', 'witness']);
   b.ac(['mods', 'enable', 'blindfold']);
-  assert.match(b.ac(['mods', 'status', 'blindfold']).stdout, /not built yet/, 'an unbuilt feature still says so');
+  assert.doesNotMatch(b.ac(['mods', 'status', 'blindfold']).stdout, /not built yet/, 'blindfold is built (phase 39)');
   b.ac(['mods', 'disable', 'blindfold']);
   const d = b.ac(['mods', 'disable', 'canon-guard']);
   assert.equal(d.status, 0, out(d));
