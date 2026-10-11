@@ -40,11 +40,16 @@ function reportGuards(res) {
 
 // One `ac mods status` line for an enforcement row of a hook feature.
 function enforcementLine(r) {
+  // A row that is enforced says what it answers: `asks` (Claude Code) or `denies`.
+  const says = r.verdict ? { ask: 'asks', deny: 'denies' }[r.verdict] || r.verdict : '';
   if (r.host === 'cursor') {
-    const word = { enforced: 'enforced (native preToolUse)', 'via-claude-import': 'via Claude Code import' }[r.state] || 'not enforced on Cursor';
+    const word = {
+      enforced: `enforced (native preToolUse${says ? `, ${says}` : ''})`,
+      'via-claude-import': `via Claude Code import${says ? `, ${says}` : ''}`,
+    }[r.state] || 'not enforced on Cursor';
     return `cursor ${r.dir}: ${word}`;
   }
-  const word = { enforced: 'enforced', missing: 'missing — run ac install', broken: 'broken — run ac install', unreadable: 'unreadable', 'no-dir': 'no config dir' }[r.state] || r.state;
+  const word = { enforced: `enforced${says ? ` (${says})` : ''}`, missing: 'missing — run ac install', broken: 'broken — run ac install', unreadable: 'unreadable', 'no-dir': 'no config dir' }[r.state] || r.state;
   return `claude ${r.dir} [${r.label}]: ${word}`;
 }
 
