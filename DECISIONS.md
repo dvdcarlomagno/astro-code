@@ -472,3 +472,10 @@ _2026-10-11 · at b0bdfde_
 
 **Rejected:** one always-registered entry that reads ~/.astro/config.json on each call (a node start per tool call even when off)
 
+## ADR-073 — Haiku is the user's choice per role: ADR-035's 'no role runs haiku' ban is lifted; ac models may set haiku for any role, and the integrator's git-safety rules from ADR-035 stay in force
+_2026-10-11 · at d8b1268_
+
+**Why:** With Haiku 5.5, a cheap model can be right for simple roles, and the model per role is the user's decision, not the framework's. ADR-035's other parts (integrator destructive-git ban, branches[] pinned to source branches, zero-task phase is a hard FAIL, plan artifacts committed by /astro-plan, gitignored worktrees, agent-authored brief marker) are unchanged.
+
+**Rejected:** keeping the haiku ban; enforcing it at spawn time in the spawn-policy mod
+
