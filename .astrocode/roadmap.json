@@ -40,8 +40,11 @@
       "number": 40,
       "name": "spawn-policy mod: refuse haiku, pin role models, require worktree isolation for parallel waves",
       "slug": "40-spawn-policy-mod-refuse-haiku-pin-role",
-      "status": "verified",
-      "milestone": 12
+      "status": "complete",
+      "milestone": 12,
+      "accepted_by": "matteo.alvazzi@gmail.com",
+      "accepted_kind": "human",
+      "accepted_at": "2026-10-11T20:49:30.685Z"
     },
     {
       "number": 41,

@@ -2,10 +2,10 @@
   "version": 1,
   "project": "astro-code",
   "active_milestone": 12,
-  "active_phase": "40-spawn-policy-mod-refuse-haiku-pin-role",
+  "active_phase": null,
   "status": "planning",
   "decisions": [],
   "blockers": [],
-  "updated_at": "2026-10-11T20:44:10.470Z",
+  "updated_at": "2026-10-11T20:49:30.696Z",
   "activity": null
 }

@@ -447,12 +447,14 @@
     {
       "id": "2026-10-11-unbuilt-feature-enable-message-promises",
       "title": "Unbuilt-feature enable message promises 'takes effect when phase 40 lands' even though phase 40 has landed as no-signal",
-      "status": "open",
+      "status": "dropped",
       "cost": "small",
       "found_at": "2026-10-11T20:44:10.630Z",
       "why": "`ac mods enable spawn-policy` prints 'not built yet — takes effect when phase 40 lands'. Once phase 40 is accepted, that tells the user the switch will start working, which is false: spawn-policy stays unbuilt until a re-probe. The template is generic to every unbuilt feature. C2's bar ('says not built') is met and the blocker is recorded in PROBE.md, so no criterion covers this wording.",
       "phase": "40",
-      "file": "lib/mods.mjs"
+      "file": "lib/mods.mjs",
+      "dropped_at": "2026-10-11T20:49:30.436Z",
+      "drop_reason": "fixed directly: spawn-policy now carries a parked reason (commit above)"
     }
   ]
 }

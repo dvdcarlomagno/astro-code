@@ -63,6 +63,13 @@
       "note": "Follows the ADR lifting ADR-035's haiku ban (2026-10-11, phase 40 discussion). Today config and models reject haiku everywhere, so the canon and the code disagree until this lands.",
       "status": "open",
       "captured_at": "2026-10-11T16:35:41.716Z"
+    },
+    {
+      "id": "2026-10-11-re-probe-spawn-isolation-on-a-newer",
+      "title": "Re-probe spawn isolation on a newer Claude Code and build spawn-policy if agent.spawn exposes it",
+      "note": "Phase 40 (2026-10-11) found no isolation signal on 2.1.292: no isolation key, cwd undefined, agent.list empty for workflow agents. PROBE.md in phase 40 has the probe and its method; re-run it, then re-plan phase 40's refusal (C3/C4/C6/C7) if a signal exists.",
+      "status": "open",
+      "captured_at": "2026-10-11T20:49:30.517Z"
     }
   ]
 }
