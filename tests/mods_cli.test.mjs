@@ -20,8 +20,9 @@ const HOOKS = ['canon-guard', 'git-guard'];
 const sha = (f) => createHash('sha256').update(readFileSync(f)).digest('hex');
 
 // A throwaway machine: HOME, a stub claude at `version`, and the files the stub keeps.
-function box({ version = '2.1.292', config, noClaude = false } = {}) {
+function box({ version = '2.1.292', config, noClaude = false, claudeHome = true } = {}) {
   const T = mkdtempSync(join(tmpdir(), 'ac-modscli-'));
+  if (claudeHome) mkdirSync(join(T, '.claude')); // since phase 39 no plugin command runs against a missing dir; claudeHome:false is a bare machine
   const bin = join(T, 'bin');
   const stateFile = join(T, 'claude-state.json');
   const logFile = join(T, 'claude.log');
@@ -377,7 +378,7 @@ test('disable canon-guard leaves every settings.json JSON-equal to its pre-enabl
 // ── Phase 37 C12: Cursor wiring ─────────────────────────────────────────────
 
 function cursorBox() {
-  const b = box();
+  const b = box({ claudeHome: false }); // Cursor only: no Claude home until a test creates one
   const CURSOR_CONFIG_DIR = join(b.T, 'cursor');
   mkdirSync(CURSOR_CONFIG_DIR);
   const hooks = join(CURSOR_CONFIG_DIR, 'hooks.json');
@@ -538,4 +539,79 @@ test('both hosts present: Claude carries git-guard and Cursor has no native entr
   assert.equal(b.ac(['mods', 'enable', 'git-guard'], env).status, 0);
   assert.equal(gitEntries(jread(join(b.T, '.claude', 'settings.json'))).length, 1);
   assert.equal(all().filter((c) => c.includes(GGUARD)).length, 0, "no native guard: Cursor imports Claude's");
+});
+
+// ── phase 39: `ac mods` never creates a Claude home (C10) ────────────────────
+
+const noClaudeHome = (b) => assert.ok(!existsSync(join(b.T, '.claude')) && !existsSync(join(b.T, '.claude.json')), 'ac mods created a Claude home');
+const pluginLines = (b) => b.log().split('\n').filter((l) => /\tplugin\b|\bplugin /.test(l));
+
+test('on a bare machine every ac mods command exits 0, runs no claude plugin call and leaves no Claude home behind', () => {
+  const b = box({ claudeHome: false });
+  for (const args of [['mods', 'status'], ['mods', 'status', '--json'], ['mods', 'status', 'blindfold'], ['mods', 'enable', 'canon-guard'], ['mods', 'disable', 'canon-guard']]) {
+    const r = b.ac(args);
+    assert.equal(r.status, 0, `${args.join(' ')}: ${out(r)}`);
+    assert.deepEqual(pluginLines(b), [], `${args.join(' ')} ran a plugin command`);
+    noClaudeHome(b);
+  }
+  const s = b.status();
+  assert.equal(s.claude.found, true);
+  assert.equal(s.claude.version, '2.1.292');
+});
+
+test('enabling a mod on a bare machine records the switch, says to start Claude Code once, and creates nothing', () => {
+  const b = box({ claudeHome: false });
+  seedMarketplace(b.T);
+  const r = b.ac(['mods', 'enable', 'witness']);
+  assert.equal(r.status, 0, out(r));
+  assert.match(out(r), /start Claude Code once/);
+  assert.deepEqual(pluginLines(b), []);
+  assert.equal(b.status().features.find((f) => f.name === 'witness').on, true);
+  noClaudeHome(b);
+});
+
+// ── the same, against a real claude on PATH ─────────────────────────────────
+
+function realClaude() {
+  const r = spawnSync('claude', ['--version'], { encoding: 'utf8' });
+  if (r.error || r.status !== 0) return { skip: 'no claude on PATH' };
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(r.stdout);
+  if (!m) return { skip: 'unreadable claude version' };
+  const [a, b, c] = m.slice(1).map(Number);
+  if (!(a > 2 || (a === 2 && (b > 1 || (b === 1 && c >= 292))))) return { skip: `claude ${m[0]} < 2.1.292` };
+  const which = spawnSync('/bin/sh', ['-c', 'command -v claude'], { encoding: 'utf8' }).stdout.trim();
+  return { skip: false, dir: dirname(which) };
+}
+const REAL = realClaude();
+
+function liveHome() {
+  const T = mkdtempSync(join(tmpdir(), 'ac-modslive-'));
+  const PATH = [dirname(process.execPath), REAL.dir, '/usr/bin', '/bin'].join(':');
+  const ac = (args) => spawnSync(process.execPath, [BIN, ...args], { cwd: T, env: { HOME: T, PATH }, encoding: 'utf8' });
+  return { T, ac };
+}
+
+test('real claude: ac mods status and --json leave HOME/.claude and HOME/.claude.json absent', { skip: REAL.skip }, () => {
+  const h = liveHome();
+  for (const args of [['mods', 'status'], ['mods', 'status', '--json']]) {
+    const r = h.ac(args);
+    assert.equal(r.status, 0, out(r));
+    assert.ok(!existsSync(join(h.T, '.claude')) && !existsSync(join(h.T, '.claude.json')), `${args.join(' ')} created a Claude home`);
+  }
+});
+
+test('real claude: a Cursor-only ac install is unchanged by an earlier ac mods status', { skip: REAL.skip }, () => {
+  const wiring = (withStatus) => {
+    const h = liveHome();
+    mkdirSync(join(h.T, '.cursor'));
+    if (withStatus) assert.equal(h.ac(['mods', 'status']).status, 0);
+    const r = h.ac(['install']);
+    assert.equal(r.status, 0, out(r));
+    const hooks = join(h.T, '.cursor', 'hooks.json');
+    return {
+      claudeHome: existsSync(join(h.T, '.claude')),
+      cursor: existsSync(hooks) ? readFileSync(hooks, 'utf8').split(h.T).join('<HOME>') : null,
+    };
+  };
+  assert.deepEqual(wiring(true), wiring(false));
 });

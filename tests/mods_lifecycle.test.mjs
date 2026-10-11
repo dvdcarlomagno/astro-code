@@ -16,8 +16,9 @@ const FRAMEWORK = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BIN = join(FRAMEWORK, 'bin', 'ac.mjs');
 const PLUGIN = 'astro-mods@astro-code';
 
-function box({ version = '2.1.292', noClaude = false } = {}) {
+function box({ version = '2.1.292', noClaude = false, claudeHome = true } = {}) {
   const T = mkdtempSync(join(tmpdir(), 'ac-modslife-'));
+  if (claudeHome) mkdirSync(join(T, '.claude')); // since phase 39 no plugin command runs against a missing dir; claudeHome:false is a bare machine
   const bin = join(T, 'bin');
   const stateFile = join(T, 'claude-state.json');
   const logFile = join(T, 'claude.log');

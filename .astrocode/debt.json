@@ -263,12 +263,14 @@
     {
       "id": "2026-10-11-ac-mods-status-creates-claude-as-a-side",
       "title": "ac mods status creates ~/.claude as a side effect",
-      "status": "open",
+      "status": "dropped",
       "cost": "small",
       "found_at": "2026-10-11T16:21:56.687Z",
       "why": "It runs the claude binary, which makes ~/.claude and ~/.claude.json. On a Cursor-only machine that also has claude installed, the next ac install treats Claude as present: it drops Cursor's native guard and switches Cursor to importing Claude's hooks. The claude binary does this itself, and no criterion covers what status writes.",
       "phase": "37",
-      "file": "lib/mods.mjs"
+      "file": "lib/mods.mjs",
+      "dropped_at": "2026-10-11T17:59:47.282Z",
+      "drop_reason": "fixed in phase 39 t2: no claude plugin call against a missing config dir"
     },
     {
       "id": "2026-10-11-canon-guard-bash-scan-misses-deleting",

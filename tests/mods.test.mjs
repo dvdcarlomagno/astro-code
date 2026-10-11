@@ -73,8 +73,16 @@ function fakeClaude({ version = '2.1.292', missing = false, failInstallIn = [], 
 }
 
 // Two Claude config dirs: the base (default) one and a jean-claude style profile.
+// Both exist on disk: since phase 39 no `claude plugin` command runs against a missing dir.
 function twoDirs(h) {
+  mkdirSync(join(h, '.claude'), { recursive: true });
+  mkdirSync(join(h, 'p2'), { recursive: true });
   return new Map([[join(h, '.claude'), 'base'], [join(h, 'p2'), 'p2']]);
+}
+
+function baseOnly(h) {
+  mkdirSync(join(h, '.claude'), { recursive: true });
+  return new Map([[join(h, '.claude'), 'base']]);
 }
 
 // ── registry ────────────────────────────────────────────────────────────────
@@ -275,7 +283,7 @@ test('updatePlugin updates only where the plugin is installed from our marketpla
   const fake = fakeClaude({ seed: { [p2]: { name: 'astro-code', path: '/somebody/elses' } } });
   assert.ok(updatePlugin({ home: h, run: fake.run, targets: twoDirs(h) }).every((r) => r.outcome === 'skipped'));
   assert.equal(fake.verbs().includes('update'), false, 'not installed → no update');
-  ensurePlugin({ home: h, run: fake.run, targets: new Map([[join(h, '.claude'), 'base']]) });
+  ensurePlugin({ home: h, run: fake.run, targets: baseOnly(h) });
   const res = updatePlugin({ home: h, run: fake.run, targets: twoDirs(h) });
   assert.equal(res.find((r) => r.label === 'base').outcome, 'updated');
   assert.equal(res.find((r) => r.label === 'p2').outcome, 'skipped');
@@ -289,7 +297,7 @@ test('removePlugin uninstalls before it removes the marketplace and leaves a for
   const h = home();
   const p2 = join(h, 'p2');
   const fake = fakeClaude({ seed: { [p2]: { name: 'astro-code', path: '/somebody/elses' } } });
-  ensurePlugin({ home: h, run: fake.run, targets: new Map([[join(h, '.claude'), 'base']]) });
+  ensurePlugin({ home: h, run: fake.run, targets: baseOnly(h) });
   removePlugin({ home: h, run: fake.run, targets: twoDirs(h) });
   const seq = fake.plugin().filter((c) => c.key === 'default').map((c) => c.args.slice(1, 3).join(' '));
   assert.ok(seq.indexOf(`uninstall ${PLUGIN}`) >= 0 && seq.indexOf('marketplace remove') > seq.indexOf(`uninstall ${PLUGIN}`));
@@ -332,7 +340,7 @@ test('modsStatus reports the plugin per dir so a partial fan-out is visible', as
   const { modsStatus, ensurePlugin } = await mods();
   const h = home();
   const fake = fakeClaude();
-  ensurePlugin({ home: h, run: fake.run, targets: new Map([[join(h, '.claude'), 'base']]) });
+  ensurePlugin({ home: h, run: fake.run, targets: baseOnly(h) });
   const s = modsStatus({ home: h, run: fake.run, targets: twoDirs(h) });
   assert.equal(s.plugin.installed, true);
   assert.deepEqual(s.plugin.dirs.map((d) => [d.label, d.installed, d.marketplace]), [['base', true, 'ours'], ['p2', false, 'absent']]);
@@ -585,7 +593,7 @@ test('modsStatus gives Cursor its own enforcement row: native, via the Claude im
     // Claude Code appears: Cursor rides its import, enforced only if Claude's base entry is
     mkdirSync(join(h, '.claude'));
     writeFileSync(join(h, '.claude', 'settings.json'), '{}\n');
-    const base = new Map([[join(h, '.claude'), 'base']]);
+    const base = baseOnly(h);
     const { syncHookFeatures } = await mods();
     syncHookFeatures({ home: h, targets: base, cursorTargets });
     assert.equal(row(status(base)).state, 'via-claude-import');
@@ -628,4 +636,35 @@ test('modsStatus carries the verdict on git-guard and canon-guard enforcement ro
     assert.equal(row.state, 'enforced');
     assert.equal(row.verdict, 'deny');
   });
+});
+
+// ── phase 39: no `claude plugin` command against a config dir that does not exist ──────────────
+// (a `claude plugin …` call creates ~/.claude and ~/.claude.json, which on a Cursor-only machine
+// flips the next `ac install` into Claude-import mode)
+
+test('plugin lifecycle against dirs that do not exist makes zero claude calls and reads noDir / skipped', async () => {
+  const { pluginState, ensurePlugin, updatePlugin, removePlugin } = await mods();
+  const h = home();
+  const targets = new Map([[join(h, '.claude'), 'base'], [join(h, 'p2'), 'p2']]);
+  const fake = fakeClaude();
+  const args = { home: h, run: fake.run, targets };
+  assert.deepEqual(pluginState(args).map((s) => [s.label, s.noDir, s.marketplace, s.installed]), [['base', true, 'absent', false], ['p2', true, 'absent', false]]);
+  assert.deepEqual(ensurePlugin(args).map((r) => r.outcome), ['skipped', 'skipped']);
+  assert.match(ensurePlugin(args)[0].message, /start Claude Code once, then re-run ac mods enable/);
+  assert.deepEqual(updatePlugin(args).map((r) => r.outcome), ['skipped', 'skipped']);
+  assert.deepEqual(removePlugin(args).map((r) => r.outcome), ['skipped', 'skipped']);
+  assert.equal(fake.calls.length, 0, 'not even a --version: nothing ran');
+  assert.equal(existsSync(join(h, '.claude')), false);
+});
+
+test('modsStatus reads a missing base dir as noDir with no plugin call', async () => {
+  const { modsStatus } = await mods();
+  const h = home({ mods: { blindfold: true } });
+  const targets = new Map([[join(h, '.claude'), 'base']]);
+  const fake = fakeClaude();
+  const s = modsStatus({ home: h, run: fake.run, targets, cursorTargets: new Map() });
+  assert.equal(fake.plugin().length, 0);
+  assert.equal(s.plugin.dirs[0].noDir, true);
+  assert.equal(s.plugin.installed, false);
+  assert.equal(s.features.find((x) => x.name === 'blindfold').canTakeEffect, false);
 });
