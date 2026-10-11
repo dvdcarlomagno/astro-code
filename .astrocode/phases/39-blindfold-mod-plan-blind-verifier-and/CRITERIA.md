@@ -94,6 +94,23 @@ Which branch holds is decided by C1's evidence, never by a claim in a summary or
   operand is allowed; or a command that names no forbidden file and searches no phase dir is
   denied.
 
+#### Amendment to C4 (2026-10-11, approved by the user after two verify rounds, same rule as phase 38)
+Each round found new Bash spellings: a search root through `cd`, `$VAR`, `$PWD`, or
+`$(git rev-parse …)`; `git -C`; interpreter strings. Bash is open-ended. So "a command naming a
+forbidden file or recursively searching a phase dir" in C4 is **bounded to a corpus**:
+- the forms listed above;
+- the `CMD_DENIED` array in `tests/mods_blindfold.test.mjs`, for both roles and both spawn paths,
+  plain and `lean-ctx -c`-wrapped;
+- for the second clause, the `CMD_ALLOWED` array.
+
+**Fails if:**
+- any corpus form gets the wrong verdict;
+- the arrays were shrunk;
+- a corpus test was weakened.
+
+A NEW spelling found outside the corpus is **not** a C4 failure. Report it as a finding
+(`outsideCriteria: true`) so it lands in the debt register and can be added to the corpus.
+
 ### C5 — (join branch) Broad Grep/Glob over the phases tree is denied for those agents, narrowed searches are allowed
 - **Observe:** Engine drive, blindfold ON, identified `astro-verifier`: `Grep` with `path`
   `<P>/.astrocode/phases/39-x`, `<P>/.astrocode/phases`, `<P>/.astrocode`, or `<P>` (a parent)
