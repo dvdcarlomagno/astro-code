@@ -110,7 +110,7 @@ needs it, and on Codex, Cursor or a Claude Code without the plugin everything wo
 
 | feature | kind | lands in | does |
 |---|---|---|---|
-| `canon-guard` | hook | phase 37 | refuse hand edits to generated and registry-owned state |
+| `canon-guard` | hook | phase 37 (built) | refuse hand edits to generated and registry-owned state |
 | `git-guard` | hook | phase 38 | refuse unscoped destructive git in the shared tree |
 | `blindfold` | mod | phase 39 | keep the verifier and criteria-author plan-blind |
 | `spawn-policy` | mod | phase 40 | refuse haiku, pin role models, isolate parallel waves |
@@ -119,9 +119,30 @@ needs it, and on Codex, Cursor or a Claude Code without the plugin everything wo
 | `phase-band` | mod | phase 43 | phase band with next-command buttons |
 | `live-capture` | mod | phase 44 | offer principle capture from human-typed prompts |
 
-All eight are **not built yet**: today you can switch one on and `ac` records it, and it takes
-effect when its phase lands. A `hook` is a plain settings hook (Cursor imports it too); a `mod`
-is part of the `astro-mods` Claude Code plugin.
+`canon-guard` is built; the other seven are **not built yet**: today you can switch one on and
+`ac` records it, and it takes effect when its phase lands. A `hook` is a plain settings hook
+(Cursor imports it too); a `mod` is part of the `astro-mods` Claude Code plugin.
+
+**canon-guard** refuses hand edits to files the `ac` CLI owns or generates, and the deny reason
+names the rule, the `ac` verb to use for that file, and the escapes:
+
+- Protected: `.astrocode/{roadmap,state,debt,backlog,fixes}.json`, `.astrocode/ROADMAP.md`,
+  `.astrocode/DECISIONS.in-force.md`, and the personal principle store (`~/.astro/principles/`).
+  `config.json`, `CONVENTIONS.md`, `DECISIONS.md`, `PROJECT.md` and phase files stay editable.
+- Tools: Write, Edit, MultiEdit and NotebookEdit always; Bash for the obvious write forms
+  (`>`, `>>`, `sed -i`, `perl -i`, `tee`, `cp`/`mv`/`rm`, `truncate`, `dd of=`), checked segment by
+  segment. It is a mistake-catcher, not a sandbox: `python -c` or `node -e` writes, globs and
+  variables are not seen, and an `ac` or `git` segment is never refused.
+- Escapes: a protected file that is mid-merge (conflict markers, or unmerged in `git status`) may be
+  edited by hand; for anything else run `ac mods disable canon-guard`, edit, then re-enable. There
+  is no environment-variable escape.
+- Where it is enforced: every Claude Code profile (a settings hook); on Cursor, a native
+  `preToolUse` hook when Claude Code is absent, or Claude's own entry through Cursor's import when
+  it is present; Codex has no hooks, so there it stays a prose rule. `ac mods status canon-guard`
+  shows each place and whether the entry is really there.
+- The switch is the registration: `ac mods enable canon-guard` writes the entry into each profile,
+  `disable` removes exactly it, and `ac install` / `ac update` re-sync the entries to the switch (a
+  profile added later gets it; a stale entry is removed).
 
 ```bash
 ac mods                          # every feature: on/off, kind, and whether it can take effect here (--json too)

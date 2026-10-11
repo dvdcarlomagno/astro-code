@@ -62,6 +62,13 @@ Claude config dir. `lib/mods.mjs` is the only writer of the per-user switches (`
 depends on it (`tests/hosts.test.mjs` guards that). `scripts/mods-probe/` is a dev-only probe of
 Claude Code's mod events, never shipped; its findings are in phase 36's `PROBE.md`.
 
+A `hook` feature is not part of the plugin: `lib/hosts/guards.mjs` is the data-only spec of each
+guard (script, per-host event and matcher) and the one ownership rule (an entry is ours by script
+filename, never by path), and the host adapters register from it. A hook's switch is its
+registration: `lib/mods.mjs` `syncHookFeatures` writes or removes the entry in every Claude profile
+(and Cursor's `hooks.json` when it is not importing Claude's), `ac install`/`update` re-run it, and
+the hook script itself never reads a switch. Phase 37's `PROBE.md` records what blocks on each host.
+
 ## The numbering registry (the core guarantee)
 
 The registry is a single `registry.json` on an orphan branch (`astro-registry` by
