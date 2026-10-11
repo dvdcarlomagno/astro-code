@@ -573,6 +573,16 @@
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:25.133Z",
       "status": "active"
+    },
+    {
+      "type": "phase",
+      "number": 43,
+      "milestone": 12,
+      "name": "phase-band mod: phase band with next-command buttons and id autocomplete",
+      "owner": "matteo.alvazzi@gmail.com",
+      "branch": "develop",
+      "claimed_at": "2026-10-11T06:24:27.937Z",
+      "status": "active"
     }
   ]
 }
