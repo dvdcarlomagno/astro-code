@@ -1,11 +1,14 @@
 {
   "version": 1,
   "project": "astro-code",
-  "active_milestone": 11,
-  "active_phase": null,
-  "status": "milestone-complete",
+  "active_milestone": 12,
+  "active_phase": "36-astro-mods-foundation-adr-api-probe",
+  "status": "planning",
   "decisions": [],
   "blockers": [],
-  "updated_at": "2026-10-07T14:10:10.098Z",
-  "activity": null
+  "updated_at": "2026-10-11T07:56:39.850Z",
+  "activity": {
+    "text": "⚙ executing",
+    "at": 1791705399
+  }
 }
