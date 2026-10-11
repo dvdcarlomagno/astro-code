@@ -72,7 +72,7 @@ function realpathDeep(abs) {
   const tail = [];
   for (let hops = 0; hops < 64; hops++) {
     try {
-      const r = realpathSync(head);
+      const r = realpathSync.native(head); // .native: on-disk case, so STATE.json on a case-insensitive FS is state.json
       return tail.length ? join(r, ...tail.slice().reverse()) : r;
     } catch { /* head does not resolve */ }
     try {

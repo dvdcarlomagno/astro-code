@@ -142,6 +142,20 @@ test('C3: every protected file x tool x path spelling is denied', () => {
   } finally { rmSync(S, { recursive: true, force: true }); }
 });
 
+test('C3: on a case-insensitive filesystem a differently-cased spelling is denied too', (t) => {
+  const { S, HOME, P } = sandbox();
+  try {
+    if (!existsSync(join(P, '.astrocode', 'STATE.JSON')) && !existsSync(join(P, '.ASTROCODE'))) {
+      return t.skip('case-sensitive filesystem');
+    }
+    const env = ENV(HOME);
+    for (const n of ['STATE.json', 'Roadmap.JSON']) {
+      const r = feed(claudeEvent('Write', join(P, '.astrocode', n), P), { env });
+      assert.ok(isDenied(r), `${n}: expected deny, got status ${r.status} out=${r.stdout}`);
+    }
+  } finally { rmSync(S, { recursive: true, force: true }); }
+});
+
 test('C3: the principle store is protected, in the default place and under ASTRO_PRINCIPLES_DIR', () => {
   const { S, HOME, P } = sandbox();
   try {
