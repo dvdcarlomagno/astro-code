@@ -147,10 +147,17 @@ const CMD_DENIED = [
   'cd .astrocode && grep -rn foo phases/39-x',
   'cd -- .astrocode/phases && cat 39-x/PLAN.md',
   'D=.astrocode/phases/39-x; cat $D/PLAN.md',
+  // Phase 39, second verify: the project root spelled as an expansion, git -C as a cd for its own
+  // operands, and a raw plan path inside an interpreter string.
+  'grep -r foo "$PWD"', 'grep -rn foo ${PWD}', 'rg -n TODO "$PWD"', 'grep -r foo -- "$PWD"', 'grep -r foo "$PWD/"',
+  'grep -rn foo "$(git rev-parse --show-toplevel)"', 'cd "$(git rev-parse --show-toplevel)" && grep -r foo .',
+  'git -C .astrocode/phases/39-x show HEAD:./PLAN.md',
+  `node -e "console.log(require('fs').readFileSync('.astrocode/phases/39-x/PLAN.md','utf8'))"`,
+  `python3 -c "print(open('.astrocode/phases/39-x/SPEC.md').read())"`,
 ];
 const CMD_ALLOWED = [
   'node --test tests/', 'cat .astrocode/phases/39-x/CRITERIA.md', 'git log --oneline -5', 'ls src',
-  'cat docs/PLAN.md', 'cd src && cat ./PLAN.md', 'cd .astrocode/phases/39-x && cat ./CRITERIA.md', 'grep -rn foo src', 'cat .astrocode/PROJECT.md',
+  'cat docs/PLAN.md', 'cd src && cat ./PLAN.md', 'find . -maxdepth 1 -type f', 'cd .astrocode/phases/39-x && cat ./CRITERIA.md', 'grep -rn foo src', 'cat .astrocode/PROJECT.md',
 ];
 
 for (const path of PATHS) {

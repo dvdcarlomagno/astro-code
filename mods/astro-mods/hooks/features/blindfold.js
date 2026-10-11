@@ -286,9 +286,13 @@ function searchRoots(kind, cmd, args, names) {
   return paths.length ? paths : ['.']
 }
 
+// Spellings of "here" / "the project root" that a search root or cd target may use. Read as `.`,
+// the session cwd, which is where a verifier runs (the project root); `reaches` then resolves it.
+const ROOTISH = /\$\{PWD\}|\$PWD\b|\$\(\s*pwd\s*\)|`\s*pwd\s*`|\$\(\s*git\s+rev-parse\s+--show-toplevel\s*\)|`\s*git\s+rev-parse\s+--show-toplevel\s*`/g
+
 // One command line (and, to depth 3, the `bash -c` / `lean-ctx -c` strings inside it).
 function bashScan(command, names, out, phaseNamed, depth) {
-  const segments = tokenize(command)
+  const segments = tokenize(String(command).replace(ROOTISH, '.'))
   const named = phaseNamed || segments.some((seg) => seg.some(namesPhaseDir))
   let dir = '' // the directory the last `cd` moved to, so a later relative operand is read from there
   const vars = new Map() // NAME=value words seen earlier, so `$NAME` / `${NAME}` reads as its value
@@ -338,11 +342,22 @@ function bashScan(command, names, out, phaseNamed, depth) {
     if (kind === 'grep' && !args.some((a) => RECURSIVE_GREP.test(a)) && args[args.indexOf('-d') + 1] !== 'recurse') kind = undefined
     if (cmd === 'find') kind = 'find'
     if (cmd === 'git') {
+      const ci = args.indexOf('-C')
+      if (ci >= 0 && args[ci + 1] !== undefined) {
+        const gdir = here(args[ci + 1])
+        for (const a of args) {
+          const t = a.includes(':') ? a.slice(a.lastIndexOf(':') + 1) : a
+          const hit = t && !isAbs(t) ? fileHit(gdir + '/' + t, names) : null
+          if (hit) out.hits.push(hit)
+        }
+      }
       let j = 0
       while (j < args.length && args[j].startsWith('-')) j += /^(-C|-c|--git-dir|--work-tree|--exec-path)$/.test(args[j]) ? 2 : 1
       if (args[j] === 'grep') { kind = 'git'; out.roots.push(...searchRoots('git', cmd, args.slice(j + 1), names).map((root) => ({ root: here(root) }))); continue }
     }
-    if (kind) out.roots.push(...searchRoots(kind, cmd, args, names).map((root) => ({ root: here(root) })))
+    const md = kind === 'find' ? args.indexOf('-maxdepth') : -1
+    const maxdepth = md >= 0 && /^\d+$/.test(args[md + 1] || '') ? Number(args[md + 1]) : undefined
+    if (kind) out.roots.push(...searchRoots(kind, cmd, args, names).map((root) => ({ root: here(root), maxdepth })))
   }
 }
 
@@ -367,7 +382,14 @@ function scan(e, names) {
     if (hit) out.hits.push(hit)
     out.roots.push({ root, glob: input.pattern.replace(/^\.\//, ''), names })
   }
-  if (typeof input.command === 'string') bashScan(input.command, names, out, false, 0)
+  if (typeof input.command === 'string') {
+    bashScan(input.command, names, out, false, 0)
+    // Any word, however wrapped (node -e, python -c, deep nesting), that spells out a forbidden
+    // file inside a phase dir. Text only: a plan path named in a command is reading it.
+    for (const m of input.command.matchAll(/\.astrocode[\\/]+phases[\\/]+[^\s'"`]+?[\\/]+([^\\/\s'"`]+\.md)\b/gi)) {
+      if (names.includes(m[1].toLowerCase())) out.hits.push(m[1])
+    }
+  }
   return out
 }
 
@@ -393,6 +415,8 @@ async function firstReach($, roots) {
     }
     const kind = await reaches($, r.root)
     if (!kind) continue
+    const need = { phasedir: 1, file: 0, phases: 2, astrocode: 3 }[kind] ?? 4
+    if (r.maxdepth !== undefined && r.maxdepth < need) continue // `find -maxdepth` too shallow to reach a plan
     if (r.glob === undefined) return r.root
     const re = globRe(r.glob)
     if (candidates(kind, r.names).some((c) => re.test(c))) return r.root
