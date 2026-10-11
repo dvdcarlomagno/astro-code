@@ -2857,7 +2857,7 @@ test('t2 (phase 14, C1): the wave integrator floors to sonnet when models.integr
   assert.strictEqual(byLabel(emptyCalls, 'integrate:w1').opts.model, 'sonnet', 'models:{} (project predating the key) must still floor to sonnet')
 })
 
-test('integrator on haiku (balanced/fast profile, ADR-035 revisited): the integrate call runs haiku at its low reasoning, and no other call in the run is haiku', async () => {
+test('integrator on haiku (balanced/fast profile, #125): the integrate call runs haiku at its low reasoning, and no other call in the run is haiku', async () => {
   const discoverTasks = threeIndependentTasks()
   const integ = { integrated: true, branches: ['worktree-t1', 'worktree-t2', 'worktree-t3'] }
   const args = {
