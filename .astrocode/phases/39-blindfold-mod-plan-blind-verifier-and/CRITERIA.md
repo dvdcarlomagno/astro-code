@@ -121,6 +121,26 @@ A NEW spelling found outside the corpus is **not** a C4 failure. Report it as a 
   criteria author) is allowed, or a search confined to allowed files or to source/tests is
   denied.
 
+#### Amendment to C5 (2026-10-11, approved by the user after four C5 verify rounds)
+Each round found subtler rg glob semantics: brace and list splitting, `--glob` overriding
+`--type`, case-sensitive and root-anchored negations, unnormalised absolute patterns, `~`.
+So "a search whose results could include" a forbidden file is **bounded to a corpus**:
+- the forms listed above;
+- the C5 test table in `tests/mods_blindfold.test.mjs` (the `a broad Grep or Glob over the
+  phases tree…` test), for both roles and both spawn paths. Its deny rows were checked against
+  real rg.
+
+**Fails if:**
+- any corpus row gets the wrong verdict;
+- the table was shrunk;
+- a row was weakened from deny to allow.
+
+A NEW spelling found outside the corpus is **not** a C5 failure. Report it as a finding
+(`outsideCriteria: true`) so it lands in the debt register and can be added to the corpus.
+
+**Out of scope:** another project's `.astrocode/phases` nested under the search root (e.g.
+`<P>/packages/sub/.astrocode`). Its plans are not this phase's plan.
+
 ### C6 — (join branch) Only the two plan-blind roles are affected: allowed files stay readable for them, and executors, planners, other agents and the main session read the plan freely
 - **Observe:** Engine drive, blindfold ON. Identified `astro-verifier` / `astro-criteria-author`
   `Read` of CRITERIA.md, CONTEXT.md, PROJECT.md, CONVENTIONS.md, `src/a.js`, and
