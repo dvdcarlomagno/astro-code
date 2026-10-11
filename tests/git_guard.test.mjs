@@ -277,3 +277,25 @@ test('C3/C4: spellings and wrappers that destroyed data in a real repo are refus
   table(BYPASS_FORMS, [R, WT], isRefused, ENV(HOME));
   intact(R);
 });
+
+// Round three (phase 38, third verify run), plus the shapes "ask when unsure" exists for: the
+// guard can't prove these scoped, so it asks. Each `R`-relative or `$PWD` pathspec names the
+// whole tree when run from the repo root.
+const UNSURE_FORMS = (R) => [
+  'git reset --h', 'git reset --h HEAD~1',
+  'git stash push -- "$PWD"', `git stash push -- ${R}`, 'git stash push -- src/..', "git stash push -- '**'",
+  "git stash push -- ':!x'", 'git checkout -- "$PWD"', "git checkout HEAD -- '**'", `git restore -- ${R}`,
+  "git restore -W -- '**'",
+  "env -S 'git stash -u'", "env --split-string='git stash -u'", 'env -S"git reset --hard"',
+  'git -C $(pwd) stash -u', 'git -C $(git rev-parse --show-toplevel) reset --hard', 'git -C $(pwd) clean -fd',
+  'git --git-dir=$(pwd)/.git stash -u', 'git --attr-source HEAD stash -u',
+  // unsure shapes
+  '$GIT stash -u', '"$(command -v git)" reset --hard', 'git $SUB -u', 'git --frobnicate stash',
+  'xargs git clean -f', 'watch git reset --hard', 'eval "git stash -u"', 'git checkout -- $TARGET',
+];
+
+test('C3/C4: whole-tree pathspecs, env -S, $(…) values and unreadable calls are asked about', () => {
+  const { HOME, R } = sandbox();
+  table(UNSURE_FORMS(R), [R], isRefused, ENV(HOME));
+  intact(R);
+});

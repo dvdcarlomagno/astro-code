@@ -23,14 +23,22 @@
 // (ADR-072: the switch IS the registration). Being registered means being on, so this script has
 // no config to consult and cannot disagree with `ac mods status`.
 //
-// ## Catching mistakes, not a sandbox
+// ## Ask when unsure
 //
 // Compound commands (`&&`, `||`, `;`, `|`, newlines), `cd`/env/`command`/`exec`/`sudo`/`env`/
-// `nice` prefixes, `git -C/-c/--git-dir` global options and one-level `sh -c`/`bash -c` are
-// seen, segment by segment. Aliases, `eval`, scripts, `xargs`, `$(…)` and lean-ctx's MCP
-// `ctx_shell` are out of scope. A git command merely QUOTED inside `echo`, `grep` or
-// `git commit -m "…"` is one word and never trips the guard. `cwd` never changes the verdict:
-// the stash stack is repository-wide, so a worktree is no safer than the shared tree.
+// `nice`/`timeout`/`stdbuf` prefixes, `git -C/-c/--git-dir` global options and one-level
+// `sh -c`/`bash -c`/`eval`/`env -S` are seen, segment by segment. A git command merely QUOTED
+// inside `echo`, `grep` or `git commit -m "…"` is one word and never trips the guard.
+//
+// Three verify rounds proved that a parser which ALLOWS whatever it can't read never closes:
+// each round found new same-effect spellings (`--h` for --hard, `env -S`, `git -C $(pwd)`,
+// `-- "$PWD"`, `-- '**'`, an unknown global option hiding the subcommand). So the default is
+// flipped (decided with the user, phase 38): when a git word reaches stash/clean/reset/
+// checkout/restore and the guard cannot PROVE the call scoped — an expansion (`$…`, `$(…)`,
+// backticks), an unknown git global option, an unknown wrapper in front of `git`, a pathspec
+// that is magic, a glob, or resolves to `cwd` or above — it asks. One extra prompt on an odd
+// but safe command is the price; the user approves it, an agent is refused. Aliases, scripts
+// and lean-ctx's MCP `ctx_shell` (not a Bash tool call) stay out of reach.
 //
 // Why it also unwraps `lean-ctx -c '<cmd>'`: Claude runs matching hooks on the ORIGINAL
 // tool_input, so a sibling's rewrite never reaches us (F2). An agent that types the wrapper
@@ -48,6 +56,7 @@
 // which would auto-approve past the user's own permission rules. It spawns nothing and reads
 // nothing but stdin.
 import { readFileSync, realpathSync } from 'node:fs';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const VERDICT = 'ask';
@@ -55,8 +64,25 @@ export const CURSOR_VERDICT = 'deny';
 
 // ---------------------------------------------------------------- the refused set
 
-// A pathspec that names the whole tree. Literal on purpose: no glob or path resolution.
-const wholeTree = (w) => w === '.' || w === ':/' || w === ':/.' || w === ':(top)' || w === '*' || /^(\.\/)+\.?$/.test(w);
+// The subcommands whose unscoped form destroys work. A git call reaching one of these that the
+// guard cannot read fully is asked about (see "Ask when unsure").
+const DANGER = new Set(['stash', 'clean', 'reset', 'checkout', 'restore']);
+
+// An expansion the guard cannot resolve: `$VAR`, `$(…)`, backticks.
+const dynamic = (w) => /[$`]/.test(w);
+
+// The hook's `cwd`, set per call by decide(); pathspecs are resolved against it.
+let CWD = null;
+
+// A pathspec that may name the whole tree: `.`-style literals, any pathspec magic (`:/`, `:!x`,
+// `:(top)`), any glob, any expansion, or a path that resolves to `cwd` or one of its ancestors
+// (`"$PWD"`, the absolute repo root, `src/..`). Conservative on purpose: unsure means ask.
+function wholeTree(w) {
+  if (w === '.' || /^(\.\/)+\.?$/.test(w) || w.startsWith(':') || /[*?[]/.test(w) || dynamic(w)) return true;
+  if (!CWD) return false;
+  const rel = relative(resolve(CWD, w), CWD);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
 
 // Operands of checkout/restore: bare words and everything after `--`. `valueFlags` eat a value.
 function operands(args, valueFlags = []) {
@@ -120,7 +146,8 @@ function cleanDryRun(args) {
 export const REFUSED = Object.freeze([
   { id: 'stash', form: 'git stash without a `-- <path>` pathspec', test: (sub, args) => sub === 'stash' && stashRefused(args) },
   { id: 'clean', form: 'git clean', test: (sub, args) => sub === 'clean' && !cleanDryRun(args) },
-  { id: 'reset', form: 'git reset --hard', test: (sub, args) => sub === 'reset' && args.some((a) => a.length > 3 && '--hard'.startsWith(a)) },
+  // git accepts any unambiguous prefix of a long option: `--h` already means --hard.
+  { id: 'reset', form: 'git reset --hard', test: (sub, args) => sub === 'reset' && args.some((a) => a.length >= 3 && '--hard'.startsWith(a)) },
   { id: 'checkout', form: 'whole-tree git checkout', test: (sub, args) => sub === 'checkout' && operands(args).some(wholeTree) },
   { id: 'restore', form: 'whole-tree git restore', test: (sub, args) => sub === 'restore' && operands(args, ['-s', '--source']).some(wholeTree) },
 ]);
@@ -130,7 +157,9 @@ export const REFUSED = Object.freeze([
 const REDIR = Symbol('redir');
 
 // Split a command into segments of plain words. Redirect operators and their targets are
-// dropped; heredoc bodies are skipped; `$(…)` and backticks are not descended into.
+// dropped; heredoc bodies are skipped. `$(…)` and backticks are kept verbatim inside their word
+// (not split on their parens), so `git -C $(pwd) stash` stays one segment and the word reads as
+// dynamic.
 function segments(s) {
   const segs = [];
   let toks = [];
@@ -154,6 +183,20 @@ function segments(s) {
     if (c === '\\') {
       if (s[i + 1] === '\n') i++;
       else if (i + 1 < s.length) add(s[++i]);
+    } else if (c === '$' && s[i + 1] === '(') {
+      let depth = 0;
+      let j = i + 1;
+      for (; j < s.length; j++) {
+        if (s[j] === '(') depth++;
+        else if (s[j] === ')' && --depth === 0) break;
+      }
+      cur = (cur ?? '') + s.slice(i, j + 1);
+      i = j;
+    } else if (c === '`') {
+      let j = s.indexOf('`', i + 1);
+      if (j < 0) j = s.length;
+      cur = (cur ?? '') + s.slice(i, j + 1);
+      i = j;
     } else if (c === "'") {
       cur ??= '';
       let j = s.indexOf("'", i + 1);
@@ -164,7 +207,16 @@ function segments(s) {
       cur ??= '';
       for (i++; i < s.length && s[i] !== '"'; i++) {
         if (s[i] === '\\' && i + 1 < s.length && '"\\$`\n'.includes(s[i + 1])) add(s[++i]);
-        else add(s[i]);
+        else if (s[i] === '$' && s[i + 1] === '(') {
+          let depth = 0;
+          let j = i + 1;
+          for (; j < s.length; j++) {
+            if (s[j] === '(') depth++;
+            else if (s[j] === ')' && --depth === 0) break;
+          }
+          add(s.slice(i, j + 1));
+          i = j;
+        } else add(s[i]);
       }
     } else if (c === ' ' || c === '\t') flush();
     else if (c === '#' && cur === null) { while (i + 1 < s.length && s[i + 1] !== '\n') i++; }
@@ -209,8 +261,14 @@ const base = (w) => w.slice(w.lastIndexOf('/') + 1);
 const KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{', '}']);
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash']);
 const GIT_VALUE_OPTS = new Set(['-C', '-c']);
-const GIT_VALUE_LONG = ['--git-dir', '--work-tree', '--namespace', '--config-env', '--exec-path'];
-const ENV_VALUE = new Set(['-u', '-C', '-S', '--unset', '--chdir', '--split-string']);
+const GIT_VALUE_LONG = ['--git-dir', '--work-tree', '--namespace', '--config-env', '--exec-path', '--super-prefix', '--attr-source', '--list-cmds'];
+// git global flags that take no value. Anything else before the subcommand is unknown: the guard
+// can't tell whether it eats the next word, so it can't find the subcommand for sure.
+const GIT_FLAGS = new Set(['-p', '--paginate', '-P', '--no-pager', '--bare', '--no-replace-objects',
+  '--no-lazy-fetch', '--literal-pathspecs', '--glob-pathspecs', '--noglob-pathspecs', '--icase-pathspecs',
+  '--no-optional-locks', '--no-advice', '--exec-path', '--html-path', '--man-path', '--info-path']);
+const ENV_VALUE = new Set(['-u', '-C', '--unset', '--chdir']);
+const ENV_SPLIT = new Set(['-S', '--split-string']);
 const SUDO_VALUE = new Set(['-u', '-g', '-h', '-p', '-C', '-D', '-R', '-T', '-U']);
 
 // Drop leading assignments, keywords and wrapper commands until the real command word.
@@ -228,7 +286,18 @@ function stripPrefixes(w) {
       while (i < w.length && w[i].startsWith('-')) i += w[i] === '-a' ? 2 : 1;
     } else if (b === 'env') {
       i++;
-      while (i < w.length && (w[i].startsWith('-') || /^[A-Za-z_]\w*=/.test(w[i]))) i += ENV_VALUE.has(w[i]) ? 2 : 1;
+      while (i < w.length && (w[i].startsWith('-') || /^[A-Za-z_]\w*=/.test(w[i]))) {
+        // `env -S '<cmd>'` / `--split-string=<cmd>`: the value IS the command line; judge it whole.
+        const split = ENV_SPLIT.has(w[i]) ? w[i + 1]
+          : w[i].startsWith('--split-string=') ? w[i].slice('--split-string='.length)
+          : /^-S./.test(w[i]) ? w[i].slice(2) : null;
+        if (split != null) {
+          const out = [];
+          out.split = [split, ...w.slice(i + (ENV_SPLIT.has(w[i]) ? 2 : 1))].join(' ');
+          return out;
+        }
+        i += ENV_VALUE.has(w[i]) ? 2 : 1;
+      }
     } else if (b === 'timeout') {
       i++;
       while (i < w.length && w[i].startsWith('-')) i += ['-s', '--signal', '-k', '--kill-after'].includes(w[i]) ? 2 : 1;
@@ -247,24 +316,32 @@ function stripPrefixes(w) {
   return w.slice(i);
 }
 
+const UNSURE = { id: 'unsure', form: 'a git call the guard could not show to be scoped' };
+const unsure = (words) => (words.some((w) => DANGER.has(w)) ? { ...UNSURE, segment: words.join(' ') } : null);
+
 function judgeGit(words, depth) {
   let i = 1;
   while (i < words.length) {
     const t = words[i];
-    if (GIT_VALUE_OPTS.has(t)) i += 2;
-    else if (GIT_VALUE_LONG.some((o) => t === o)) i += 2;
-    else if (t.startsWith('-') && t.length > 1) i++; // any other global flag or `--opt=value`
+    if (GIT_VALUE_OPTS.has(t) || GIT_VALUE_LONG.includes(t)) i += 2;
+    else if (GIT_FLAGS.has(t) || GIT_VALUE_LONG.some((o) => t.startsWith(`${o}=`)) || /^-c./.test(t) || /^-C./.test(t)) i++;
+    else if (t.startsWith('-') && t.length > 1) return unsure(words.slice(i)); // unknown: may eat the next word
     else break;
   }
   const sub = words[i];
   if (!sub) return null;
+  if (dynamic(sub)) return { ...UNSURE, segment: words.join(' ') }; // could be any subcommand
   const args = words.slice(i + 1);
   const hit = REFUSED.find((r) => r.test(sub, args));
-  return hit ? { id: hit.id, form: hit.form, segment: words.join(' ') } : null;
+  if (hit) return { id: hit.id, form: hit.form, segment: words.join(' ') };
+  // A destructive subcommand the refused set let through, with an argument the guard can't read.
+  if (DANGER.has(sub) && args.some(dynamic)) return { ...UNSURE, segment: words.join(' ') };
+  return null;
 }
 
 function judgeSegment(raw, depth) {
   const words = stripPrefixes(raw);
+  if (words.split != null) return judgeCommand(words.split, depth + 1);
   if (!words.length) return null;
   const cmd = base(words[0]);
   if (cmd === 'git') return judgeGit(words, depth);
@@ -272,6 +349,13 @@ function judgeSegment(raw, depth) {
     const ci = words.findIndex((a, k) => k > 0 && (cmd === 'lean-ctx' ? a === '-c' : /^-[A-Za-z]*c[A-Za-z]*$/.test(a)));
     if (ci > 0 && typeof words[ci + 1] === 'string') return judgeCommand(words[ci + 1], depth + 1);
   }
+  if (cmd === 'eval') return judgeCommand(words.slice(1).join(' '), depth + 1);
+  // `$GIT stash -u`, `"$(which git)" reset --hard`: the command word itself is an expansion.
+  if (dynamic(words[0])) return unsure(words.slice(1));
+  // An unknown wrapper in front of a bare `git` word (`xargs git clean -f`, `watch git reset
+  // --hard`): judge from that word. A git command quoted inside one argument is one word, not `git`.
+  const gi = words.findIndex((w, k) => k > 0 && base(w) === 'git');
+  if (gi > 0) return judgeGit(words.slice(gi), depth);
   return null;
 }
 
@@ -291,7 +375,9 @@ export function reasonFor(hit, verdict) {
   const seg = hit.segment.length > 120 ? `${hit.segment.slice(0, 117)}...` : hit.segment;
   const approve = verdict === 'ask' ? 'approve this call if you meant it, or ' : '';
   return [
-    `git-guard: \`${seg}\` is an unscoped destructive git command (${hit.form}).`,
+    hit.id === 'unsure'
+      ? `git-guard: \`${seg}\` may be an unscoped destructive git command (${hit.form}).`
+      : `git-guard: \`${seg}\` is an unscoped destructive git command (${hit.form}).`,
     'Rule: no bare stash, git clean, git reset --hard or whole-tree checkout/restore (ADR-035, ADR-038).',
     'Why: refs/stash is repository-wide even from a worktree; a finished plan was destroyed this way.',
     'Use instead: `git stash push -- <path>…` then `git stash pop`; a broken task is dropped and re-run (ADR-014).',
@@ -305,6 +391,7 @@ export function decide(input, { cursor = false } = {}) {
   if (input.tool_name !== 'Bash' && input.tool_name !== 'Shell') return null;
   const command = input.tool_input?.command;
   if (typeof command !== 'string') return null;
+  CWD = typeof input.cwd === 'string' && isAbsolute(input.cwd) ? input.cwd : null;
   const hit = judgeCommand(command);
   if (!hit) return null;
   const isCursor = cursor || input.hook_event_name === 'preToolUse';
