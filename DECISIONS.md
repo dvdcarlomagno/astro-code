@@ -479,3 +479,10 @@ _2026-10-11 · at d8b1268_
 
 **Rejected:** keeping the haiku ban; enforcing it at spawn time in the spawn-policy mod
 
+## ADR-074 — Acceptance provenance is declared everywhere and witnessed where the host allows: on Claude Code with the witness mod on, a human-gate command (phase accept/reject, fix accept, the discuss 'captured' marker) counts as human only when the turn began with the human typing the matching command at the composer; otherwise witness adds --agent, and a witnessed sign-off records accepted_evidence 'composer'. Amends ADR-033's 'never detected'
+_2026-10-11 · at d6b0961_
+
+**Why:** ADR-033 rejected detection because the human's own accepts also run through an agent, so env or harness signals would manufacture false confidence. A mod sees a stronger signal ac cannot: whether the human typed the prompt that started the turn (origin.kind 'composer', PROBE.md phase 36). Requiring the specific gate command, not any human-started turn, keeps an autonomous turn the human merely kicked off from reading as a sign-off. Elsewhere (Codex, Cursor, mod off) provenance stays declared, and the record says which.
+
+**Rejected:** any human-started turn counts (an autonomous turn would read as human); denying unwitnessed accepts (unattended runs would stall); annotating instead of correcting (the record would still say human)
+
