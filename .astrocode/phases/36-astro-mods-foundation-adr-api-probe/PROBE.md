@@ -154,3 +154,39 @@ surface, teammate message) is `not observed`. `command.run.presentation` observe
 - **F5** a local-directory marketplace is read from the folder (`readFromFolder`); `ac install`
   / `ac update` refresh `~/.astro/code/mods` and a session picks it up on `/reload-plugins`;
   `claude plugin update` is then mostly `up_to_date`, and is still run.
+
+## Live lifecycle check
+
+Claude Code **2.1.292**, 2026-10-11. Every run in a throwaway `HOME` (`mktemp -d`, no inherited
+`CLAUDE_CONFIG_DIR`), `claude` behind a logging wrapper, `PATH` = wrapper + node + `/usr/bin:/bin`.
+Never the real `~/.astro` or `~/.claude`.
+
+- Gate 1, `node --test tests/` (claude on PATH): 1675 pass, 0 fail, 0 skipped.
+- Gate 2, NO-CLAUDE PATH (`command -v claude` empty): 1671 pass, 0 fail, 4 skipped (the four
+  live `claude plugin validate|test` tests, "no claude on PATH").
+- Gate 5 (C15), fresh `git clone` of the branch, no `node_modules`: 1671 pass, 0 fail, 4 skipped
+  (the unrelated "no astro checkout" kit tests); `dependencies` + `devDependencies` is empty.
+
+| criterion | outcome |
+|---|---|
+| C1 | ADR-071 recorded with `ac decision add` (shared registry); `ac backlog list` still shows `2026-09-22-a-plugin-surface-for-adopters-with` open. |
+| C2 | `ac mods status` / `--json` / `status blindfold` from a non-project cwd: 8 features off, kinds `hhmmmmmm`, claude 2.1.292, plugin not installed; `~/.astro/config.json` not created. |
+| C3 | siblings (`agent_tools`, `other`) preserved, only the named switch flips, "not built yet" printed; `{oops` refused with an unchanged sha256. |
+| C4 | `enable blindfolds`, `disable nope`, `status nope`: each exit 1, `✖` with the 8 names, config sha256 unchanged, no `plugin` call from these commands. |
+| C5 | OLD stub 2.1.287: `enable blindfold` exit 0, exactly one `2.1.292` line, no `plugin` call; `enable canon-guard` prints no floor line. NO-CLAUDE: `enable witness` records it, "no Claude Code found", no `~/.astro/code` created, `status --json` -> `claude.found:false`. |
+| C6 | `ac install` then `mods enable blindfold`: marketplace `astro-code` sourced from `$T/.astro/code/mods`, `astro-mods@astro-code` installed; `enable witness` adds no second install; disabling both leaves it installed, log has no `uninstall` / `marketplace remove`. |
+| C7 | foreign `astro-code` marketplace at `$T/other`: `enable blindfold` exit 1 with a `fix:` line, marketplace still sourced from `$T/other`, status shows blindfold on and `canTakeEffect:false`. |
+| C8 | `ac install`: exactly one `ac mods enable` offer line; plugin not installed; no switch on; `claude plugin validate` passes on `~/.astro/code/mods` and `…/mods/astro-mods`. OLD stub and NO-CLAUDE: no offer, no `plugin` call, exit 0. |
+| C9 | local `git clone`: case A update makes no `plugin install|update` call and installs nothing; case B update logs `plugin update astro-mods@astro-code -y --json` per dir and prints `✓ astro-mods refreshed`; `ac uninstall` then leaves `claude plugin list` and `marketplace list` empty. |
+| C10 | **CLAUDE_CONFIG_DIR fan-out observed:** with a jean-claude profile `p2`, `mods enable blindfold` installed the plugin in the default dir AND `CLAUDE_CONFIG_DIR=$T/p2` (`claude plugin list` and `marketplace list` both show it there); `status --json` reports `base:true:ours p2:true:ours`; uninstall cleared both. A failed install leaves no half-installed dir (unit + CLI tests). |
+| C11 | `claude plugin validate --strict` passes for `mods`, `mods/astro-mods` and `scripts/mods-probe`; `claude plugin test mods/astro-mods` passes (2 tests); under the NO-CLAUDE PATH the suite skips them cleanly. |
+| C12 | `tests/mods_plugin.test.mjs`: all switches off or on, `ac` missing / exit 1 / non-JSON / hung / wrong shape, toast that throws: every case passes `session.start` through, exactly one notice across three invocations. |
+| C13 | this file: version 2.1.292, Workflow-spawned agents observed (run 1), missing fields listed as `not observed`; probe loadable; the skeleton reads no event field. |
+| C14 | in a copy: `Run \`ac mods enable blindfold\` before continuing.` on a command fails the suite and names the file; `Requires the astro-mods plugin.` on an agent fails it; the `Optionally, …` sentence passes. |
+| C15 | see gate 5 above. |
+
+Defect found and fixed while running this: the plugin validator follows `$` only into
+functions declared in the same file, so passing `$` as an ARGUMENT to an imported function
+(`loadSwitches($)`) fails to load. `$.process.run` is therefore spelled in `register.js` and
+`switches.js` takes its result. A hook function imported from a sibling that uses its own `$`
+parameter (as `failOpen` does) is fine; later feature modules must not hand `$` to helpers.
