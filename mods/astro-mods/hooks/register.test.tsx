@@ -46,3 +46,39 @@ test('blindfold denies an identified astro-verifier reading PLAN.md and leaves t
   const main = await $.tool.check(PLAN_READ)
   expect(main).toEqual({ decision: 'allow' })
 })
+
+// spawn-policy (phase 40) is UNBUILT: PROBE.md (phase 40) records that no spawn-time field
+// reveals worktree isolation or a concurrent executor, so nothing refuses. This characterisation
+// test pins that with the switch ON: every spawn passes through exactly as the engine beneath
+// answered, and `model` is never refused, filled or changed (ADR-073: no haiku refusal;
+// CONTEXT decision 2: spawn-policy never touches model; local-model sessions spawn with none on
+// purpose). A signal-branch replan revises case (i).
+test('with spawn-policy on, every spawn passes through untouched and its model is never changed', async ($, on) => {
+  const seen: Array<{ subagentType?: string, model?: string }> = []
+  let n = 0
+  on('process.run', () => ({ value: ran(JSON.stringify({ switches: { 'spawn-policy': true }, warnings: [] })) }))
+  on('session.start', (_$, e) => ({ cwd: e.cwd }))
+  on('agent.spawn', (_$, e) => {
+    seen.push({ subagentType: e.subagentType, model: e.model })
+    return { model: e.model ?? 'inherit', agentId: `a${++n}` }
+  })
+  await $.session.start(START)
+  // (i) two overlapping wave executors with no cwd, the Workflow shape phase-36 PROBE records;
+  // (ii) an Agent-tool executor; (iii) a verifier
+  const shapes = [
+    { ...SPAWN, subagentType: 'astro-executor', workflow: { runId: 'wf_x', agentIndex: 2 } },
+    { ...SPAWN, subagentType: 'astro-executor', workflow: { runId: 'wf_x', agentIndex: 3 } },
+    { ...SPAWN, subagentType: 'astro-executor' },
+    { ...SPAWN, subagentType: 'astro-verifier' },
+  ]
+  for (const shape of shapes) {
+    for (const model of ['haiku', 'sonnet', 'opus', undefined]) {
+      const before = seen.length
+      const ev = { ...shape, model }
+      const result = await $.agent.spawn(ev as typeof SPAWN)
+      expect(result).toEqual({ model: model ?? 'inherit', agentId: `a${n}` })
+      expect(seen.length).toEqual(before + 1)
+      expect(seen[before].model).toEqual(model)
+    }
+  }
+})
