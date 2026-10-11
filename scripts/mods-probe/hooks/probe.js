@@ -10,12 +10,14 @@
 //   ASTRO_MODS_PROBE_LOG=/abs/x.jsonl claude --plugin-dir <abs>/scripts/mods-probe
 // then drive a real session (e.g. `/astro-execute <n>` for Workflow-spawned agents).
 //
-// One JSONL line per event: { event, at, keys: Object.keys(e), fields }.
+// One JSONL line per event: { event, at, keys: Object.keys(e), fields } (+ `result` on
+// tool.check: the verdict next(e) answered, i.e. the decision).
 // Redaction (the log is never committed, but it must still never hold secrets):
 //   - scalars and short strings are copied in full;
 //   - `prompt`, `text`, `content`, `description` are cut to 80 chars plus the length;
-//   - `input` of tool.* is reduced to { key: { type, length } } -- file contents and
-//     commands never reach the log;
+//   - `input` of tool.check, and every argument key of tool.call (which spreads the tool's
+//     arguments onto the event beside tool / tool_use_id / agentId), is reduced to
+//     { key: { type, length } } -- file contents and commands never reach the log;
 //   - nested objects (origin, workflow, provider) are kept to depth 2, same truncation.
 //
 // The log is appended through $.fs, which only has read/write: read the file, add the
@@ -45,10 +47,13 @@ function clean(key, value, depth) {
   return out
 }
 
+const CALL_META = new Set(['tool', 'tool_use_id', 'agentId'])
+
 function fieldsOf(event, e) {
   const fields = {}
   for (const k of Object.keys(e ?? {})) {
-    if (k === 'input' && event.startsWith('tool.')) {
+    if (event === 'tool.call' && !CALL_META.has(k)) fields[k] = shape(e[k])
+    else if (k === 'input' && event === 'tool.check') {
       const input = e[k]
       fields[k] = input && typeof input === 'object'
         ? Object.fromEntries(Object.keys(input).map(key => [key, shape(input[key])]))
@@ -60,11 +65,11 @@ function fieldsOf(event, e) {
 
 let chain = Promise.resolve()
 
-async function record($, event, e) {
+async function record($, event, e, result) {
   try {
     const path = await $.env.get('ASTRO_MODS_PROBE_LOG')
     if (!path) return
-    const line = JSON.stringify({ event, at: new Date().toISOString(), keys: Object.keys(e ?? {}), fields: fieldsOf(event, e) })
+    const line = JSON.stringify({ event, at: new Date().toISOString(), keys: Object.keys(e ?? {}), fields: fieldsOf(event, e), ...(result === undefined ? {} : { result: clean('result', result, 0) }) })
     chain = chain.then(async () => {
       const prior = (await $.fs.exists(path)) ? await $.fs.read(path) : ''
       await $.fs.write(path, prior + line + '\n')
@@ -84,8 +89,10 @@ async function onToolCall($, e, next) {
   return next(e)
 }
 async function onToolCheck($, e, next) {
-  await record($, 'tool.check', e)
-  return next(e)
+  // the verdict is what next(e) answered -- logged beside the event, returned untouched
+  const verdict = await next(e)
+  await record($, 'tool.check', e, verdict)
+  return verdict
 }
 async function onAgentSpawn($, e, next) {
   await record($, 'agent.spawn', e)
