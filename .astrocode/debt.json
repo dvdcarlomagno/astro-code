@@ -253,12 +253,14 @@
     {
       "id": "2026-10-11-ac-mods-enable-of-a-mod-feature-before",
       "title": "ac mods enable of a mod feature before the marketplace is shipped gives a raw claude error with no fix line",
-      "status": "open",
+      "status": "dropped",
       "cost": "small",
       "found_at": "2026-10-11T09:33:09.567Z",
       "why": "In a sandbox where `ac install`/`ac update` has not yet copied mods/ into ~/.astro/code/mods (for example a user who upgraded the global CLI and skipped `ac install`), `ac mods enable phase-band` on claude 2.1.292 records the switch, then prints '⚠ ... claude plugin marketplace add failed (invalid_source): ✘ Path does not exist: ~/.astro/code/mods' and exits 1, with no 'run ac install' hint. C6/C8 only exercise the after-install path and C7 covers only the name collision, so no criterion covers this.",
       "phase": "36",
-      "file": "lib/mods.mjs"
+      "file": "lib/mods.mjs",
+      "dropped_at": "2026-10-11T18:05:20.336Z",
+      "drop_reason": "fixed in phase 39 t3: install-first line, switch recorded"
     },
     {
       "id": "2026-10-11-ac-mods-status-creates-claude-as-a-side",

@@ -615,3 +615,28 @@ test('real claude: a Cursor-only ac install is unchanged by an earlier ac mods s
   };
   assert.deepEqual(wiring(true), wiring(false));
 });
+
+// ── phase 39: enabling a mod before `ac install` ─────────────────────────────
+
+test('enable blindfold and enable witness before ac install: one install-first line, no raw marketplace error, switch recorded', () => {
+  const b = box();
+  for (const feature of ['blindfold', 'witness']) {
+    const r = b.ac(['mods', 'enable', feature]);
+    assert.equal(r.status, 0, out(r));
+    assert.equal(out(r).split('\n').filter((l) => /run `ac install` first/.test(l)).length, 1, out(r));
+    assert.doesNotMatch(out(r), /marketplace add/);
+    assert.deepEqual(pluginLines(b), []);
+  }
+  const on = b.status().features.filter((f) => f.on).map((f) => f.name);
+  assert.deepEqual(on, ['blindfold', 'witness']);
+});
+
+test('after ac install the same enable installs the plugin and prints no install-first line', () => {
+  const b = box();
+  assert.equal(b.ac(['mods', 'enable', 'blindfold']).status, 0);
+  assert.equal(b.ac(['install']).status, 0);
+  const r = b.ac(['mods', 'enable', 'blindfold']);
+  assert.equal(r.status, 0, out(r));
+  assert.doesNotMatch(out(r), /install` first/);
+  assert.equal(b.status().plugin.installed, true);
+});

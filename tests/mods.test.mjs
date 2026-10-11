@@ -375,12 +375,38 @@ test('enableMod on a mod feature with an old claude records the switch and insta
 test('enableMod on a mod feature at the floor installs the plugin through ensurePlugin', async () => {
   const { enableMod } = await mods();
   const h = home();
+  mkdirSync(join(h, '.astro', 'code', 'mods'), { recursive: true });
   const fake = fakeClaude();
   const r = enableMod({ home: h, run: fake.run, targets: twoDirs(h), feature: 'blindfold' });
   assert.equal(r.claude, 'ok');
   assert.deepEqual(r.plugin.map((p) => p.outcome), ['installed', 'installed']);
   assert.equal(r.built, false);
   assert.equal(r.phase, 39);
+});
+
+test('enableMod of a mod before ac install ships the marketplace records the switch, runs no plugin command and says install is needed', async () => {
+  const { enableMod, readMods } = await mods();
+  const h = home();
+  const fake = fakeClaude();
+  const r = enableMod({ home: h, run: fake.run, targets: twoDirs(h), feature: 'blindfold' });
+  assert.equal(r.ok, true);
+  assert.equal(r.claude, 'ok');
+  assert.equal(r.install, 'needed');
+  assert.equal(r.plugin, null);
+  assert.equal(fake.plugin().length, 0);
+  assert.equal(readMods({ home: h }).switches.blindfold, true);
+  // with the marketplace shipped it installs as before
+  mkdirSync(join(h, '.astro', 'code', 'mods'), { recursive: true });
+  const again = enableMod({ home: h, run: fake.run, targets: twoDirs(h), feature: 'blindfold' });
+  assert.equal(again.install, undefined);
+  assert.deepEqual(again.plugin.map((p) => p.outcome), ['installed', 'installed']);
+});
+
+test('enableMod before install still reports an old or absent claude as before', async () => {
+  const { enableMod } = await mods();
+  const h = home();
+  assert.equal(enableMod({ home: h, run: fakeClaude({ version: '2.1.287' }).run, targets: twoDirs(h), feature: 'witness' }).claude, 'old');
+  assert.equal(enableMod({ home: h, run: fakeClaude({ missing: true }).run, targets: twoDirs(h), feature: 'witness' }).claude, 'absent');
 });
 
 // ── canon-guard: the switch is the registration (phase 37, ADR-072) ─────────
