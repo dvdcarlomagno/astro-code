@@ -21,7 +21,8 @@
     "agents",
     "workflows",
     "hooks",
-    "templates"
+    "templates",
+    "mods"
   ],
   "license": "MIT"
 }

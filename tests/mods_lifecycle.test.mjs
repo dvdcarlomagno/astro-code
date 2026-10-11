@@ -42,6 +42,7 @@ function clone(T) {
   const remote = join(T, 'remote.git');
   const c = join(T, 'clone');
   const git = (args, cwd) => spawnSync('git', args, { cwd, encoding: 'utf8' });
+  mkdirSync(join(T, '.claude'), { recursive: true }); // update wires an existing config dir, as hooks-update.test.mjs does
   git(['init', '--bare', '-b', 'main', remote], T);
   git(['clone', remote, c], T);
   for (const [k, v] of [['user.email', 'a@b.c'], ['user.name', 'Test']]) git(['config', k, v], c);

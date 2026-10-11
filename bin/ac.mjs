@@ -20,6 +20,14 @@ function effectiveConfig(cfg) {
   const s = localModelSession();
   return s.local ? { ...cfg, models: sessionModels(), reasoning: {} } : withUserRoleDefaults(cfg).cfg;
 }
+// Phase 36 -- the `claude plugin` commands exist only from the floor up, and astro-mods can
+// only have been installed on a Claude at or above it; below it (or with none) every mods
+// step of install/update/uninstall is silent (ADR-030: an optional integration says nothing
+// when its host is absent).
+function claudeMeetsModFloor() {
+  const cv = claudeVersion();
+  return !!(cv.found && cv.version && compareVersions(cv.version, MOD_FLOOR) >= 0);
+}
 // #93 — one line for what `agent_tools` in ~/.astro/config.json added, warnings on stderr.
 function reportAgentTools(res) {
   const at = res && res.agentTools;
@@ -111,7 +119,7 @@ import {
 } from '../lib/fleet.mjs';
 import { reportOutcome } from '../hooks/_astro-fleet.mjs';
 import { configTargets } from '../lib/hosts/claude.mjs';
-import { FEATURES, MOD_FLOOR, readMods, modsStatus, enableMod, disableMod } from '../lib/mods.mjs';
+import { FEATURES, MOD_FLOOR, readMods, modsStatus, enableMod, disableMod, claudeVersion, compareVersions, updatePlugin, removePlugin } from '../lib/mods.mjs';
 
 function parseArgs(args) {
   const flags = {};
@@ -2867,6 +2875,7 @@ async function main() {
         reportHookSkips(t);
       }
       reportAgentTools(res);
+      if (claudeMeetsModFloor()) console.log('• optional on Claude Code: enforcement mods — see `ac mods status`, turn one on with `ac mods enable <feature>`');
       console.log('  after pulling updates, refresh the global CLI: npm install -g .');
       return;
     }
@@ -2967,6 +2976,15 @@ async function main() {
     }
 
     case 'uninstall': {
+      // astro-mods FIRST: the marketplace Claude holds points INTO the astro home that
+      // uninstallClaude() deletes, so removing the plugin afterwards would leave a dangling
+      // marketplace registered in every profile. Silent without a qualifying claude.
+      if (claudeMeetsModFloor()) {
+        for (const r of removePlugin()) {
+          if (r.outcome === 'removed') console.log(`✓ astro-mods removed → ${r.dir} [${r.label}]`);
+          else if (r.outcome === 'failed') console.error(`⚠ astro-mods removal failed in ${r.dir} [${r.label}]: ${r.message}`);
+        }
+      }
       // The fleet hook runs from ~/.astro/code/hooks, which uninstall deletes: leaving
       // its settings.json entries behind would fail on every tool call in every session.
       const fleet = fleetStatus();
@@ -3048,6 +3066,13 @@ async function main() {
         }
       }
       reportAgentTools(res);
+      // refresh astro-mods only where it is installed; an absent plugin is never installed here
+      if (claudeMeetsModFloor()) {
+        for (const r of updatePlugin()) {
+          if (r.outcome === 'updated') console.log(`✓ astro-mods refreshed → ${r.dir} [${r.label}]`);
+          else if (r.outcome === 'failed') console.error(`⚠ astro-mods refresh failed in ${r.dir} [${r.label}]: ${r.message}`);
+        }
+      }
       let version = '?';
       try { version = (JSON.parse(readFileSync(join(clone, 'package.json'), 'utf8')) || {}).version || '?'; } catch { /* ignore */ }
       console.log(`✓ astro-code is now at v${version} — restart Claude Code if the command list doesn't refresh`);
