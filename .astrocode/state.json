@@ -2,10 +2,10 @@
   "version": 1,
   "project": "astro-code",
   "active_milestone": 12,
-  "active_phase": null,
+  "active_phase": "38-git-guard-pretooluse-settings-hook",
   "status": "planning",
   "decisions": [],
   "blockers": [],
-  "updated_at": "2026-10-11T16:24:00.814Z",
+  "updated_at": "2026-10-11T17:51:36.580Z",
   "activity": null
 }

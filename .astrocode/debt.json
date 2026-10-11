@@ -281,6 +281,66 @@
       "file": "hooks/astro-canon-guard.mjs"
     },
     {
+      "id": "2026-10-11-git-guard-allows-destructive-git-inside",
+      "title": "git-guard allows destructive git inside command substitution in arguments/assignments",
+      "status": "open",
+      "cost": "medium",
+      "found_at": "2026-10-11T17:51:36.752Z",
+      "why": "Run for real: `echo $(git stash -u)` and `X=$(git stash -u)` stashed, removed notes.txt and lost the a.js change; `echo \\`git reset --hard\\`` lost the a.js change; `: \"$(git clean -fd)\"` deleted notes.txt. All allowed: $(...) is only treated as unsure in the command or subcommand slot.",
+      "phase": "38",
+      "file": "/Users/buu/Development/astro-code/hooks/astro-git-guard.mjs"
+    },
+    {
+      "id": "2026-10-11-git-guard-allows-find-exec-git-stash",
+      "title": "git-guard allows find … -exec git stash \\;",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T17:51:36.935Z",
+      "why": "Run for real: `find . -maxdepth 0 -exec git stash \\;` stashed and lost the a.js change while allowed; the escaped ; is read as a stash subcommand and stashRefused treats unknown subcommands as safe.",
+      "phase": "38",
+      "file": "/Users/buu/Development/astro-code/hooks/astro-git-guard.mjs"
+    },
+    {
+      "id": "2026-10-11-git-guard-allows-same-effect-plumbing",
+      "title": "git-guard allows same-effect plumbing (read-tree --reset, checkout-index -f)",
+      "status": "open",
+      "cost": "medium",
+      "found_at": "2026-10-11T17:51:37.077Z",
+      "why": "Run for real: `git read-tree -u --reset HEAD` and `git checkout-index -a -f` each lost the uncommitted a.js change while allowed; neither is in DANGER, and covering them may need a decision first.",
+      "phase": "38",
+      "file": "/Users/buu/Development/astro-code/hooks/astro-git-guard.mjs"
+    },
+    {
+      "id": "2026-10-11-git-guard-allows-source-of-a-process",
+      "title": "git-guard allows source/. of a process substitution",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T17:51:37.009Z",
+      "why": "Run for real: `source <(echo \"git stash -u\")` (full damage) and `. <(echo \"git reset --hard\")` (a.js change lost) were allowed; the shell-reading-stdin check covers only bash/sh/zsh/dash.",
+      "phase": "38",
+      "file": "/Users/buu/Development/astro-code/hooks/astro-git-guard.mjs"
+    },
+    {
+      "id": "2026-10-11-git-guard-does-not-see-git-run-through",
+      "title": "git-guard does not see git run through other interpreters",
+      "status": "open",
+      "cost": "medium",
+      "found_at": "2026-10-11T17:51:37.152Z",
+      "why": "Run for real: `python3 -c \"import os; os.system('git stash -u')\"` stashed, deleted notes.txt and lost the a.js change while allowed; only sh/bash/zsh/dash/lean-ctx/eval/env -S bodies are unwrapped.",
+      "phase": "38",
+      "file": "/Users/buu/Development/astro-code/hooks/astro-git-guard.mjs"
+    },
+    {
+      "id": "2026-10-11-git-guard-is-bypassed-by-brace-expansion",
+      "title": "git-guard is bypassed by brace expansion",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T17:51:36.842Z",
+      "why": "Run for real: `git {stash,} -u` (full stash damage), `git reset --{hard,}` and `git checkout {.,}` (a.js change lost) were all allowed; the tokenizer does not expand braces.",
+      "phase": "38",
+      "file": "/Users/buu/Development/astro-code/hooks/astro-git-guard.mjs"
+    },
+    {
       "id": "2026-10-11-parity-guard-scans-commands-md-and",
       "title": "Parity guard scans commands/*.md and agents/*.md but not the agent prompts embedded in workflows/*.mjs",
       "status": "open",
