@@ -583,6 +583,16 @@
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:27.937Z",
       "status": "active"
+    },
+    {
+      "type": "phase",
+      "number": 44,
+      "milestone": 12,
+      "name": "live-capture mod: offer principle capture from human-typed prompts",
+      "owner": "matteo.alvazzi@gmail.com",
+      "branch": "develop",
+      "claimed_at": "2026-10-11T06:24:30.676Z",
+      "status": "active"
     }
   ]
 }
