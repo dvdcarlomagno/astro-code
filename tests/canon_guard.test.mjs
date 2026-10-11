@@ -156,6 +156,22 @@ test('C3: on a case-insensitive filesystem a differently-cased spelling is denie
   } finally { rmSync(S, { recursive: true, force: true }); }
 });
 
+test('C3: a differently-cased spelling of a not-yet-existing protected file is denied on any filesystem', () => {
+  // On macOS a Write to FIXES.json creates fixes.json; realpath can't fix the case of a
+  // file that isn't there yet, so the name itself must compare case-insensitively.
+  const { S, HOME, P } = sandbox();
+  try {
+    const env = ENV(HOME);
+    for (const n of ['fixes.json', 'debt.json', 'backlog.json']) rmSync(join(P, '.astrocode', n), { force: true });
+    for (const n of ['FIXES.json', 'Fixes.json', 'DEBT.json', 'Backlog.json', 'roadmap.JSON', 'ROADMAP.MD', 'decisions.IN-FORCE.md']) {
+      const w = feed(claudeEvent('Write', `.astrocode/${n}`, P), { env });
+      assert.ok(isDenied(w), `Write ${n}: expected deny, got status ${w.status} out=${w.stdout}`);
+      const b = feed(bashEvent(`echo x > .astrocode/${n}`, P), { env });
+      assert.ok(isDenied(b), `Bash > ${n}: expected deny, got status ${b.status} out=${b.stdout}`);
+    }
+  } finally { rmSync(S, { recursive: true, force: true }); }
+});
+
 test('C3: the principle store is protected, in the default place and under ASTRO_PRINCIPLES_DIR', () => {
   const { S, HOME, P } = sandbox();
   try {
@@ -263,6 +279,16 @@ test('C5: obvious Bash writes to a protected file are denied, segment by segment
       ['(cp /tmp/x .astrocode/roadmap.json)', P],
       ['(cd .astrocode && echo x > state.json)', P],
       [`echo x > ${P}/.astrocode/state.json`, '/tmp'],
+      // a shell keyword or brace in front of the command word
+      ['if [ -f .astrocode/state.json ]; then rm .astrocode/state.json; fi', P],
+      ['if true; then echo; else rm .astrocode/state.json; fi', P],
+      ['while false; do cp /tmp/x .astrocode/state.json; done', P],
+      ['for f in .astrocode/state.json; do sed -i s/a/b/ .astrocode/state.json; done', P],
+      ['{ rm .astrocode/state.json; }', P],
+      ['! rm .astrocode/fixes.json', P],
+      // the shell performs the redirect, even on an ac or git line
+      ['ac status > .astrocode/state.json', P],
+      ['git show HEAD:.astrocode/state.json > .astrocode/state.json', P],
     ];
     for (const [command, cwd] of cases) {
       const r = feed(bashEvent(command, cwd), { env });

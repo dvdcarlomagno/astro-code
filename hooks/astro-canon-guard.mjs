@@ -98,8 +98,13 @@ function judge(p, cwd, env) {
   const expanded = p === '~' ? home : p.startsWith('~/') ? join(home, p.slice(2)) : p;
   const real = realpathDeep(resolve(cwd, expanded));
   const dir = dirname(real);
-  const hit = PROTECTED.find((e) => e.name && e.name === basename(real));
-  if (hit && basename(dir) === '.astrocode' && isDir(dir)) return { entry: hit, real, display: `.astrocode/${hit.name}` };
+  // Names compare case-insensitively. realpath's on-disk case only helps for a file that
+  // already exists: on a case-insensitive FS (macOS) a Write to a not-yet-existing
+  // FIXES.json creates fixes.json, which ac then reads. On a case-sensitive FS the same
+  // spelling is a stray file ac never reads; refusing it costs nothing.
+  const name = basename(real).toLowerCase();
+  const hit = PROTECTED.find((e) => e.name && e.name.toLowerCase() === name);
+  if (hit && basename(dir).toLowerCase() === '.astrocode' && isDir(dir)) return { entry: hit, real, display: `.astrocode/${hit.name}` };
   const rel = relative(realpathDeep(resolve(storeDir(env))), real);
   if (rel && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) {
     return { entry: PROTECTED.find((e) => e.store), real, display: `~/.astro/principles/${rel}` };
@@ -207,7 +212,11 @@ function tokenize(s, env) {
   return segs;
 }
 
-const PREFIXES = new Set(['sudo', 'command', 'env', 'time', 'nohup']);
+const PREFIXES = new Set(['sudo', 'command', 'env', 'time', 'nohup', 'exec']);
+// Shell reserved words that can stand in front of the real command word once tokenize has
+// split on `;`: `if [ … ]; then rm x; fi` leaves `then rm x` as a segment. Skipped like a
+// prefix, or the keyword becomes the command and the write goes unseen.
+const KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{', '}']);
 const SHELLS = new Set(['bash', 'sh', 'zsh']);
 const WRITE_REDIRECTS = new Set(['>', '>>', '>|', '&>', '&>>', '>&']);
 
@@ -266,11 +275,13 @@ function segmentTargets(toks, cwd, env, state) {
       addTarget(target);
     }
   }
-  while (words.length && (/^[A-Za-z_]\w*=/.test(words[0].w) || PREFIXES.has(words[0].w))) words.shift();
+  while (words.length && (/^[A-Za-z_]\w*=/.test(words[0].w) || PREFIXES.has(words[0].w) || KEYWORDS.has(words[0].w))) words.shift();
   if (!words.length) return out;
   const cmd = basename(words[0].w);
   const args = words.slice(1);
-  if (cmd === 'ac' || cmd === 'astrocode' || cmd === 'git') return [];
+  // ac and git are trusted with their own arguments, but a redirect is performed by the
+  // shell, not by them: `ac status > .astrocode/state.json` is a hand write.
+  if (cmd === 'ac' || cmd === 'astrocode' || cmd === 'git') return out;
 
   if (cmd === 'cd') {
     if (args.length === 1 && !args[0].dyn && args[0].w !== '-') state.cwd = resolve(state.cwd, args[0].w);
