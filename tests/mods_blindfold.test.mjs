@@ -138,6 +138,15 @@ const CMD_DENIED = [
   "/usr/local/bin/lean-ctx -c 'cat .astrocode/phases/39-x/PLAN.md'",
   'FOO=1 env cat .astrocode/phases/39-x/PLAN.md',
   'ls src; cat .astrocode/phases/39-x/PLAN.md',
+  // Phase 39 verify: a recursive-search root or a file operand relative to an earlier cd, and a
+  // phase path carried in a variable, reached the plan while allowed.
+  'cd .astrocode/phases; grep -r foo 39-x',
+  'cd .astrocode/phases && rg TODO 39-x',
+  'cd .astrocode && rg TODO phases',
+  'cd /work/proj/.astrocode && rg TODO phases',
+  'cd .astrocode && grep -rn foo phases/39-x',
+  'cd -- .astrocode/phases && cat 39-x/PLAN.md',
+  'D=.astrocode/phases/39-x; cat $D/PLAN.md',
 ];
 const CMD_ALLOWED = [
   'node --test tests/', 'cat .astrocode/phases/39-x/CRITERIA.md', 'git log --oneline -5', 'ls src',
