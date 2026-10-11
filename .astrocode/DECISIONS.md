@@ -472,3 +472,17 @@ _2026-10-11 · at b0bdfde_
 
 **Rejected:** one always-registered entry that reads ~/.astro/config.json on each call (a node start per tool call even when off)
 
+## ADR-073 — Haiku is the user's choice per role: ADR-035's 'no role runs haiku' ban is lifted; ac models may set haiku for any role, and the integrator's git-safety rules from ADR-035 stay in force
+_2026-10-11 · at d8b1268_
+
+**Why:** With Haiku 5.5, a cheap model can be right for simple roles, and the model per role is the user's decision, not the framework's. ADR-035's other parts (integrator destructive-git ban, branches[] pinned to source branches, zero-task phase is a hard FAIL, plan artifacts committed by /astro-plan, gitignored worktrees, agent-authored brief marker) are unchanged.
+
+**Rejected:** keeping the haiku ban; enforcing it at spawn time in the spawn-policy mod
+
+## ADR-074 — Acceptance provenance is declared everywhere and witnessed where the host allows: on Claude Code with the witness mod on, a human-gate command (phase accept/reject, fix accept, the discuss 'captured' marker) counts as human only when the turn began with the human typing the matching command at the composer; otherwise witness adds --agent, and a witnessed sign-off records accepted_evidence 'composer'. Amends ADR-033's 'never detected'
+_2026-10-11 · at d6b0961_
+
+**Why:** ADR-033 rejected detection because the human's own accepts also run through an agent, so env or harness signals would manufacture false confidence. A mod sees a stronger signal ac cannot: whether the human typed the prompt that started the turn (origin.kind 'composer', PROBE.md phase 36). Requiring the specific gate command, not any human-started turn, keeps an autonomous turn the human merely kicked off from reading as a sign-off. Elsewhere (Codex, Cursor, mod off) provenance stays declared, and the record says which.
+
+**Rejected:** any human-started turn counts (an autonomous turn would read as human); denying unwitnessed accepts (unattended runs would stall); annotating instead of correcting (the record would still say human)
+
