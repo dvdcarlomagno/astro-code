@@ -2,19 +2,9 @@
 // RED first (ADR-018): the plugin's modules arrive only through `await import(...)` inside the
 // test bodies, so a missing module fails each test on its own.
 //
-// The engine is a small in-test simulator, because the plugin is plain ESM that only needs
-// something to call `register(on)` and then drive its hooks the way Claude Code does:
-//   - `on(name, hook)` records the hook and returns `{ catch(h) }`;
-//   - an invocation that THROWS, REJECTS or OVERRUNS the budget goes to the recorded `.catch`
-//     handler with `next` augmented by `error` and `called` -- the fail-open mechanism the
-//     real validator accepts (PROBE.md F3), which is why the plugin has no wrapper of its own;
-//   - `$` has just `process.run` and `ui.toast`, both recorders. Anything else the plugin
-//     reached for would be undefined and surface as a failed hook (and a toast).
-// Event shapes come from PROBE.md: `session.start` is `{ cwd, surface, isInteractive }`.
-//
-// register() starts a clean slate (every switch off, the once-per-session notice re-armed), so
-// each test registers a fresh simulated engine against the same module instance: the plugin's
-// sibling modules are cached by Node and a `?query` on register.js would not reach them.
+// The engine is the shared simulator in fixtures/mods_engine.mjs (phase 39 moved it there so the
+// blindfold suite drives the same hooks). Event shapes come from PROBE.md: `session.start` is
+// `{ cwd, surface, isInteractive }`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
@@ -23,60 +13,35 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
+import { boot, answer, switches, NAMES, SESSION_START, BENEATH } from './fixtures/mods_engine.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = join(ROOT, 'mods', 'astro-mods');
 const HOOKS = join(PLUGIN, 'hooks');
-const PROBE_MD = join(ROOT, '.astrocode', 'phases', '36-astro-mods-foundation-adr-api-probe', 'PROBE.md');
-const NAMES = ['canon-guard', 'git-guard', 'blindfold', 'spawn-policy', 'witness', 'brief-section', 'phase-band', 'live-capture'];
+const PROBE_MDS = [
+  join(ROOT, '.astrocode', 'phases', '36-astro-mods-foundation-adr-api-probe', 'PROBE.md'),
+  join(ROOT, '.astrocode', 'phases', '39-blindfold-mod-plan-blind-verifier-and', 'PROBE.md'),
+];
 const ARGV = ['ac', 'mods', 'status', '--json', '--switches-only'];
-const SESSION_START = { cwd: '/work/proj', surface: null, isInteractive: false };
-
-const plugin = () => import('../mods/astro-mods/hooks/register.js');
-const switches = (over = {}) => ({ switches: { ...Object.fromEntries(NAMES.map((n) => [n, false])), ...over }, warnings: [] });
-const answer = (obj) => async () => ({ exitCode: 0, stdout: JSON.stringify(obj), stderr: '', isStdoutTruncated: false, isStderrTruncated: false });
-
-async function boot(runImpl, { toastThrows = false } = {}) {
-  const { register } = await plugin();
-  const hooks = [];
-  const on = (name, hook) => {
-    const rec = { name, hook, catchHandler: null };
-    hooks.push(rec);
-    return { catch(h) { rec.catchHandler = h; return this; } };
-  };
-  const runs = [];
-  const toasts = [];
-  const $ = {
-    process: { run: (argv, init) => { runs.push({ argv, init }); return runImpl(argv, init); } },
-    ui: { toast: (text) => { toasts.push(text); if (toastThrows) throw new Error('no UI under -p'); } },
-  };
-  register(on, {});
-  async function invoke(name, e, budgetMs = 10000) {
-    const rec = hooks.find((h) => h.name === name);
-    const next = Object.assign((x) => x, { called: false });
-    let timer;
-    try {
-      const overrun = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('hook overran its budget')), budgetMs); });
-      return await Promise.race([Promise.resolve().then(() => rec.hook($, e, next)), overrun]);
-    } catch (error) {
-      if (!rec.catchHandler) throw error;
-      return await rec.catchHandler($, e, Object.assign((x) => x, { called: false, error }));
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-  return { hooks, invoke, runs, toasts };
-}
 
 // ── switches all off ────────────────────────────────────────────────────────
 
 test('with every switch off, every registered handler passes the event through untouched', async () => {
   const eng = await boot(answer(switches()));
-  assert.deepEqual(eng.hooks.map((h) => h.name), ['session.start'], 'this phase registers session.start and nothing else');
+  const names = eng.hooks.map((h) => h.name);
+  assert.ok(names.includes('session.start') && names.includes('tool.check'), `registered: ${names}`);
+  assert.ok(names.every((n) => ['session.start', 'tool.check', 'agent.spawn'].includes(n)), `an unexpected hook: ${names}`);
   assert.ok(eng.hooks.every((h) => typeof h.catchHandler === 'function'), 'every hook has a fail-open .catch');
+  const EVENTS = {
+    'session.start': { ...SESSION_START },
+    'tool.check': { tool: 'Read', input: { file_path: '/work/proj/.astrocode/phases/39-x/PLAN.md' }, tool_use_id: 'toolu_1', agentId: 'a1' },
+    'agent.spawn': { subagentType: 'astro-verifier', prompt: 'p', tool_use_id: 'toolu_2' },
+  };
   for (const rec of eng.hooks) {
-    const e = { ...SESSION_START };
-    assert.equal(await eng.invoke(rec.name, e), e, `${rec.name} resolves to next(e)'s value`);
+    const sentinel = { sentinel: rec.name };
+    assert.equal(await eng.invoke(rec.name, EVENTS[rec.name], { beneath: sentinel }), sentinel, `${rec.name} resolves to next(e)'s value`);
   }
+  assert.equal(await eng.invoke('tool.check', EVENTS['tool.check']), BENEATH);
   assert.deepEqual(eng.toasts, []);
 });
 
@@ -152,8 +117,8 @@ function sources(dir) {
   });
 }
 
-test('no module reads an event field PROBE.md does not record as observed', () => {
-  const probe = readFileSync(PROBE_MD, 'utf8');
+test('no module reads an event field the PROBE.md files do not record as observed', () => {
+  const probe = PROBE_MDS.map((f) => readFileSync(f, 'utf8')).join('\n');
   for (const file of sources(HOOKS)) {
     const text = readFileSync(file, 'utf8').replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
     for (const [, field] of text.matchAll(/\be\.(\w+)/g)) {
