@@ -226,7 +226,9 @@ for (const path of PATHS) {
       ['deny', 'Glob {**/PLAN.md,x}', 'Glob', { pattern: '{**/PLAN.md,x}' }],
       ['deny', 'Glob {phases plan,src}', 'Glob', { pattern: '{.astrocode/phases/*/PLAN.md,src/*.js}' }],
       ['allow', 'Grep glob list of code only', 'Grep', { pattern: 'x', path: P, glob: 'src/*.js,lib/*.mjs' }],
-      ['allow', 'Grep glob !.astrocode/**', 'Grep', { pattern: 'x', path: P, glob: '!.astrocode/**' }],
+      // A slashed negation is anchored at the search root, so only the **/-led form is provable.
+      ['deny', 'Grep glob !.astrocode/** (anchored)', 'Grep', { pattern: 'x', path: P, glob: '!.astrocode/**' }],
+      ['allow', 'Grep glob !**/.astrocode/**', 'Grep', { pattern: 'x', path: P, glob: '!**/.astrocode/**' }],
       // Phase 39 fourth verify: narrowing must be provable. A negation that merely mentions the
       // tree, rg's type 'all', and a glob led in through the project folder from a root above it.
       ['deny', 'Grep type all', 'Grep', { pattern: 'x', path: P, type: 'all' }],
@@ -240,7 +242,23 @@ for (const path of PATHS) {
       ['deny', 'Glob !.astrocode/nothing', 'Glob', { pattern: '!.astrocode/nothing' }],
       ['deny', 'Grep type js + glob !*.js', 'Grep', { pattern: 'x', path: P, glob: '!*.js', type: 'js' }],
       ['allow', 'Grep type js', 'Grep', { pattern: 'x', path: P, type: 'js' }],
-      ['allow', 'Grep glob !**/*.md', 'Grep', { pattern: 'x', path: P, glob: '!**/*.md' }],
+      // rg globs are case-sensitive: !**/*.md does not exclude PLAN.MD, so a name negation proves nothing.
+      ['deny', 'Grep glob !**/*.md', 'Grep', { pattern: 'x', path: P, glob: '!**/*.md' }],
+      // Phase 39 fifth verify: case-variant and anchored negations, unnormalised absolute Globs, ~.
+      ['deny', 'Grep glob !{plan,spec}.md', 'Grep', { pattern: 'x', path: P, glob: '!{plan,spec}.md' }],
+      ['deny', 'Grep glob !*.MD', 'Grep', { pattern: 'x', path: P, glob: '!*.MD' }],
+      ['deny', 'Grep glob !.ASTROCODE/**', 'Grep', { pattern: 'x', path: P, glob: '!.ASTROCODE/**' }],
+      ['deny', 'Grep glob !PHASES', 'Grep', { pattern: 'x', path: P, glob: '!PHASES' }],
+      ['deny', 'Grep glob !phases/**', 'Grep', { pattern: 'x', path: P, glob: '!phases/**' }],
+      ['deny', 'Grep parent root glob !.astrocode/**', 'Grep', { pattern: 'x', path: '/work', glob: '!.astrocode/**' }],
+      ['deny', 'Grep parent root glob !/.astrocode/**', 'Grep', { pattern: 'x', path: '/work', glob: '!/.astrocode/**' }],
+      ['deny', 'Glob /work/proj/./**/*.md', 'Glob', { pattern: '/work/proj/./**/*.md' }],
+      ['deny', 'Glob /work/../work/proj/**/*.md', 'Glob', { pattern: '/work/../work/proj/**/*.md' }],
+      ['deny', 'Glob /work/proj/src/../**/PLAN.md', 'Glob', { pattern: '/work/proj/src/../**/PLAN.md' }],
+      ['deny', 'Grep path ~', 'Grep', { pattern: 'x', path: '~' }],
+      ['deny', 'Grep path ~/proj', 'Grep', { pattern: 'x', path: '~/proj' }],
+      ['deny', 'Glob path ~/proj', 'Glob', { pattern: '**/*.md', path: '~/proj' }],
+      ['deny', 'Glob pattern ~/proj/**/PLAN.md', 'Glob', { pattern: '~/proj/**/PLAN.md' }],
     ];
     const results = [];
     for (const [, , tool, input] of rows) results.push(await check(eng, id, tool, input));

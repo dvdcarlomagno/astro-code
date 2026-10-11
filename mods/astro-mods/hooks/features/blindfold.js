@@ -119,7 +119,7 @@ function narrowsByGlob(list, names) {
   const re = (p) => globRe(p)
   for (const p of parts) {
     if (!p.startsWith('!')) continue
-    if (excludesAll(p.slice(1), names)) return true
+    if (excludesAll(p.slice(1))) return true
   }
   const positive = parts.filter((p) => !p.startsWith('!'))
   return positive.length > 0 && positive.every((p) => !canMatchName(p, names))
@@ -130,11 +130,11 @@ function narrowsByGlob(list, names) {
 // the tree and exclude almost nothing):
 //  - the whole tree: `.astrocode`, `.astrocode/phases` or `phases`, optionally led by `**/`, trailed by `/**`;
 //  - every forbidden name at any depth: no `/` except a leading `**/`, and it matches each name.
-function excludesAll(body, names) {
-  const b = String(body).replace(/\\/g, '/').replace(/^\.?\//, '').toLowerCase()
-  if (/^(\*\*\/)?(\.astrocode(\/phases)?|phases)(\/\*\*)?\/?$/.test(b)) return true
-  const tail = b.replace(/^\*\*\//, '')
-  return !tail.includes('/') && names.every((n) => globRe(tail).test(n))
+function excludesAll(body) {
+  // rg globs are case-sensitive, and a glob with a slash is anchored at the search root, so only an
+  // unanchored (`**/`-led), exact-case exclusion of the tree holds from every root. A name-based
+  // negation can't be proven: the real file may be PLAN.md, plan.md or Plan.MD (phase 39 verify 5).
+  return /^\*\*\/(\.astrocode(\/phases)?|phases)(\/\*\*)?$/.test(String(body))
 }
 
 // A search `--type` narrows only when it is a known code type that can never match `*.md`
@@ -432,6 +432,10 @@ function globCanReach(kind, glob, names) {
 // The first unnarrowed search that can reach the phases tree, or null.
 async function firstReach($, roots) {
   for (const r of roots) {
+    // `~` is expanded by Claude's own path handling; the guard can't tell where it lands, so it asks
+    // nothing and refuses. So does an absolute Glob with `.`/`..`/`//` segments it would have to resolve.
+    if (/^~/.test(r.root) || (r.glob !== undefined && /^~/.test(r.glob))) return r.root
+    if (r.glob !== undefined && !r.grep && /^([/]|[a-zA-Z]:[/\\])/.test(r.glob) && /(^|[/\\])\.{1,2}([/\\]|$)|[/\\]{2}/.test(r.glob)) return r.root
     if (r.glob !== undefined && !r.grep && /^([/]|[a-zA-Z]:[/\\])/.test(r.glob)) {
       let cwd
       try { cwd = await $.session.cwd() } catch { cwd = null }
