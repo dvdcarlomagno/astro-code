@@ -93,27 +93,34 @@ function stashRefused(args) {
   return pushUnscoped(args);
 }
 
-// `git clean` dry-run: `--dry-run` or an `n` in a short cluster. `-e` takes a value (attached
-// or the next word), so letters after it are a pattern, not flags; words after `--` are paths.
+// `git clean` dry-run: the LAST of `--dry-run`/`-n` (or an `n` in a short cluster) and
+// `--no-dry-run` wins. Long options may be abbreviated. `-e`/`--exclude` take a value (attached
+// or the next word), so what follows is a pattern, not flags; words after `--` are paths.
 function cleanDryRun(args) {
+  let dry = false;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a === '--') return false;
-    if (a === '--dry-run') return true;
-    if (a.startsWith('--') || !a.startsWith('-') || a.length < 2) continue;
+    if (a === '--') break;
+    if (a.startsWith('--')) {
+      if (a.length > 2 && '--dry-run'.startsWith(a)) dry = true;
+      else if (a.length > 4 && '--no-dry-run'.startsWith(a)) dry = false;
+      else if (a.length > 2 && '--exclude'.startsWith(a)) i++;
+      continue;
+    }
+    if (!a.startsWith('-') || a.length < 2) continue;
     for (let k = 1; k < a.length; k++) {
-      if (a[k] === 'n') return true;
+      if (a[k] === 'n') dry = true;
       if (a[k] === 'e') { if (k === a.length - 1) i++; break; }
     }
   }
-  return false;
+  return dry;
 }
 
 /** The refused forms. `test(sub, args)` gets the git subcommand and its words. */
 export const REFUSED = Object.freeze([
   { id: 'stash', form: 'git stash without a `-- <path>` pathspec', test: (sub, args) => sub === 'stash' && stashRefused(args) },
   { id: 'clean', form: 'git clean', test: (sub, args) => sub === 'clean' && !cleanDryRun(args) },
-  { id: 'reset', form: 'git reset --hard', test: (sub, args) => sub === 'reset' && args.includes('--hard') },
+  { id: 'reset', form: 'git reset --hard', test: (sub, args) => sub === 'reset' && args.some((a) => a.length > 3 && '--hard'.startsWith(a)) },
   { id: 'checkout', form: 'whole-tree git checkout', test: (sub, args) => sub === 'checkout' && operands(args).some(wholeTree) },
   { id: 'restore', form: 'whole-tree git restore', test: (sub, args) => sub === 'restore' && operands(args, ['-s', '--source']).some(wholeTree) },
 ]);
@@ -203,7 +210,7 @@ const KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', 
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash']);
 const GIT_VALUE_OPTS = new Set(['-C', '-c']);
 const GIT_VALUE_LONG = ['--git-dir', '--work-tree', '--namespace', '--config-env', '--exec-path'];
-const GIT_FLAGS = new Set(['--no-pager', '-P', '-p', '--paginate', '--bare', '--no-replace-objects', '--literal-pathspecs', '--no-optional-locks']);
+const ENV_VALUE = new Set(['-u', '-C', '-S', '--unset', '--chdir', '--split-string']);
 const SUDO_VALUE = new Set(['-u', '-g', '-h', '-p', '-C', '-D', '-R', '-T', '-U']);
 
 // Drop leading assignments, keywords and wrapper commands until the real command word.
@@ -213,12 +220,22 @@ function stripPrefixes(w) {
     const t = w[i];
     if (/^[A-Za-z_]\w*=/.test(t) || KEYWORDS.has(t)) { i++; continue; }
     const b = base(t);
-    if (b === 'command' || b === 'exec' || b === 'nohup' || b === 'time') {
+    if (b === 'command' || b === 'nohup' || b === 'time') {
       i++;
       while (i < w.length && w[i].startsWith('-')) i++;
+    } else if (b === 'exec') {
+      i++;
+      while (i < w.length && w[i].startsWith('-')) i += w[i] === '-a' ? 2 : 1;
     } else if (b === 'env') {
       i++;
-      while (i < w.length && (w[i].startsWith('-') || /^[A-Za-z_]\w*=/.test(w[i]))) i += w[i] === '-u' ? 2 : 1;
+      while (i < w.length && (w[i].startsWith('-') || /^[A-Za-z_]\w*=/.test(w[i]))) i += ENV_VALUE.has(w[i]) ? 2 : 1;
+    } else if (b === 'timeout') {
+      i++;
+      while (i < w.length && w[i].startsWith('-')) i += ['-s', '--signal', '-k', '--kill-after'].includes(w[i]) ? 2 : 1;
+      i++; // the DURATION
+    } else if (b === 'stdbuf') {
+      i++;
+      while (i < w.length && w[i].startsWith('-')) i += ['-i', '-o', '-e'].includes(w[i]) ? 2 : 1;
     } else if (b === 'sudo') {
       i++;
       while (i < w.length && w[i].startsWith('-')) i += SUDO_VALUE.has(w[i]) ? 2 : 1;
@@ -236,7 +253,7 @@ function judgeGit(words, depth) {
     const t = words[i];
     if (GIT_VALUE_OPTS.has(t)) i += 2;
     else if (GIT_VALUE_LONG.some((o) => t === o)) i += 2;
-    else if (GIT_VALUE_LONG.some((o) => t.startsWith(`${o}=`)) || GIT_FLAGS.has(t)) i++;
+    else if (t.startsWith('-') && t.length > 1) i++; // any other global flag or `--opt=value`
     else break;
   }
   const sub = words[i];
