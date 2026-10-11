@@ -154,6 +154,7 @@ const CMD_DENIED = [
   'git -C .astrocode/phases/39-x show HEAD:./PLAN.md',
   `node -e "console.log(require('fs').readFileSync('.astrocode/phases/39-x/PLAN.md','utf8'))"`,
   `python3 -c "print(open('.astrocode/phases/39-x/SPEC.md').read())"`,
+  'rg -g "!.astrocode/nothing" TODO', 'rg -t all TODO', 'rg --type all TODO .astrocode',
 ];
 const CMD_ALLOWED = [
   'node --test tests/', 'cat .astrocode/phases/39-x/CRITERIA.md', 'git log --oneline -5', 'ls src',
@@ -226,6 +227,20 @@ for (const path of PATHS) {
       ['deny', 'Glob {phases plan,src}', 'Glob', { pattern: '{.astrocode/phases/*/PLAN.md,src/*.js}' }],
       ['allow', 'Grep glob list of code only', 'Grep', { pattern: 'x', path: P, glob: 'src/*.js,lib/*.mjs' }],
       ['allow', 'Grep glob !.astrocode/**', 'Grep', { pattern: 'x', path: P, glob: '!.astrocode/**' }],
+      // Phase 39 fourth verify: narrowing must be provable. A negation that merely mentions the
+      // tree, rg's type 'all', and a glob led in through the project folder from a root above it.
+      ['deny', 'Grep type all', 'Grep', { pattern: 'x', path: P, type: 'all' }],
+      ['deny', 'Grep glob !…/CRITERIA.md', 'Grep', { pattern: 'x', path: P, glob: '!.astrocode/phases/39-x/CRITERIA.md' }],
+      ['deny', 'Grep glob !**/phases/zzz/**', 'Grep', { pattern: 'x', path: P, glob: '!**/phases/zzz/**' }],
+      ['deny', 'Grep glob !.astrocode/nothing', 'Grep', { pattern: 'x', path: P, glob: '!.astrocode/nothing' }],
+      ['deny', 'Grep parent root glob proj/.astrocode/phases/*/PLAN.md', 'Grep', { pattern: 'x', path: '/work', glob: 'proj/.astrocode/phases/*/PLAN.md' }],
+      ['deny', 'Grep parent root glob proj/**', 'Grep', { pattern: 'x', path: '/work', glob: 'proj/**' }],
+      ['deny', 'Glob parent root proj/**', 'Glob', { pattern: 'proj/**', path: '/work' }],
+      ['deny', 'Glob parent root proj/.astrocode/**/PLAN.md', 'Glob', { pattern: 'proj/.astrocode/**/PLAN.md', path: '/work' }],
+      ['deny', 'Glob !.astrocode/nothing', 'Glob', { pattern: '!.astrocode/nothing' }],
+      ['deny', 'Grep type js + glob !*.js', 'Grep', { pattern: 'x', path: P, glob: '!*.js', type: 'js' }],
+      ['allow', 'Grep type js', 'Grep', { pattern: 'x', path: P, type: 'js' }],
+      ['allow', 'Grep glob !**/*.md', 'Grep', { pattern: 'x', path: P, glob: '!**/*.md' }],
     ];
     const results = [];
     for (const [, , tool, input] of rows) results.push(await check(eng, id, tool, input));

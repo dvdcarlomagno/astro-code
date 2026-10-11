@@ -119,12 +119,28 @@ function narrowsByGlob(list, names) {
   const re = (p) => globRe(p)
   for (const p of parts) {
     if (!p.startsWith('!')) continue
-    const body = p.slice(1)
-    if (/(^|\/)(\.astrocode|phases)(\/|$)/.test(body) || names.every((n) => re(body).test(n))) return true
+    if (excludesAll(p.slice(1), names)) return true
   }
   const positive = parts.filter((p) => !p.startsWith('!'))
   return positive.length > 0 && positive.every((p) => !canMatchName(p, names))
 }
+
+// Does a negated glob provably exclude every forbidden file? Only two shapes count, anything else is
+// unsure and narrows nothing (phase 39: `!.astrocode/nothing` and `!**/phases/zzz/**` merely mention
+// the tree and exclude almost nothing):
+//  - the whole tree: `.astrocode`, `.astrocode/phases` or `phases`, optionally led by `**/`, trailed by `/**`;
+//  - every forbidden name at any depth: no `/` except a leading `**/`, and it matches each name.
+function excludesAll(body, names) {
+  const b = String(body).replace(/\\/g, '/').replace(/^\.?\//, '').toLowerCase()
+  if (/^(\*\*\/)?(\.astrocode(\/phases)?|phases)(\/\*\*)?\/?$/.test(b)) return true
+  const tail = b.replace(/^\*\*\//, '')
+  return !tail.includes('/') && names.every((n) => globRe(tail).test(n))
+}
+
+// A search `--type` narrows only when it is a known code type that can never match `*.md`
+// (rg's `all`, `md`, `markdown`, or anything unknown, may).
+const CODE_TYPES = new Set(['js', 'ts', 'jsx', 'tsx', 'py', 'rust', 'go', 'java', 'c', 'cpp', 'cs', 'ruby', 'php', 'sh', 'json', 'yaml', 'toml', 'css', 'html', 'sql', 'swift', 'kotlin', 'lua'])
+const narrowType = (t) => typeof t === 'string' && CODE_TYPES.has(t.toLowerCase())
 
 // `<...>/.astrocode/phases/<dir>/<...>/<file>` with a forbidden basename (or a glob that selects one).
 function fileHit(path, names) {
@@ -156,7 +172,7 @@ function classify(root) {
     if (low.length === i + 3) return 'phasedir'
     return /\.[^/]+$/.test(low[low.length - 1]) ? 'file' : 'phasedir'
   }
-  if (!abs && low.every((x) => x === '..')) return 'cwd'
+  if (!abs && low.every((x) => x === '..')) return low.length ? 'ancestor' : 'cwd' // `.` is here, `..` is above
   return null
 }
 
@@ -177,7 +193,7 @@ async function reaches($, root) {
   if (again === 'file' || again === 'other') return null
   if (again) return again
   const prefix = full.low.every((x, i) => here.low[i] === x)
-  if (prefix) return 'ancestor'
+  if (prefix) return full.low.length === here.low.length ? 'cwd' : 'ancestor' // the root itself, or above it
   try {
     if (await $.fs.exists('/' + full.segs.join('/') + '/.astrocode/phases')) return 'exists'
   } catch {
@@ -276,7 +292,7 @@ function searchRoots(kind, cmd, args, names) {
       if (name === '--exclude-dir' && (globRe(value).test('.astrocode') || globRe(value).test('phases'))) return []
     } else if (kind === 'rg') {
       if ((name === '-g' || name === '--glob' || name === '--iglob') && narrowsByGlob(value, names)) return []
-      if ((name === '-t' || name === '--type') && !/^(md|markdown)$/i.test(value)) return []
+      if ((name === '-t' || name === '--type') && narrowType(value) && !filters.some((x) => x.name === '-g' || x.name === '--glob' || x.name === '--iglob')) return []
     } else if (kind === 'fd') {
       if ((name === '-e' || name === '--extension') && !/^md$/i.test(value)) return []
       if ((name === '-E' || name === '--exclude') && (globRe(value).test('.astrocode') || globRe(value).test('phases'))) return []
@@ -376,7 +392,7 @@ function scan(e, names) {
   if (e.tool === 'Grep') {
     const glob = typeof input.glob === 'string' && input.glob.trim() ? input.glob.trim() : undefined
     // rg lets --glob override --type, so a non-md type narrows only when no glob comes with it.
-    const narrowed = !glob && typeof input.type === 'string' && !/^(md|markdown)$/i.test(input.type)
+    const narrowed = !glob && narrowType(input.type)
     if (!narrowed) out.roots.push(glob ? { root, glob, names, grep: true } : { root })
   } else if (e.tool === 'Glob' && typeof input.pattern === 'string') {
     const hit = fileHit(input.pattern.replace(/^\.\//, ''), names)
@@ -407,6 +423,7 @@ function globCanReach(kind, glob, names) {
   if (segs.length > 1 && !GLOB_CHARS.test(first) && first !== '..') {
     const lead = first.toLowerCase()
     if (kind === 'astrocode') return lead === 'phases'
+    if (kind === 'ancestor' || kind === 'exists') return true // the lead may be the project folder (`proj/**`)
     if (kind !== 'phases' && kind !== 'phasedir') return lead === '.astrocode'
   }
   return true
