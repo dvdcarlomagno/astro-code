@@ -291,7 +291,11 @@ function bashScan(command, names, out, phaseNamed, depth) {
   const segments = tokenize(command)
   const named = phaseNamed || segments.some((seg) => seg.some(namesPhaseDir))
   let dir = '' // the directory the last `cd` moved to, so a later relative operand is read from there
-  for (const words of segments) {
+  const vars = new Map() // NAME=value words seen earlier, so `$NAME` / `${NAME}` reads as its value
+  const isAbs = (x) => /^([/\\]|[a-zA-Z]:)/.test(x)
+  for (const seg of segments) {
+    const words = seg.map((w) => w.replace(/\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g, (m, a, b) => vars.get(a || b) ?? m))
+    for (const w of seg) { const m = /^([A-Za-z_]\w*)=(.*)$/.exec(w); if (m) vars.set(m[1], m[2]) }
     for (const w of words) {
       const tail = (ch) => (w.includes(ch) ? w.slice(w.lastIndexOf(ch) + 1) : '')
       for (const cand of [w, tail(':'), tail('=')]) {
@@ -317,7 +321,11 @@ function bashScan(command, names, out, phaseNamed, depth) {
     if (i >= words.length) continue
     const cmd = base(words[i])
     const args = words.slice(i + 1)
-    if (cmd === 'cd' && args[0] !== undefined) dir = /^([/\\]|[a-zA-Z]:)/.test(args[0]) || !dir ? args[0] : dir + '/' + args[0]
+    if (cmd === 'cd') {
+      const target = args.find((a) => a !== '--' && !/^-[LPe@]+$/.test(a))
+      if (target !== undefined) dir = isAbs(target) || !dir ? target : dir + '/' + target
+    }
+    const here = (r) => (dir && !isAbs(r) ? dir + '/' + r : r)
     if (SHELLS.has(cmd) || cmd === 'lean-ctx') {
       const ci = args.findIndex((a) => (cmd === 'lean-ctx' ? a === '-c' : /^-[a-z]*c[a-z]*$/.test(a)))
       if (ci >= 0 && args[ci + 1] !== undefined) {
@@ -332,9 +340,9 @@ function bashScan(command, names, out, phaseNamed, depth) {
     if (cmd === 'git') {
       let j = 0
       while (j < args.length && args[j].startsWith('-')) j += /^(-C|-c|--git-dir|--work-tree|--exec-path)$/.test(args[j]) ? 2 : 1
-      if (args[j] === 'grep') { kind = 'git'; out.roots.push(...searchRoots('git', cmd, args.slice(j + 1), names).map((root) => ({ root }))); continue }
+      if (args[j] === 'grep') { kind = 'git'; out.roots.push(...searchRoots('git', cmd, args.slice(j + 1), names).map((root) => ({ root: here(root) }))); continue }
     }
-    if (kind) out.roots.push(...searchRoots(kind, cmd, args, names).map((root) => ({ root })))
+    if (kind) out.roots.push(...searchRoots(kind, cmd, args, names).map((root) => ({ root: here(root) })))
   }
 }
 
