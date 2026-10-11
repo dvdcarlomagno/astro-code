@@ -503,6 +503,16 @@
       "branch": "develop",
       "claimed_at": "2026-10-11T06:23:47.048Z",
       "status": "active"
+    },
+    {
+      "type": "phase",
+      "number": 36,
+      "milestone": 12,
+      "name": "astro-mods foundation: ADR, API probe, plugin skeleton and per-feature ac mods toggles",
+      "owner": "matteo.alvazzi@gmail.com",
+      "branch": "develop",
+      "claimed_at": "2026-10-11T06:24:07.809Z",
+      "status": "active"
     }
   ]
 }
