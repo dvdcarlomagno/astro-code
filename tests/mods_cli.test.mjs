@@ -108,7 +108,10 @@ test('enable and disable flip exactly one switch and keep every sibling key; not
   assert.equal(readCfg(b).other, 1);
   assert.equal(readCfg(b).mods['canon-guard'], true);
   const g = b.ac(['mods', 'enable', 'git-guard']);
-  assert.match(g.stdout, /not built yet/, 'git-guard stays unbuilt until phase 38');
+  assert.doesNotMatch(g.stdout, /not built yet/, 'git-guard is built (phase 38)');
+  b.ac(['mods', 'enable', 'blindfold']);
+  assert.match(b.ac(['mods', 'status', 'blindfold']).stdout, /not built yet/, 'an unbuilt feature still says so');
+  b.ac(['mods', 'disable', 'blindfold']);
   const d = b.ac(['mods', 'disable', 'canon-guard']);
   assert.equal(d.status, 0, out(d));
   on = b.status().features.filter((f) => f.on).map((f) => f.name);
@@ -428,4 +431,111 @@ test('both hosts present: Claude carries the guard and Cursor has no native entr
   assert.equal(b.ac(['mods', 'enable', 'canon-guard'], env).status, 0);
   assert.equal(guardEntries(jread(join(b.T, '.claude', 'settings.json'))).length, 1);
   assert.equal(all().filter((c) => c.includes(GUARD)).length, 0, "no native guard: Cursor imports Claude's");
+});
+
+// ── Phase 38: git-guard is a second settings-hook registration ──────────────
+
+const GGUARD = 'astro-git-guard.mjs';
+const gitEntries = (settings) => Object.values(settings.hooks || {}).flat()
+  .filter((e) => (e.hooks || []).some((h) => String(h.command).includes(GGUARD)));
+const cmdOf = (settings, script) => Object.values(settings.hooks || {}).flat()
+  .flatMap((e) => e.hooks || []).find((h) => String(h.command).includes(script)).command;
+// Feed `command` (a Bash tool call) to a registered guard command, as Claude Code would.
+function feedBash(b, hookCmd, bashCommand) {
+  const payload = { hook_event_name: 'PreToolUse', cwd: b.T, tool_name: 'Bash', tool_input: { command: bashCommand } };
+  return spawnSync('/bin/sh', ['-c', hookCmd], { input: JSON.stringify(payload), encoding: 'utf8', env: { HOME: b.T, PATH: b.PATH } });
+}
+const decisionOf = (r) => { try { return JSON.parse(r.stdout).hookSpecificOutput?.permissionDecision; } catch { return undefined; } };
+
+test('enable git-guard registers exactly one Bash entry per profile; it asks on git stash -u and stays silent on a scoped stash; guards coexist', () => {
+  const b = box();
+  const { dirs, saved } = twoProfiles(b);
+  for (let i = 0; i < 2; i++) assert.equal(b.ac(['mods', 'enable', 'git-guard']).status, 0);
+  for (const d of dirs) {
+    const s = jread(join(d, 'settings.json'));
+    const g = gitEntries(s);
+    assert.equal(g.length, 1, `${d}: one git-guard entry`);
+    assert.ok(g[0].matcher.split('|').includes('Bash'));
+    assert.ok(s.hooks.PreToolUse.some((e) => e.hooks.some((h) => h.command === 'echo user-hook')), 'user hook kept');
+    assert.equal(decisionOf(feedBash(b, cmdOf(s, GGUARD), 'git stash -u')), 'ask');
+    assert.equal(feedBash(b, cmdOf(s, GGUARD), 'git stash push -- src/a.js').stdout.trim(), '');
+  }
+  assert.equal(b.ac(['mods', 'enable', 'canon-guard']).status, 0);
+  for (const d of dirs) {
+    const s = jread(join(d, 'settings.json'));
+    assert.equal(guardEntries(s).length, 1);
+    assert.equal(gitEntries(s).length, 1);
+    assert.equal(feedBash(b, cmdOf(s, GUARD), 'git stash -u').stdout.trim(), '', 'canon-guard has no say on git');
+    assert.equal(feedBash(b, cmdOf(s, GGUARD), 'echo x > .astrocode/state.json').stdout.trim(), '', 'git-guard has no say on writes');
+  }
+  assert.equal(b.ac(['mods', 'disable', 'git-guard']).status, 0);
+  for (const d of dirs) {
+    const s = jread(join(d, 'settings.json'));
+    assert.equal(gitEntries(s).length, 0);
+    assert.equal(guardEntries(s).length, 1, 'canon-guard still registered');
+  }
+  assert.equal(b.ac(['mods', 'disable', 'canon-guard']).status, 0);
+  dirs.forEach((dir, i) => assert.deepEqual(jread(join(dir, 'settings.json')), saved[i], dir));
+});
+
+test('status git-guard is available and off before enable, then on, enforced and "asks" per profile; a deleted entry reads missing', () => {
+  const b = box();
+  const { dirs } = twoProfiles(b);
+  const before = b.ac(['mods', 'status', 'git-guard']);
+  assert.equal(before.status, 0, out(before));
+  assert.doesNotMatch(before.stdout, /not built yet/);
+  const f0 = b.status().features.find((f) => f.name === 'git-guard');
+  assert.equal(f0.on, false);
+  assert.equal(f0.why, 'off');
+  b.ac(['mods', 'enable', 'git-guard']);
+  const feature = () => b.status().features.find((f) => f.name === 'git-guard');
+  assert.equal(feature().on, true);
+  assert.deepEqual(feature().enforcement.filter((x) => x.host === 'claude').map((x) => [x.dir, x.state]), dirs.map((d) => [d, 'enforced']));
+  assert.match(b.ac(['mods', 'status', 'git-guard']).stdout, /asks/);
+  const file = join(dirs[1], 'settings.json');
+  const s = jread(file);
+  s.hooks.PreToolUse = s.hooks.PreToolUse.filter((e) => gitEntries({ hooks: { x: [e] } }).length === 0);
+  writeFileSync(file, JSON.stringify(s));
+  assert.deepEqual(feature().enforcement.filter((x) => x.host === 'claude').map((x) => x.state), ['enforced', 'missing']);
+  assert.match(b.ac(['mods', 'status', 'git-guard']).stdout, /missing/);
+});
+
+test('with Cursor present, git-guard status states the Cursor position and, if enforced, that it denies', () => {
+  const b = box();
+  twoProfiles(b);
+  const CURSOR_CONFIG_DIR = join(b.T, 'cursor');
+  mkdirSync(CURSOR_CONFIG_DIR);
+  b.ac(['mods', 'enable', 'git-guard'], { CURSOR_CONFIG_DIR });
+  const c = b.status({ CURSOR_CONFIG_DIR }).features.find((x) => x.name === 'git-guard').enforcement.filter((x) => x.host === 'cursor');
+  assert.equal(c.length, 1);
+  assert.match(c[0].state, /^(enforced|via-claude-import|not-enforced)$/);
+  const human = b.ac(['mods', 'status', 'git-guard'], { CURSOR_CONFIG_DIR }).stdout;
+  assert.match(human, /cursor/i);
+  if (c[0].state !== 'not-enforced') assert.match(human, /denies/);
+});
+
+test('Cursor only: enable git-guard twice gives one preToolUse Shell entry that denies, echo mine intact; disable removes only it', () => {
+  const { b, env, read, all } = cursorBox();
+  assert.equal(b.ac(['install'], env).status, 0);
+  for (let i = 0; i < 2; i++) assert.equal(b.ac(['mods', 'enable', 'git-guard'], env).status, 0);
+  const mine = read().hooks.preToolUse.filter((e) => e.command.includes(GGUARD));
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].matcher, 'Shell');
+  assert.ok(all().includes('echo mine'));
+  const ev = { hook_event_name: 'preToolUse', cwd: b.T, tool_name: 'Shell', tool_input: { command: 'git stash -u', cwd: b.T } };
+  const f = spawnSync('/bin/sh', ['-c', mine[0].command], { input: JSON.stringify(ev), encoding: 'utf8', env: { HOME: b.T, PATH: b.PATH } });
+  assert.equal(JSON.parse(f.stdout).permission, 'deny', f.stdout + f.stderr);
+  assert.match(b.ac(['mods', 'status', 'git-guard'], env).stdout, /denies/);
+  assert.equal(b.ac(['mods', 'disable', 'git-guard'], env).status, 0);
+  assert.equal(all().filter((c) => c.includes(GGUARD)).length, 0);
+  assert.ok(all().includes('echo mine'));
+});
+
+test('both hosts present: Claude carries git-guard and Cursor has no native entry', () => {
+  const { b, env, all } = cursorBox();
+  mkdirSync(join(b.T, '.claude'));
+  assert.equal(b.ac(['install'], env).status, 0);
+  assert.equal(b.ac(['mods', 'enable', 'git-guard'], env).status, 0);
+  assert.equal(gitEntries(jread(join(b.T, '.claude', 'settings.json'))).length, 1);
+  assert.equal(all().filter((c) => c.includes(GGUARD)).length, 0, "no native guard: Cursor imports Claude's");
 });

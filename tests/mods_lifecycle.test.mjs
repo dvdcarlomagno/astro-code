@@ -236,3 +236,86 @@ test('uninstall leaves no guard entry in any profile', () => {
     if (existsSync(f)) assert.equal(guardEntries(jread(f)).length, 0, d);
   }
 });
+
+// ── Phase 38: the same re-sync for git-guard ────────────────────────────────
+
+const GGUARD = 'astro-git-guard.mjs';
+const gitEntries = (s) => Object.values(s.hooks || {}).flat().filter((e) => (e.hooks || []).some((h) => String(h.command).includes(GGUARD)));
+
+function gitGuarded(profiles = {}) {
+  const b = box();
+  mkdirSync(join(b.T, '.claude', '.jean-claude'), { recursive: true });
+  const reg = {};
+  for (const [n, d] of Object.entries(profiles)) { mkdirSync(d(b.T), { recursive: true }); reg[n] = { configDir: d(b.T) }; }
+  const writeReg = (extra = {}) => writeFileSync(join(b.T, '.claude', '.jean-claude', 'profiles.json'), JSON.stringify({ profiles: { ...reg, ...extra } }));
+  writeReg();
+  assert.equal(b.ac(['install']).status, 0);
+  assert.equal(b.ac(['mods', 'enable', 'git-guard']).status, 0);
+  return { b, writeReg };
+}
+// exactly one git-guard entry in `dir`, and it asks on `git stash -u`
+function gitWorks(b, dir) {
+  const g = gitEntries(jread(settingsOf(dir)));
+  assert.equal(g.length, 1, `${dir}: exactly one git-guard entry`);
+  const cmd = g[0].hooks.find((h) => h.command.includes(GGUARD)).command;
+  const ev = { hook_event_name: 'PreToolUse', cwd: b.T, tool_name: 'Bash', tool_input: { command: 'git stash -u' } };
+  const r = spawnSync('/bin/sh', ['-c', cmd], { input: JSON.stringify(ev), encoding: 'utf8', env: { HOME: b.T, PATH: b.PATH } });
+  assert.match(r.stdout, /"permissionDecision":\s*"ask"/, `${dir}: the entry asks — ${r.stdout}${r.stderr}`);
+}
+
+test('git-guard: a profile added after enable gets one working entry on the next install', () => {
+  const { b, writeReg } = gitGuarded();
+  const third = join(b.T, 'third');
+  mkdirSync(third);
+  writeReg({ third: { configDir: third } });
+  assert.equal(b.ac(['install']).status, 0);
+  gitWorks(b, third);
+  gitWorks(b, join(b.T, '.claude'));
+});
+
+test('git-guard: a hand-deleted entry is restored by install, with no duplicates', () => {
+  const { b } = gitGuarded({ work: (T) => join(T, '.claude-work') });
+  const work = join(b.T, '.claude-work');
+  const s = jread(settingsOf(work));
+  for (const k of Object.keys(s.hooks)) s.hooks[k] = s.hooks[k].filter((e) => gitEntries({ hooks: { x: [e] } }).length === 0);
+  writeFileSync(settingsOf(work), JSON.stringify(s));
+  assert.equal(gitEntries(jread(settingsOf(work))).length, 0);
+  assert.equal(b.ac(['install']).status, 0);
+  gitWorks(b, work);
+  assert.equal(b.ac(['install']).status, 0);
+  gitWorks(b, work);
+});
+
+test('git-guard: with the switch off a planted entry is removed by install', () => {
+  const { b } = gitGuarded({ work: (T) => join(T, '.claude-work') });
+  const work = join(b.T, '.claude-work');
+  const entry = gitEntries(jread(settingsOf(work)))[0];
+  assert.ok(entry);
+  assert.equal(b.ac(['mods', 'disable', 'git-guard']).status, 0);
+  const s = jread(settingsOf(work));
+  s.hooks = { ...(s.hooks || {}), PreToolUse: [...((s.hooks || {}).PreToolUse || []), entry] };
+  writeFileSync(settingsOf(work), JSON.stringify(s));
+  assert.equal(b.ac(['install']).status, 0);
+  for (const d of [work, join(b.T, '.claude')]) assert.equal(gitEntries(jread(settingsOf(d))).length, 0, d);
+});
+
+test('git-guard: update re-syncs a later-added profile', () => {
+  const { b, writeReg } = gitGuarded();
+  const c = clone(b.T, { hooks: true });
+  const third = join(b.T, 'third');
+  mkdirSync(third);
+  writeReg({ third: { configDir: third } });
+  const r = b.ac(['update', c]);
+  assert.equal(r.status, 0, out(r));
+  gitWorks(b, third);
+  gitWorks(b, join(b.T, '.claude'));
+});
+
+test('git-guard: uninstall leaves no entry in any profile', () => {
+  const { b } = gitGuarded({ work: (T) => join(T, '.claude-work') });
+  gitWorks(b, join(b.T, '.claude'));
+  assert.equal(b.ac(['uninstall']).status, 0);
+  for (const d of [join(b.T, '.claude'), join(b.T, '.claude-work')]) {
+    if (existsSync(settingsOf(d))) assert.equal(gitEntries(jread(settingsOf(d))).length, 0, d);
+  }
+});
