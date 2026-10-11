@@ -79,13 +79,14 @@ function twoDirs(h) {
 
 // ── registry ────────────────────────────────────────────────────────────────
 
-test('the registry lists the eight features in order with their kinds, none built yet, floor 2.1.292', async () => {
+test('the registry lists the eight features in order with their kinds, only canon-guard built, floor 2.1.292', async () => {
   const { FEATURES, MOD_FLOOR } = await mods();
   assert.equal(MOD_FLOOR, '2.1.292');
   assert.deepEqual(FEATURES.map((f) => f.name), NAMES);
   assert.deepEqual(FEATURES.map((f) => f.kind), KINDS);
   assert.deepEqual(FEATURES.map((f) => f.phase), [37, 38, 39, 40, 41, 42, 43, 44]);
-  assert.ok(FEATURES.every((f) => f.built === false && f.description.length > 10));
+  assert.deepEqual(FEATURES.filter((f) => f.built).map((f) => f.name), ['canon-guard']);
+  assert.ok(FEATURES.every((f) => f.description.length > 10));
   assert.ok(Object.isFrozen(FEATURES));
 });
 
@@ -341,7 +342,7 @@ test('enableMod on a hook feature records the switch and makes no claude call at
   const { enableMod, readMods } = await mods();
   const h = home();
   const fake = fakeClaude();
-  const r = enableMod({ home: h, run: fake.run, targets: twoDirs(h), feature: 'canon-guard' });
+  const r = enableMod({ home: h, run: fake.run, targets: twoDirs(h), cursorTargets: new Map(), feature: 'canon-guard' });
   assert.equal(r.ok, true);
   assert.equal(r.kind, 'hook');
   assert.equal(fake.calls.length, 0);
@@ -372,4 +373,195 @@ test('enableMod on a mod feature at the floor installs the plugin through ensure
   assert.deepEqual(r.plugin.map((p) => p.outcome), ['installed', 'installed']);
   assert.equal(r.built, false);
   assert.equal(r.phase, 39);
+});
+
+// ── canon-guard: the switch is the registration (phase 37, ADR-072) ─────────
+
+const SCRIPT = 'astro-canon-guard.mjs';
+const FIVE = ['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash'];
+const readJson = (f) => JSON.parse(readFileSync(f, 'utf8'));
+const ours = (settings) => Object.values(settings.hooks || {}).flat()
+  .filter((e) => (e.hooks || []).some((x) => typeof x.command === 'string' && x.command.includes(SCRIPT)));
+// Claude config dirs under a fresh home; `seed` writes settings.json (an object, or a raw string).
+function claudeDirs(h, seeds) {
+  const t = new Map();
+  Object.entries(seeds).forEach(([name, seed]) => {
+    const dir = join(h, name);
+    mkdirSync(dir, { recursive: true });
+    if (seed !== null) writeFileSync(join(dir, 'settings.json'), typeof seed === 'string' ? seed : JSON.stringify(seed, null, 2) + '\n');
+    t.set(dir, name);
+  });
+  return t;
+}
+// The installed script, so guardState can tell enforced from broken.
+function installScript(h) {
+  mkdirSync(join(h, '.astro', 'code', 'hooks'), { recursive: true });
+  writeFileSync(join(h, '.astro', 'code', 'hooks', SCRIPT), '// stub\n');
+}
+const USER_HOOK = { hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo user-hook' }] }] } };
+
+async function withProcessEnv(vars, fn) {
+  const prev = Object.fromEntries(Object.keys(vars).map((k) => [k, process.env[k]]));
+  for (const [k, v] of Object.entries(vars)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  try { return await fn(); } finally {
+    for (const [k, v] of Object.entries(prev)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+  }
+}
+
+test('enableMod canon-guard registers one entry per Claude dir without spawning claude; disableMod restores the files', async () => {
+  const { enableMod, disableMod } = await mods();
+  const h = home();
+  const targets = claudeDirs(h, { c1: { theme: 'dark', ...USER_HOOK }, c2: { theme: 'light' } });
+  const [d1, d2] = [...targets.keys()];
+  const before = [readJson(join(d1, 'settings.json')), readJson(join(d2, 'settings.json'))];
+  const fake = fakeClaude();
+  const args = { home: h, run: fake.run, targets, cursorTargets: new Map(), feature: 'canon-guard' };
+
+  const r = enableMod(args);
+  assert.equal(fake.calls.length, 0, 'a hook never spawns claude');
+  assert.deepEqual(r.hooks.map((x) => [x.host, x.outcome]), [['claude', 'added'], ['claude', 'added']]);
+  for (const d of [d1, d2]) {
+    const entries = ours(readJson(join(d, 'settings.json')));
+    assert.equal(entries.length, 1);
+    assert.deepEqual(new Set(entries[0].matcher.split('|')), new Set(FIVE));
+  }
+  assert.ok(readJson(join(d1, 'settings.json')).hooks.PreToolUse.some((e) => e.hooks[0].command === 'echo user-hook'), 'user hook kept');
+
+  const again = enableMod(args);
+  assert.deepEqual(again.hooks.map((x) => x.outcome), ['already', 'already']);
+  for (const d of [d1, d2]) assert.equal(ours(readJson(join(d, 'settings.json'))).length, 1, 'no duplicate');
+
+  const off = disableMod({ ...args, run: undefined });
+  assert.deepEqual(off.hooks.map((x) => x.outcome), ['removed', 'removed']);
+  assert.deepEqual(readJson(join(d1, 'settings.json')), before[0]);
+  assert.deepEqual(readJson(join(d2, 'settings.json')), before[1]);
+});
+
+test('enableMod git-guard (not built) records the switch and writes no hook entry', async () => {
+  const { enableMod, readMods } = await mods();
+  const h = home();
+  const targets = claudeDirs(h, { c1: { theme: 'dark' } });
+  const r = enableMod({ home: h, run: fakeClaude().run, targets, cursorTargets: new Map(), feature: 'git-guard' });
+  assert.equal(r.built, false);
+  assert.ok(!r.hooks || r.hooks.length === 0);
+  assert.equal(readMods({ home: h }).switches['git-guard'], true);
+  assert.deepEqual(readJson(join([...targets.keys()][0], 'settings.json')), { theme: 'dark' });
+});
+
+test('syncHookFeatures makes registration follow the switch: add, restore, remove, absent, failed', async () => {
+  const { syncHookFeatures, setMod } = await mods();
+  const h = home();
+  const targets = claudeDirs(h, { c1: {}, c2: { ...USER_HOOK }, c3: null });
+  const [d1, d2, d3] = [...targets.keys()];
+  const sync = (extra = {}) => syncHookFeatures({ home: h, targets, cursorTargets: new Map(), ...extra });
+
+  setMod({ home: h, feature: 'canon-guard', on: true });
+  const first = sync();
+  assert.deepEqual(first.map((x) => [x.feature, x.host, x.outcome]), [['canon-guard', 'claude', 'added'], ['canon-guard', 'claude', 'added'], ['canon-guard', 'claude', 'added']]);
+  assert.ok(existsSync(join(d3, 'settings.json')), 'a dir with no settings.json gets one');
+  assert.deepEqual(sync().map((x) => x.outcome), ['already', 'already', 'already']);
+
+  // a hand-deleted entry is restored
+  const s1 = readJson(join(d1, 'settings.json'));
+  delete s1.hooks;
+  writeFileSync(join(d1, 'settings.json'), JSON.stringify(s1));
+  assert.deepEqual(sync().map((x) => x.outcome), ['added', 'already', 'already']);
+  assert.equal(ours(readJson(join(d1, 'settings.json'))).length, 1);
+
+  // switch off: every planted entry goes
+  setMod({ home: h, feature: 'canon-guard', on: false });
+  assert.deepEqual(sync().map((x) => x.outcome), ['removed', 'removed', 'removed']);
+  for (const d of [d1, d2, d3]) assert.equal(ours(readJson(join(d, 'settings.json'))).length, 0);
+  assert.deepEqual(sync().map((x) => x.outcome), ['absent', 'absent', 'absent']);
+
+  // only: a feature that is not a built hook yields nothing
+  assert.deepEqual(sync({ only: 'git-guard' }), []);
+});
+
+test('syncHookFeatures: a missing dir is absent and not created; an unparseable file fails untouched while the others proceed', async () => {
+  const { syncHookFeatures, setMod } = await mods();
+  const h = home();
+  setMod({ home: h, feature: 'canon-guard', on: true });
+  const targets = claudeDirs(h, { bad: '{nope', good: {} });
+  const ghost = join(h, 'ghost');
+  targets.set(ghost, 'ghost');
+  const out = syncHookFeatures({ home: h, targets, cursorTargets: new Map() });
+  const by = Object.fromEntries(out.map((x) => [x.label, x]));
+  assert.equal(by.ghost.outcome, 'absent');
+  assert.ok(!existsSync(ghost), 'a Claude dir is never created');
+  assert.equal(by.bad.outcome, 'failed');
+  assert.ok(by.bad.error);
+  assert.equal(readFileSync(join(h, 'bad', 'settings.json'), 'utf8'), '{nope');
+  assert.equal(by.good.outcome, 'added');
+  assert.equal(ours(readJson(join(h, 'good', 'settings.json'))).length, 1);
+});
+
+test('modsStatus reports where canon-guard is enforced, per dir, never from the switch alone', async () => {
+  const { modsStatus, enableMod } = await mods();
+  const h = home();
+  installScript(h);
+  const targets = claudeDirs(h, { c1: {}, c2: {} });
+  const [d1, d2] = [...targets.keys()];
+  const fake = fakeClaude();
+  const status = () => modsStatus({ home: h, run: fake.run, targets, cursorTargets: new Map() }).features.find((f) => f.name === 'canon-guard');
+
+  const off = status();
+  assert.equal(off.on, false);
+  assert.equal(off.why, 'off', 'built and off reads off, not not-built-yet');
+
+  enableMod({ home: h, run: fake.run, targets, cursorTargets: new Map(), feature: 'canon-guard' });
+  const on = status();
+  assert.deepEqual(on.enforcement.map((r) => [r.host, r.label, r.state]), [['claude', 'c1', 'enforced'], ['claude', 'c2', 'enforced']]);
+  assert.equal(on.canTakeEffect, true);
+  assert.equal(on.why, '');
+
+  const s1 = readJson(join(d1, 'settings.json'));
+  delete s1.hooks;
+  writeFileSync(join(d1, 'settings.json'), JSON.stringify(s1));
+  const part = status();
+  assert.deepEqual(part.enforcement.map((r) => r.state), ['missing', 'enforced']);
+  assert.equal(part.canTakeEffect, true, 'enforced somewhere');
+
+  const s2 = readJson(join(d2, 'settings.json'));
+  delete s2.hooks;
+  writeFileSync(join(d2, 'settings.json'), JSON.stringify(s2));
+  const none = status();
+  assert.equal(none.on, true);
+  assert.equal(none.canTakeEffect, false);
+  assert.match(none.why, /run ac install/);
+});
+
+test('modsStatus gives Cursor its own enforcement row: native, via the Claude import, or not enforced', async () => {
+  const { modsStatus, enableMod } = await mods();
+  const cursorMod = (await import('../lib/hosts/cursor.mjs')).default;
+  const h = home();
+  installScript(h);
+  const cursorDir = join(h, 'cursor');
+  mkdirSync(cursorDir);
+  await withProcessEnv({ HOME: h, CURSOR_CONFIG_DIR: cursorDir, CLAUDE_CONFIG_DIR: undefined }, async () => {
+    const cursorTargets = cursorMod.configTargets();
+    const claudeT = claudeDirs(h, { claudeA: {} });
+    const row = (st) => st.features.find((f) => f.name === 'canon-guard').enforcement.find((r) => r.host === 'cursor');
+    const status = (t) => modsStatus({ home: h, run: fakeClaude().run, targets: t, cursorTargets });
+
+    // native: no $HOME/.claude, so Cursor gets its own preToolUse entry
+    enableMod({ home: h, run: fakeClaude().run, targets: claudeT, cursorTargets, feature: 'canon-guard' });
+    assert.equal(row(status(claudeT)).state, 'enforced');
+    assert.match(readFileSync(join(cursorDir, 'hooks.json'), 'utf8'), /astro-canon-guard\.mjs\\?" cursor/);
+
+    // Claude Code appears: Cursor rides its import, enforced only if Claude's base entry is
+    mkdirSync(join(h, '.claude'));
+    writeFileSync(join(h, '.claude', 'settings.json'), '{}\n');
+    const base = new Map([[join(h, '.claude'), 'base']]);
+    const { syncHookFeatures } = await mods();
+    syncHookFeatures({ home: h, targets: base, cursorTargets });
+    assert.equal(row(status(base)).state, 'via-claude-import');
+    assert.ok(!/astro-canon-guard/.test(readFileSync(join(cursorDir, 'hooks.json'), 'utf8')), 'native copy stripped');
+
+    // base entry deleted: nothing blocks Cursor either
+    const s = readJson(join(h, '.claude', 'settings.json'));
+    delete s.hooks;
+    writeFileSync(join(h, '.claude', 'settings.json'), JSON.stringify(s));
+    assert.equal(row(status(base)).state, 'not-enforced');
+  });
 });
