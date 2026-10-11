@@ -553,6 +553,16 @@
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:19.564Z",
       "status": "active"
+    },
+    {
+      "type": "phase",
+      "number": 41,
+      "milestone": 12,
+      "name": "witness mod: detect human vs agent acceptance provenance (amends ADR-033)",
+      "owner": "matteo.alvazzi@gmail.com",
+      "branch": "develop",
+      "claimed_at": "2026-10-11T06:24:22.193Z",
+      "status": "active"
     }
   ]
 }
