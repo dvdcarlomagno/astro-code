@@ -1,5 +1,6 @@
-// astro-mods -- the optional, Claude-only enforcement layer (ADR-071). This skeleton ENFORCES
-// NOTHING: its one hook reads the switches from `ac` and passes the event through.
+// astro-mods -- the optional, Claude-only enforcement layer (ADR-071). Features so far:
+// blindfold (phase 39: tool.check + agent.spawn). session.start reads the switches from `ac`
+// and passes the event through.
 //
 // The feature convention (phases 39-44 each add "one file + one line"):
 //   - feature `<name>` lives in `hooks/features/<name>.js` and exports named hook functions;
@@ -16,6 +17,7 @@
 // so a reload of the plugin never carries over what an earlier `ac` answer said.
 import { SWITCHES_ARGV, SWITCHES_TIMEOUT_MS, setSwitches, resetSwitches } from './lib/switches.js'
 import { failOpen, resetNotice } from './lib/failopen.js'
+import { toolCheck, agentSpawn, resetBlindfold } from './features/blindfold.js'
 
 // session.start fires at session start and again on each /reload-plugins; it reads NO field
 // of `e` (PROBE.md: the event carries cwd, surface and isInteractive, none of which is needed).
@@ -27,5 +29,8 @@ async function sessionStart($, e, next) {
 export function register(on, options) {
   resetSwitches()
   resetNotice()
+  resetBlindfold()
   on('session.start', sessionStart).catch(failOpen)
+  on('tool.check', toolCheck).catch(failOpen)
+  on('agent.spawn', agentSpawn).catch(failOpen)
 }
