@@ -513,6 +513,16 @@
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:07.809Z",
       "status": "active"
+    },
+    {
+      "type": "phase",
+      "number": 37,
+      "milestone": 12,
+      "name": "canon-guard: PreToolUse settings hook refusing hand edits to generated and registry-owned state",
+      "owner": "matteo.alvazzi@gmail.com",
+      "branch": "develop",
+      "claimed_at": "2026-10-11T06:24:11.250Z",
+      "status": "active"
     }
   ]
 }
