@@ -17,6 +17,27 @@ const FRAMEWORK = join(dirname(fileURLToPath(import.meta.url)), '..');
 const readCommand = (n) => readFileSync(join(FRAMEWORK, 'commands', `${n}.md`), 'utf8');
 const readAgent = (n) => readFileSync(join(FRAMEWORK, 'agents', `${n}.md`), 'utf8');
 
+// --- parity guard: no command or agent depends on a mod (ADR-071 rule b) ------------
+//
+// astro-mods is optional and Claude-only, so a shipped command or agent body may never REQUIRE
+// it -- on Codex, Cursor, or a Claude without the plugin that step would stall. The matcher
+// is deliberately simple, and its unit is the LINE (one sentence per line is how these bodies
+// are written), so a mention is judged with its own words around it:
+//   - it is a DEPENDENCY when the line names `astro-mods` or `ac mods`, or a feature followed
+//     by "mod" ("blindfold mod", "canon-guard-mod");
+//   - it is EXEMPT when the same line says it is optional ("optional", "optionally",
+//     "if installed", "if enabled", "when enabled").
+// Bare feature words ("witness", "blindfold") are NOT matched on purpose: they are common
+// English, and flagging them would make the guard useless noise.
+const { FEATURES } = await import('../lib/mods.mjs');
+const FEATURE_MOD = new RegExp(`\\b(${FEATURES.map((f) => f.name).join('|')})\\b[ -]mod\\b`);
+const MOD_MENTION = /astro-mods|\bac mods\b/;
+const OPTIONAL = /\b(optional(ly)?|if installed|if enabled|when enabled)\b/i;
+export function modDependency(line) {
+  return (MOD_MENTION.test(line) || FEATURE_MOD.test(line)) && !OPTIONAL.test(line);
+}
+const dependencyLines = (text) => text.split('\n').flatMap((line, i) => (modDependency(line) ? [`${i + 1}: ${line.trim()}`] : []));
+
 // --- frontmatter ---------------------------------------------------------------
 
 test('parseFrontmatter splits frontmatter from body, and toMarkdown round-trips', () => {
@@ -252,4 +273,26 @@ test('parseFrontmatter reads CRLF sources (a Windows clone with core.autocrlf)',
   assert.equal(frontmatter.description, 'Show status');
   assert.equal(frontmatter['allowed-tools'], 'Bash');
   assert.equal(body, 'Run it.\r\n');
+});
+
+// --- parity guard: no command or agent depends on a mod ------------------------------
+
+test('no shipped command or agent body depends on an astro-mods feature', () => {
+  const found = [];
+  for (const dir of ['commands', 'agents']) {
+    for (const f of readdirSync(join(FRAMEWORK, dir)).filter((x) => x.endsWith('.md'))) {
+      const text = readFileSync(join(FRAMEWORK, dir, f), 'utf8');
+      for (const l of dependencyLines(text)) found.push(`${dir}/${f}:${l}`);
+    }
+  }
+  assert.deepEqual(found, [], `a command/agent depends on a mod (ADR-071 rule b):\n${found.join('\n')}`);
+});
+
+test('the dependency matcher flags a required mod, exempts an optional mention, and ignores bare feature words', () => {
+  assert.ok(modDependency('Run `ac mods enable blindfold` before continuing.'), 'a command that requires a mod');
+  assert.ok(modDependency('Requires the astro-mods plugin.'), 'an agent that requires the plugin');
+  assert.ok(modDependency('The blindfold mod must be on for this step.'), 'a feature named as a mod');
+  assert.ok(!modDependency('Optionally, on Claude Code, `ac mods enable blindfold` can enforce this.'), 'an explicitly optional mention');
+  assert.ok(!modDependency('Say nothing when the witness has nothing to report.'), 'bare feature words are English');
+  assert.deepEqual(dependencyLines('fine\nRequires the astro-mods plugin.\nfine'), ['2: Requires the astro-mods plugin.']);
 });
