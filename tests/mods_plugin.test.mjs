@@ -22,8 +22,13 @@ const PROBE_MDS = [
   join(ROOT, '.astrocode', 'phases', '36-astro-mods-foundation-adr-api-probe', 'PROBE.md'),
   join(ROOT, '.astrocode', 'phases', '39-blindfold-mod-plan-blind-verifier-and', 'PROBE.md'),
   join(ROOT, '.astrocode', 'phases', '41-witness-mod-detect-human-vs-agent', 'PROBE.md'),
+  join(ROOT, '.astrocode', 'phases', '42-brief-section-mod-principles-brief-as', 'PROBE.md'),
 ];
 const ARGV = ['ac', 'mods', 'status', '--json', '--switches-only'];
+// brief-section's hooks, in register.js order (phase 42 PROBE.md: F1 classic.SessionStart drops the
+// SessionStart parts, F9-F11 session.append rewrites the PreCompact row, F14 prompt.compose adds the
+// section; F22 allows ONE session.start handler, so that one stays the existing registration).
+const BRIEF_HOOKS = ['classic.SessionStart', 'prompt.compose', 'session.append'];
 
 // ── switches all off ────────────────────────────────────────────────────────
 
@@ -32,7 +37,8 @@ test('with every switch off, every registered handler passes the event through u
   const names = eng.hooks.map((h) => h.name);
   assert.ok(names.includes('session.start') && names.includes('tool.check'), `registered: ${names}`);
   assert.ok(['command.run', 'prompt.submit', 'tool.call'].every((n) => names.includes(n)), `witness registers command.run, prompt.submit and tool.call (phase 41): ${names}`);
-  assert.ok(names.every((n) => ['session.start', 'tool.check', 'agent.spawn', 'command.run', 'prompt.submit', 'tool.call'].includes(n)), `an unexpected hook: ${names}`);
+  assert.deepEqual(names.slice(0, 1 + BRIEF_HOOKS.length), ['session.start', ...BRIEF_HOOKS], `brief-section registers its hooks right after session.start (phase 42): ${names}`);
+  assert.ok(names.every((n) => ['session.start', ...BRIEF_HOOKS, 'tool.check', 'agent.spawn', 'command.run', 'prompt.submit', 'tool.call'].includes(n)), `an unexpected hook: ${names}`);
   assert.ok(eng.hooks.every((h) => typeof h.catchHandler === 'function'), 'every hook has a fail-open .catch');
   const EVENTS = {
     'session.start': { ...SESSION_START },
@@ -41,6 +47,9 @@ test('with every switch off, every registered handler passes the event through u
     'command.run': { command: 'astro-accept', args: '41', origin: { kind: 'composer' } },
     'prompt.submit': { text: '/astro-accept 41', origin: { kind: 'composer' } },
     'tool.call': { tool: 'Bash', command: 'ac phase accept 41', tool_use_id: 'toolu_3' },
+    'classic.SessionStart': { source: 'startup', cwd: '/work/proj' },
+    'prompt.compose': {},
+    'session.append': { door: 'command', message: { content: [{ type: 'text', text: 'x' }] } },
   };
   for (const rec of eng.hooks) {
     const sentinel = { sentinel: rec.name };
@@ -356,4 +365,211 @@ test('C8 the UAT verdict in PROBE.md and the code agree', async () => {
   } else {
     assert.fail('PROBE.md says observable: add the P7 accept/reject/absent cases from its recorded field paths');
   }
+});
+
+// ── brief-section (phase 42): one cached system-prompt section, and no second copy of the brief ──
+// The engine below is the same simulator; `next` on classic.SessionStart / prompt.compose /
+// session.append is whatever the test says sits beneath. Everything the feature reads comes from a
+// scripted `ac` (ADR-071 c), keyed by argv; an argv outside the three brief-section shapes throws.
+// The feature module is reached only through register.js (ADR-018). A `turn.start` hook is NOT
+// required (PROBE.md F18: compose runs before turn.start in -p, so position is read at compose);
+// the tests fire it anyway, so a feature that does register one is exercised too.
+
+const BRIEF_ARGV = ['ac', 'principles', 'brief', '--stage', 'session', '--by', 'session'];
+const FEED_ARGV = ['ac', 'mods', 'feed', 'brief-section'];
+const POS_ARGV = [...FEED_ARGV, '--position'];
+const key = (argv) => argv.join(' ');
+const BRIEF = 'HARD RULES\n- RULE one\n- RULE two\n\nIN SCOPE\n- RULE three';
+const PARTS = ['SESSION BRIEF part 1\n- RULE one', 'SESSION BRIEF part 2\n- RULE two'];
+const POS1 = 'proj · M1 · Phase 42 executing · Next: /astro-verify 42';
+const POS2 = 'proj · M1 · Phase 42 verified · Next: /astro-accept 42';
+const okRun = (stdout) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false });
+const CORE = [{ id: 'lean_body', text: 'core', scope: 'shared' }, { id: 'env_info_simple', text: 'env', scope: 'session' }];
+
+/** A scripted ac. `s` is live state: a test edits it between turns to move the project. */
+function acStub(over = {}) {
+  const s = { position: POS1, serve: true, parts: PARTS, brief: `${BRIEF}\n`, briefMode: 'ok', switchOn: true, others: {}, ...over };
+  const impl = async (argv) => {
+    const k = key(argv);
+    if (k === key(ARGV)) return okRun(JSON.stringify(switches({ ...s.others, 'brief-section': s.switchOn })));
+    if (k === key(BRIEF_ARGV)) {
+      if (s.briefMode === 'enoent') throw new Error('spawn ac ENOENT');
+      if (s.briefMode === 'exit1') return { ...okRun(''), exitCode: 1, stderr: 'boom' };
+      if (s.briefMode === 'empty') return okRun('');
+      if (s.briefMode === 'timeout') return new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), 20));
+      return okRun(s.brief);
+    }
+    if (k === key(FEED_ARGV)) return okRun(JSON.stringify({ serve: s.serve, parts: s.parts, position: s.position }));
+    if (k === key(POS_ARGV)) return okRun(JSON.stringify({ position: s.position }));
+    throw new Error(`unscripted argv: ${k}`);
+  };
+  impl.s = s;
+  return impl;
+}
+const countRuns = (eng, argv) => eng.runs.filter((r) => key(r.argv) === key(argv)).length;
+const sessionOf = async (stub, opts) => {
+  const eng = await boot(stub, opts);
+  await eng.invoke('session.start', { ...SESSION_START });
+  return eng;
+};
+const composeOf = (eng, sections = CORE) => eng.invoke('prompt.compose', {}, { beneath: { sections: sections.map((x) => ({ ...x })) } });
+const hookOut = (eng, entries, source = 'startup') => eng.invoke('classic.SessionStart', { source, cwd: SESSION_START.cwd }, { beneath: { additionalContext: [...entries] } });
+const preCompactRow = (position, order = 'astro-first') => {
+  const astro = `PreCompact ["/usr/bin/node" "/h/hooks/astro-precompact.mjs"] completed successfully: ${JSON.stringify({ systemMessage: position })}`;
+  const foreign = 'PreCompact ["/usr/bin/node" "/x/foreign.mjs"] completed successfully: {"systemMessage":"FOREIGN-PC"}';
+  const text = `<local-command-stdout>Compacted ${order === 'astro-first' ? `${astro}\n${foreign}` : `${foreign}\n${astro}`}</local-command-stdout>`;
+  return { astro, foreign, e: { door: 'command', message: { role: 'user', content: [{ type: 'text', text }] } } };
+};
+const rowText = (out) => out.message.content.map((b) => b.text).join('');
+const FOREIGN = ['a foreign hook says: - RULE one', 'unrelated context'];
+
+test('brief-section on: one astro-mods:brief section, session scope, appended last, text = BRIEF + position; core sections unchanged', async () => {
+  const eng = await sessionOf(acStub());
+  const out = await composeOf(eng);
+  assert.deepEqual(out.sections.slice(0, CORE.length), CORE);
+  assert.equal(out.sections.length, CORE.length + 1);
+  const mine = out.sections.filter((x) => x.id === 'astro-mods:brief');
+  assert.equal(mine.length, 1, 'exactly one');
+  assert.equal(out.sections.at(-1), mine[0], 'appended last');
+  assert.equal(mine[0].scope, 'session');
+  assert.equal(mine[0].text, `${BRIEF}\n\n${POS1}`, 'BRIEF trimmed like the hooks trim it, then one position line');
+});
+
+test('brief-section on: an empty position leaves the section BRIEF alone', async () => {
+  const eng = await sessionOf(acStub({ position: '' }));
+  assert.equal((await composeOf(eng)).sections.at(-1).text, BRIEF);
+});
+
+test('brief-section on: five turns give the identical string and the brief ran once; a changed position changes only the last line', async () => {
+  const stub = acStub();
+  const eng = await sessionOf(stub);
+  const texts = [];
+  for (let i = 0; i < 5; i++) {
+    await eng.invoke('turn.start', { cwd: SESSION_START.cwd });
+    texts.push((await composeOf(eng)).sections.at(-1).text);
+  }
+  assert.ok(texts.every((t) => t === texts[0]), 'byte-identical on every turn (===), or the prompt cache breaks each turn');
+  assert.equal(countRuns(eng, BRIEF_ARGV), 1, 'the brief ran once per session');
+  stub.s.position = POS2;
+  await eng.invoke('turn.start', { cwd: SESSION_START.cwd });
+  assert.equal((await composeOf(eng)).sections.at(-1).text, `${BRIEF}\n\n${POS2}`);
+  assert.equal(countRuns(eng, BRIEF_ARGV), 1, 'a state change never re-runs the brief');
+});
+
+test('brief-section on: ac is read through the scripted argv shapes only, in the session cwd, inside the hook budget', async () => {
+  const eng = await sessionOf(acStub());
+  await composeOf(eng);
+  await hookOut(eng, PARTS);
+  await eng.invoke('session.append', preCompactRow(POS1).e);
+  const allowed = [ARGV, BRIEF_ARGV, FEED_ARGV, POS_ARGV].map(key);
+  assert.ok(eng.runs.every((r) => allowed.includes(key(r.argv))), `argv: ${eng.runs.map((r) => key(r.argv))}`);
+  const { SWITCHES_TIMEOUT_MS } = await import('../mods/astro-mods/hooks/lib/switches.js');
+  const mine = eng.runs.filter((r) => [BRIEF_ARGV, FEED_ARGV].map(key).includes(key(r.argv)));
+  assert.ok(mine.length >= 2 && mine.every((r) => r.init.cwd === SESSION_START.cwd && r.init.timeoutMs > 0));
+  assert.ok(SWITCHES_TIMEOUT_MS + mine.slice(0, 2).reduce((n, r) => n + r.init.timeoutMs, 0) <= 9000, 'session.start stays 1 s under its 10 s budget');
+});
+
+for (const source of ['startup', 'clear', 'compact']) {
+  test(`brief-section on, SessionStart (${source}): entries equal to the parts are dropped, a foreign entry quoting a BRIEF line is kept, order preserved`, async () => {
+    const eng = await sessionOf(acStub());
+    const out = await hookOut(eng, [FOREIGN[0], PARTS[0], FOREIGN[1], PARTS[1]], source);
+    assert.deepEqual(out.additionalContext, [FOREIGN[0], FOREIGN[1]]);
+    const near = [`${PARTS[0]} x`, PARTS[0].slice(0, -1)];
+    assert.deepEqual((await hookOut(eng, near, source)).additionalContext, near, 'exact match only, never prefix or similarity');
+  });
+}
+
+test('brief-section on, PreCompact: the astro segment is dropped from the command row, the foreign one is kept', async () => {
+  const stub = acStub();
+  const eng = await sessionOf(stub);
+  stub.s.position = POS2; // the row carries the position as it is NOW; the match re-reads it first
+  for (const order of ['astro-first', 'astro-last']) {
+    const row = preCompactRow(POS2, order);
+    const text = rowText(await eng.invoke('session.append', row.e));
+    assert.ok(!text.includes(row.astro), `${order}: astro segment gone`);
+    assert.ok(text.includes(row.foreign), `${order}: foreign kept byte-identical`);
+    assert.ok(text.startsWith('<local-command-stdout>') && text.endsWith('</local-command-stdout>'), 'the wrapper survives');
+  }
+  const foreignOnly = { door: 'command', message: { role: 'user', content: [{ type: 'text', text: `<local-command-stdout>Compacted ${preCompactRow(POS2).foreign}</local-command-stdout>` }] } };
+  assert.equal(await eng.invoke('session.append', foreignOnly), foreignOnly, 'a foreign-only row is the very event');
+  const other = { door: 'user', message: { role: 'user', content: [{ type: 'text', text: preCompactRow(POS2).astro }] } };
+  assert.equal(await eng.invoke('session.append', other), other, 'only the command door is touched');
+});
+
+const FAIL_MODES = {
+  'ac is missing (ENOENT)': 'enoent',
+  'the brief exits 1': 'exit1',
+  'the brief prints nothing': 'empty',
+  'the brief call rejects at its timeout': 'timeout',
+};
+for (const [label, briefMode] of Object.entries(FAIL_MODES)) {
+  test(`fail open, ${label}: bounded, no section, nothing dropped, one notice across turns and events, other mods untouched`, async () => {
+    const eng = await boot(acStub({ briefMode, others: { blindfold: true } }));
+    const t0 = Date.now();
+    const e = { ...SESSION_START };
+    assert.equal(await eng.invoke('session.start', e), e);
+    assert.ok(Date.now() - t0 < 2000, 'bounded');
+    for (let i = 0; i < 3; i++) {
+      assert.deepEqual((await composeOf(eng)).sections, CORE, 'no section');
+      await eng.invoke('turn.start', { cwd: SESSION_START.cwd });
+    }
+    assert.deepEqual((await hookOut(eng, [...PARTS, FOREIGN[0]])).additionalContext, [...PARTS, FOREIGN[0]], 'the hooks deliver the brief as today');
+    const row = preCompactRow(POS1).e;
+    assert.equal(await eng.invoke('session.append', row), row);
+    assert.equal(eng.toasts.length, 1, `one notice, got ${JSON.stringify(eng.toasts)}`);
+    assert.match(eng.toasts[0], /brief-section/);
+    const { isOn } = await import('../mods/astro-mods/hooks/lib/switches.js');
+    assert.equal(isOn('blindfold'), true, 'the failure is the feature\'s own: it does not reset the other mods');
+  });
+}
+
+test('serve false (not an astro-code project, or the #116 opt-out): no section, no notice, everything passes through', async () => {
+  const eng = await sessionOf(acStub({ serve: false }));
+  assert.deepEqual((await composeOf(eng)).sections, CORE);
+  assert.deepEqual((await hookOut(eng, PARTS)).additionalContext, PARTS);
+  const row = preCompactRow(POS1).e;
+  assert.equal(await eng.invoke('session.append', row), row);
+  assert.deepEqual(eng.toasts, []);
+});
+
+test('switch off: no section, no brief run, every hook output passes through untouched', async () => {
+  const eng = await sessionOf(acStub({ switchOn: false }));
+  assert.deepEqual((await composeOf(eng)).sections, CORE);
+  assert.deepEqual((await hookOut(eng, PARTS)).additionalContext, PARTS);
+  const row = preCompactRow(POS1).e;
+  assert.equal(await eng.invoke('session.append', row), row);
+  assert.equal(countRuns(eng, BRIEF_ARGV), 0);
+  assert.deepEqual(eng.toasts, []);
+});
+
+test('the invariant: drop only while served. After a drop, a forced failOpen keeps the section; before any drop it removes it', async () => {
+  const malformed = (eng) => eng.invoke('classic.SessionStart', { source: 'startup', cwd: SESSION_START.cwd }, { beneath: { additionalContext: 'not an array' } });
+  const dropped = await sessionOf(acStub());
+  assert.deepEqual((await hookOut(dropped, PARTS)).additionalContext, [], 'a part was dropped');
+  await malformed(dropped);
+  assert.equal((await composeOf(dropped)).sections.at(-1).id, 'astro-mods:brief', 'the model must not be left with ZERO copies');
+  const fresh = await sessionOf(acStub());
+  await malformed(fresh);
+  assert.deepEqual((await composeOf(fresh)).sections, CORE, 'nothing of ours has passed through: reset removes the section');
+  assert.deepEqual((await hookOut(fresh, PARTS)).additionalContext, PARTS, 'and later outputs pass through');
+});
+
+test('a reload (a fresh register + session.start) recomputes the brief exactly once more', async () => {
+  const stub = acStub();
+  const briefRuns = [];
+  const spy = async (argv, init) => { if (key(argv) === key(BRIEF_ARGV)) briefRuns.push(argv); return stub(argv, init); };
+  await sessionOf(spy);
+  assert.equal(briefRuns.length, 1);
+  const again = await sessionOf(spy);
+  assert.equal(briefRuns.length, 2);
+  assert.equal((await composeOf(again)).sections.at(-1).id, 'astro-mods:brief');
+});
+
+test('event order: classic.SessionStart before session.start yields section-and-drop or neither, never one without the other', async () => {
+  const eng = await boot(acStub());
+  const first = await hookOut(eng, PARTS);
+  await eng.invoke('session.start', { ...SESSION_START });
+  const droppedAny = first.additionalContext.length < PARTS.length;
+  const hasSection = (await composeOf(eng)).sections.some((x) => x.id === 'astro-mods:brief');
+  assert.equal(droppedAny, hasSection, `dropped=${droppedAny} section=${hasSection}`);
 });
