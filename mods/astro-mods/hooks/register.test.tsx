@@ -82,3 +82,99 @@ test('with spawn-policy on, every spawn passes through untouched and its model i
     }
   }
 })
+
+// witness (phase 41, ADR-074) through the real engine. The kit's `$.command.run` / `$.prompt.submit`
+// carry no `origin` of their own, but they pass a test-supplied one through to the plugin (verified
+// by logging beneath it), so a test sets `{ kind: 'composer' }` / `{ kind: 'sdk' }` itself; the type
+// omits the field, hence the casts. The engine stamps it in production (PROBE.md). A hook beneath the
+// plugin records what would actually run.
+const COMPOSER = { kind: 'composer' }
+const SDK = { kind: 'sdk' }
+const CTX = '/w/.astrocode/phases/01-x/CONTEXT.md'
+const HUMAN = '<!-- astro-discuss: captured -->\n# C\n'
+const witnessRig = (witness: boolean, on: (...a: any[]) => void) => {
+  const toasts: string[] = []
+  const ran_: Array<Record<string, any>> = []
+  on('process.run', () => ({ value: ran(JSON.stringify({ switches: { witness }, warnings: [] })) }))
+  on('ui.toast', (_$: unknown, e: unknown) => { toasts.push(JSON.stringify(e)); return { value: undefined } })
+  on('session.start', (_$: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  on('command.run', () => ({ text: '' }))
+  on('prompt.submit', () => ({ text: '' }))
+  on('tool.call', (_$: unknown, e: Record<string, any>) => { ran_.push(e); return { result: { stdout: '', stderr: '', interrupted: false } } })
+  return { toasts, ran: ran_, bash: () => ran_.map(e => e.command), writes: () => ran_.map(e => e.content) }
+}
+const typed = ($: any, command: string, args: string, origin: object = COMPOSER) => $.command.run({ command, args, origin })
+const prompt = ($: any, text: string, origin: object = COMPOSER) => $.prompt.submit({ text, origin })
+
+test('witness: a typed /astro-accept 1 in the composer marks the accept as witnessed', async ($, on) => {
+  const rig = witnessRig(true, on)
+  await $.session.start(START)
+  await typed($, 'astro-accept', '1')
+  await prompt($, '/astro-accept 1') // the raw line follows the command (PROBE.md); it keeps the typed signal
+  await $.tool.call({ tool: 'Bash', command: 'ac phase accept 1' })
+  expect(rig.bash()).toEqual(['ac phase accept 1 --witnessed composer'])
+  expect(rig.toasts).toEqual([])
+})
+
+test('witness: a typed accept for a different phase, or a plain prompt, is recorded as the agent', async ($, on) => {
+  const rig = witnessRig(true, on)
+  await $.session.start(START)
+  await typed($, 'astro-accept', '1')
+  await prompt($, '/astro-accept 1')
+  await $.tool.call({ tool: 'Bash', command: 'ac phase accept 2' })
+  await prompt($, 'please accept phase 1')
+  await $.tool.call({ tool: 'Bash', command: 'ac phase accept 1' })
+  expect(rig.bash()).toEqual(['ac phase accept 2 --agent claude', 'ac phase accept 1 --agent claude'])
+  expect(rig.toasts.length).toEqual(1) // told once
+})
+
+test('witness: a turn started by the SDK is the agent even with the right typed command', async ($, on) => {
+  const rig = witnessRig(true, on)
+  await $.session.start(START)
+  await typed($, 'astro-accept', '2', SDK)
+  await $.tool.call({ tool: 'Bash', command: 'ac phase accept 2' })
+  expect(rig.bash()).toEqual(['ac phase accept 2 --agent claude'])
+})
+
+test('witness: a declared --agent is left untouched', async ($, on) => {
+  const rig = witnessRig(true, on)
+  await $.session.start(START)
+  await prompt($, 'go')
+  await $.tool.call({ tool: 'Bash', command: 'ac phase accept 1 --agent codex' })
+  expect(rig.bash()).toEqual(['ac phase accept 1 --agent codex'])
+  expect(rig.toasts).toEqual([])
+})
+
+test('witness: with the switch off the calls are byte-identical', async ($, on) => {
+  const rig = witnessRig(false, on)
+  await $.session.start(START)
+  await prompt($, 'go')
+  await $.tool.call({ tool: 'Bash', command: 'ac phase accept 1' })
+  await $.tool.call({ tool: 'Write', file_path: CTX, content: HUMAN })
+  expect(rig.ran.map(e => e.command ?? e.content)).toEqual(['ac phase accept 1', HUMAN])
+  expect(rig.toasts).toEqual([])
+})
+
+test('witness: a cold call with no turn is left as declared', async ($, on) => {
+  const rig = witnessRig(true, on)
+  await $.session.start(START)
+  await $.tool.call({ tool: 'Bash', command: 'ac phase accept 1' })
+  expect(rig.bash()).toEqual(['ac phase accept 1'])
+})
+
+test('witness: a human CONTEXT.md marker written outside a typed /astro-discuss becomes the agent marker', async ($, on) => {
+  const rig = witnessRig(true, on)
+  await $.session.start(START)
+  await prompt($, 'write the context')
+  await $.tool.call({ tool: 'Write', file_path: CTX, content: HUMAN })
+  expect(rig.writes()).toEqual(['<!-- astro-discuss: captured by agent: claude -->\n# C\n'])
+})
+
+test('witness: the same marker after a typed /astro-discuss 1 is left as the human wrote it', async ($, on) => {
+  const rig = witnessRig(true, on)
+  await $.session.start(START)
+  await typed($, 'astro-discuss', '1')
+  await prompt($, '/astro-discuss 1')
+  await $.tool.call({ tool: 'Write', file_path: CTX, content: HUMAN })
+  expect(rig.writes()).toEqual([HUMAN])
+})
