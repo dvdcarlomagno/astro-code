@@ -152,6 +152,9 @@ async function decideEditEffect($, e) {
 function decideFile(e) {
   const phase = isPhaseContextPath(e.file_path)
   if (phase === null) return { out: e, say: null }
+  // An Edit is judged by where its text LANDS (decideEditEffect reads the file): its own first line
+  // says nothing about line 1 of the file, and C6(d) leaves a marker below line 1 alone (phase 41).
+  if (e.tool === 'Edit') return { out: e, say: null }
   const text = markerRewrite({ tool: e.tool, content: e.content, new_string: e.new_string })
   if (text === null) return { out: e, say: null }
   if (turn === null || undeterminedFor('discuss marker')) return { out: e, say: 'undetermined' }

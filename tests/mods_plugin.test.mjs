@@ -226,7 +226,6 @@ const FILES = [
   ['C6a Write after typed discuss', typedDiscuss(41), write(`${HUMAN}\nbody\n`), null],
   ['C6a Edit after typed discuss', typedDiscuss(41), edit(`${HUMAN}\nbody`), null],
   ['C6b Write after discuss of another phase', typedDiscuss(40), write(`${HUMAN}\nbody\n`), 'content'],
-  ['C6b Edit after discuss of another phase', typedDiscuss(40), edit(`${HUMAN}\nbody`), 'new_string'],
   ['C6b Write after composer astro-autonomous', [run('astro-autonomous', ''), submit('/astro-autonomous')], write(`${HUMAN}\nbody\n`), 'content'],
   ['C6b Write in an sdk turn', [run('astro-discuss', '41', 'sdk'), submit('/astro-discuss 41', 'sdk')], write(`${HUMAN}\nbody\n`), 'content'],
 ];
@@ -313,6 +312,21 @@ for (const [label, events, call, field] of FILES) {
     assert.equal(eng.toasts.length, 1);
   });
 }
+
+// An Edit is judged by where its text lands in the file (phase 41 verify, C6): the engine reads the
+// file, so these scenarios give it one.
+test('C6b an Edit that makes line 1 the human marker becomes the agent marker; one landing on line 2 is left alone', async () => {
+  const { AGENT_MARKER } = await import('../mods/astro-mods/hooks/lib/gates.js');
+  const eng = await armed();
+  eng.setRead(() => 'x\nbody\n');
+  const line1 = await turnThen(eng, typedDiscuss(40), edit(`${HUMAN}`));
+  assert.equal(line1.old_string, 'x\nbody\n');
+  assert.equal(line1.new_string, `${AGENT_MARKER}\nbody\n`);
+  const eng2 = await armed();
+  eng2.setRead(() => '# Title\nbody\n');
+  const line2 = { ...edit(`${HUMAN}\nbody`), old_string: 'body' };
+  assert.deepEqual(await turnThen(eng2, typedDiscuss(40), line2), line2, 'a marker landing on line 2 is prose (C6 d)');
+});
 
 test('C6c/d an agent-form marker, another file, or an Edit marker on line 3 is unchanged in every turn', async () => {
   const { AGENT_MARKER } = await import('../mods/astro-mods/hooks/lib/gates.js');

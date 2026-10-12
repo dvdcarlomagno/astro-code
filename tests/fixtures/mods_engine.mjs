@@ -44,12 +44,13 @@ export async function boot(runImpl, { toastThrows = false } = {}) {
   let listImpl = async () => [];
   let cwdImpl = async () => '/work/proj';
   let existsImpl = async () => false;
+  let readImpl = async () => { throw new Error('no such file'); };
   const $ = {
     process: { run: (argv, init) => { runs.push({ argv, init }); return runImpl(argv, init); } },
     ui: { toast: (text) => { toasts.push(text); if (toastThrows) throw new Error('no UI under -p'); } },
     agent: { list: (...a) => { listCalls.push(a); return listImpl(...a); } },
     session: { cwd: (...a) => cwdImpl(...a) },
-    fs: { exists: (p) => existsImpl(p) },
+    fs: { exists: (p) => existsImpl(p), read: (p) => readImpl(p) },
   };
   register(on, {});
 
@@ -80,5 +81,6 @@ export async function boot(runImpl, { toastThrows = false } = {}) {
     setAgents: (impl) => { listImpl = typeof impl === 'function' ? impl : async () => impl; },
     setCwd: (dir) => { cwdImpl = typeof dir === 'function' ? dir : async () => dir; },
     setExists: (fn) => { existsImpl = async (p) => fn(p); },
+    setRead: (fn) => { readImpl = async (p) => fn(p); },
   };
 }

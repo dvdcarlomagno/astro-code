@@ -243,6 +243,15 @@ test('witness: an Edit that would make line 1 the human marker is turned back to
   ])
 })
 
+test('witness: an Edit putting the human marker on line 2 is left alone (phase 41 C6 d)', async ($, on) => {
+  const rig = witnessRig(true, on)
+  on('fs.read', () => ({ value: '# Title\nbody\n' }))
+  await $.session.start(START)
+  await typed($, 'astro-accept', '41', SDK)
+  await $.tool.call({ tool: 'Edit', file_path: CTX, old_string: 'body', new_string: '<!-- astro-discuss: captured -->\nbody' })
+  expect(rig.ran.map(e => [e.old_string, e.new_string])).toEqual([['body', '<!-- astro-discuss: captured -->\nbody']])
+})
+
 test('witness: the same marker after a typed /astro-discuss 1 is left as the human wrote it', async ($, on) => {
   const rig = witnessRig(true, on)
   await $.session.start(START)
