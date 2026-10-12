@@ -87,13 +87,13 @@ function baseOnly(h) {
 
 // ── registry ────────────────────────────────────────────────────────────────
 
-test('the registry lists the eight features in order with their kinds, canon-guard, git-guard and blindfold built, floor 2.1.292', async () => {
+test('the registry lists the eight features in order with their kinds, canon-guard, git-guard, blindfold and witness built, floor 2.1.292', async () => {
   const { FEATURES, MOD_FLOOR } = await mods();
   assert.equal(MOD_FLOOR, '2.1.292');
   assert.deepEqual(FEATURES.map((f) => f.name), NAMES);
   assert.deepEqual(FEATURES.map((f) => f.kind), KINDS);
   assert.deepEqual(FEATURES.map((f) => f.phase), [37, 38, 39, 40, 41, 42, 43, 44]);
-  assert.deepEqual(FEATURES.filter((f) => f.built).map((f) => f.name), ['canon-guard', 'git-guard', 'blindfold']);
+  assert.deepEqual(FEATURES.filter((f) => f.built).map((f) => f.name), ['canon-guard', 'git-guard', 'blindfold', 'witness']);
   assert.ok(FEATURES.every((f) => f.description.length > 10));
   assert.ok(Object.isFrozen(FEATURES));
 });
@@ -333,12 +333,12 @@ test('modsStatus with no claude: found false, no plugin call, every feature off 
 
 test('modsStatus on an old claude makes no plugin call and reports meetsFloor false', async () => {
   const { modsStatus } = await mods();
-  const h = home({ mods: { blindfold: true, witness: true } });
+  const h = home({ mods: { blindfold: true, 'brief-section': true } });
   const fake = fakeClaude({ version: '2.1.287' });
   const s = modsStatus({ home: h, run: fake.run, targets: twoDirs(h) });
   assert.equal(s.claude.meetsFloor, false);
   assert.equal(fake.plugin().length, 0);
-  const w = s.features.find((f) => f.name === 'witness');
+  const w = s.features.find((f) => f.name === 'brief-section');
   assert.equal(w.on, true);
   assert.equal(w.canTakeEffect, false);
   assert.match(w.why, /not built yet/, 'the first failing reason wins; the floor shows in claude.meetsFloor and on enable');

@@ -96,6 +96,23 @@ test('--switches-only prints {switches, warnings} and never spawns claude', () =
   assert.equal(b.log(), '', 'the hot path never touches claude');
 });
 
+test('witness is built: enable and status say so, it is a mod with no settings hook and no Cursor hooks.json', () => {
+  const b = box();
+  seedMarketplace(b.T);
+  const e = b.ac(['mods', 'enable', 'witness']);
+  assert.equal(e.status, 0, out(e));
+  assert.doesNotMatch(out(b.ac(['mods', 'status', 'witness'])), /not built yet/);
+  const w = b.status().features.find((f) => f.name === 'witness');
+  assert.equal(w.built, true);
+  assert.equal(w.kind, 'mod');
+  const sw = () => JSON.parse(b.ac(['mods', 'status', '--json', '--switches-only']).stdout).switches.witness;
+  assert.equal(sw(), true);
+  b.ac(['mods', 'disable', 'witness']);
+  assert.equal(sw(), false);
+  assert.ok(!existsSync(join(b.T, '.claude', 'settings.json')), 'no settings hook is written');
+  assert.ok(!existsSync(join(b.T, '.cursor', 'hooks.json')), 'no Cursor hooks.json change');
+});
+
 // ── C3: enable / disable ────────────────────────────────────────────────────
 
 test('enable and disable flip exactly one switch and keep every sibling key; not-yet-built is said', () => {
@@ -110,9 +127,9 @@ test('enable and disable flip exactly one switch and keep every sibling key; not
   assert.equal(readCfg(b).mods['canon-guard'], true);
   const g = b.ac(['mods', 'enable', 'git-guard']);
   assert.doesNotMatch(g.stdout, /not built yet/, 'git-guard is built (phase 38)');
-  b.ac(['mods', 'enable', 'witness']);
-  assert.match(b.ac(['mods', 'status', 'witness']).stdout, /not built yet/, 'an unbuilt feature still says so');
-  b.ac(['mods', 'disable', 'witness']);
+  b.ac(['mods', 'enable', 'brief-section']);
+  assert.match(b.ac(['mods', 'status', 'brief-section']).stdout, /not built yet/, 'an unbuilt feature still says so');
+  b.ac(['mods', 'disable', 'brief-section']);
   b.ac(['mods', 'enable', 'spawn-policy']);
   const sp = b.ac(['mods', 'status', 'spawn-policy']);
   assert.match(sp.stdout, /not built yet/);
