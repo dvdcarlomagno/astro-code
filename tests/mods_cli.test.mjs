@@ -113,6 +113,35 @@ test('witness is built: enable and status say so, it is a mod with no settings h
   assert.ok(!existsSync(join(b.T, '.cursor', 'hooks.json')), 'no Cursor hooks.json change');
 });
 
+test('brief-section is built: a mod, switchable, and enabling or disabling leaves every settings file and Cursor hooks.json byte-identical', () => {
+  const b = box();
+  seedMarketplace(b.T);
+  const CURSOR_CONFIG_DIR = join(b.T, 'cursor');
+  mkdirSync(CURSOR_CONFIG_DIR);
+  writeFileSync(join(CURSOR_CONFIG_DIR, 'hooks.json'), JSON.stringify({ version: 1, hooks: { sessionStart: [{ command: 'echo mine' }] } }));
+  const env = { CURSOR_CONFIG_DIR };
+  assert.equal(b.ac(['install'], env).status, 0);
+  const files = [join(b.T, '.claude', 'settings.json'), join(CURSOR_CONFIG_DIR, 'hooks.json')].filter((f) => existsSync(f));
+  assert.ok(files.length >= 1);
+  const before = files.map(sha);
+  const e = b.ac(['mods', 'enable', 'brief-section'], env);
+  assert.equal(e.status, 0, out(e));
+  assert.doesNotMatch(out(b.ac(['mods', 'status', 'brief-section'], env)), /not built yet/);
+  const f = b.status(env).features.find((x) => x.name === 'brief-section');
+  assert.equal(f.built, true);
+  assert.equal(f.kind, 'mod');
+  const sw = () => JSON.parse(b.ac(['mods', 'status', '--json', '--switches-only'], env).stdout).switches['brief-section'];
+  assert.equal(sw(), true);
+  b.ac(['mods', 'disable', 'brief-section'], env);
+  assert.equal(sw(), false);
+  assert.deepEqual(files.map(sha), before, 'no settings file or hooks.json changed');
+  const settings = readFileSync(join(b.T, '.claude', 'settings.json'), 'utf8');
+  assert.match(settings, /astro-update\.mjs/, 'the SessionStart hooks are still registered');
+  assert.match(settings, /astro-precompact\.mjs/, 'the PreCompact hook is still registered');
+  b.ac(['mods', 'enable', 'spawn-policy'], env);
+  assert.match(b.ac(['mods', 'status', 'spawn-policy'], env).stdout, /not built yet/, 'unbuilt rows still say so');
+});
+
 // ── C3: enable / disable ────────────────────────────────────────────────────
 
 test('enable and disable flip exactly one switch and keep every sibling key; not-yet-built is said', () => {
@@ -128,7 +157,7 @@ test('enable and disable flip exactly one switch and keep every sibling key; not
   const g = b.ac(['mods', 'enable', 'git-guard']);
   assert.doesNotMatch(g.stdout, /not built yet/, 'git-guard is built (phase 38)');
   b.ac(['mods', 'enable', 'brief-section']);
-  assert.match(b.ac(['mods', 'status', 'brief-section']).stdout, /not built yet/, 'an unbuilt feature still says so');
+  assert.doesNotMatch(b.ac(['mods', 'status', 'brief-section']).stdout, /not built yet/, 'brief-section is built (phase 42)');
   b.ac(['mods', 'disable', 'brief-section']);
   b.ac(['mods', 'enable', 'spawn-policy']);
   const sp = b.ac(['mods', 'status', 'spawn-policy']);
