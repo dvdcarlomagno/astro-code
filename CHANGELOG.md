@@ -2,6 +2,10 @@
 
 Release notes in full live on the [GitHub releases page](https://github.com/uublive/astro-code/releases).
 
+## Unreleased
+
+- `ac mods enable brief-section` (Claude Code 2.1.292+) gives the model the principles brief once, as one cached system-prompt section, instead of four SessionStart hook outputs plus a PreCompact note. The section holds the whole brief and a one-line position that changes only when the phase or its state does, so the prompt cache holds between turns and across `/compact`. The mod drops the hooks' brief parts and position note only when they match what the hooks print exactly; the update banner, other tools' hooks and `settings.json` are untouched, and Cursor and Codex keep the hooks' brief. If the brief cannot be built it adds nothing, drops nothing and tells you once. New: `ac mods feed brief-section` prints what those hooks print, as JSON
+
 ## v0.40.2
 
 - Cursor's slash menu shows each astro command's description again, instead of "Running on Cursor" for every command. The menu reads the first line of the command body, not the `description` frontmatter, so the description now leads the body, ahead of the Cursor host note. Claude Code and Codex commands are unchanged. Run `ac update` to rewrite `~/.cursor/commands`

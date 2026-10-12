@@ -198,4 +198,36 @@ All are far inside the 10 s budget (F19).
   - the PreCompact rewrite must remove only the exact astro segment (F11);
   - the section is the hooks' packed text, never the raw verb (Size).
 
+## Shipped recheck (phase 42 t9)
+
+The SHIPPED plugin, not the probe: `claude -p --plugin-dir mods/astro-mods` on Claude Code 2.1.292,
+2026-10-12, driving model `claude-opus-5-5`. Same sandbox method as above (scratch `HOME` and
+`CLAUDE_CONFIG_DIR` with a copied credential, `--settings` registering the astro hooks as
+`lib/hosts/claude.mjs` writes them plus a foreign SessionStart and PreCompact hook; the real `~/.claude`
+and `~/.astro` untouched; a wrapper `ac` on `PATH`). Switch on in the scratch `~/.astro/config.json`.
+Store: 70 synthetic `rule` entries (`LIVE-RULE-0..69`), project `proj` with phase 1 pending.
+
+- **F26** One section, BRIEF once. Run A (`-p`, startup), asked from context only: `LIVE-RULE-10` is in
+  the model's context ONCE (the model also confirmed `part 3 of 4` is not there). The five SessionStart
+  hooks all ran (`hook_response` x5: the foreign one, update, and parts 2 to 4).
+- **F27** No astro brief part, no PreCompact note, banner and foreign hooks present. `FOREIGN-SS` was
+  visible to the model (kept byte-identical); the astro parts were not repeated beside the section; the
+  update hook's `systemMessage` banner is in the stream (`hook_response`) unchanged.
+- **F28** After `/compact` (Run B: turn, `/compact`, question, one process): `LIVE-RULE-10:` appears
+  ONCE (in the section), `FOREIGN-PC: quoted` is visible (the foreign PreCompact output is kept), and
+  `keep this after compaction` is visible ONCE, in the section's position line: the PreCompact
+  re-injection was dropped, so the position is not twice.
+- **F29** Size on the real section: `ac principles brief --stage session --by session` is 38,780 chars
+  (about 9,700 tokens) on this 70-rule seed, and 4,841 chars (about 1,210 tokens) on this repo's real
+  store (Size, above). The section is that text plus one position line. The seed is just under the
+  ~10k-token line; a bigger store would cross it. Because the section is the unsplit brief, it is NOT
+  capped the way the hooks' 4 x 9,500 characters are (the Size section's 4x difference on the 330-rule
+  seed still applies): nothing is trimmed, flagged here in plain words rather than cut.
+- **F30** Caching: Run A's usage on its one request shows `cache_creation` 31,018 and `cache_read`
+  10,480 tokens, all in the 1-hour tier. Consecutive-turn cache reads on the shipped plugin were not
+  re-measured (F16 measured it on the probe's section; the shipped section text is byte-stable across
+  turns by the C4 tests, `tests/mods_plugin.test.mjs`).
+- Not observed live: the PreCompact row of an AUTOMATIC compaction (F12), `/clear` and `/reload-plugins`
+  on the shipped plugin, an interactive REPL.
+
 Verdict: GO

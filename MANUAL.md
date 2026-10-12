@@ -115,11 +115,11 @@ needs it, and on Codex, Cursor or a Claude Code without the plugin everything wo
 | `blindfold` | mod | phase 39 (built) | keep the verifier and criteria-author plan-blind |
 | `spawn-policy` | mod | phase 40 | refuse a parallel executor spawned without worktree isolation (ADR-008) |
 | `witness` | mod | phase 41 (built) | tell a human acceptance from an agent's |
-| `brief-section` | mod | phase 42 | principles brief as one cached system-prompt section |
+| `brief-section` | mod | phase 42 (built) | principles brief as one cached system-prompt section |
 | `phase-band` | mod | phase 43 | phase band with next-command buttons |
 | `live-capture` | mod | phase 44 | offer principle capture from human-typed prompts |
 
-`canon-guard`, `git-guard`, `blindfold` and `witness` are built; the other four are **not built yet**: today you can switch one on and
+`canon-guard`, `git-guard`, `blindfold`, `witness` and `brief-section` are built; the other three are **not built yet**: today you can switch one on and
 `ac` records it, and it takes effect when its phase lands. A `hook` is a plain settings hook
 (Cursor imports it too); a `mod` is part of the `astro-mods` Claude Code plugin.
 
@@ -166,6 +166,25 @@ executor prompt. The reason names the rule, why, the scoped alternative and the 
 - Where it is enforced, and the re-sync on `ac install` / `ac update`: as for canon-guard.
 - Not seen: `ac`'s and the workflow's own git calls run through `child_process`, not the Bash tool.
   That is why `NO_BROAD_STASH` stays in the prompts.
+
+**brief-section** puts the principles brief in front of the model once, as a single cached
+system-prompt section, instead of as four SessionStart hook outputs plus a PreCompact note.
+`ac mods enable brief-section` turns it on; `ac mods disable brief-section` puts everything back.
+
+- On Claude Code: at session start the mod reads the brief (`ac principles brief`) and a one-line
+  position (milestone, phase, state, next command) through `ac`, and appends them as one section
+  that is cached with the system prompt and survives `/compact` and `/clear`. The brief is read once
+  per session; the position line changes only when the project state really changes, so the cache is
+  not broken between turns.
+- No second copy: the mod drops the SessionStart brief parts and the PreCompact position note when
+  they are exactly what the hooks print (`ac mods feed brief-section` says what that is). The update
+  banner and any other tool's hook output are never touched, and `settings.json` is never edited.
+- If `ac` cannot build the brief, the mod adds no section, drops nothing and tells you once, so the
+  session gets the hooks' brief as before.
+- Cursor and Codex are unchanged: they keep the four hook parts. The `principles.sessionBrief: false`
+  opt-out in `~/.astro/config.json` is honoured: with it set the mod adds nothing.
+- A section has no 10,000-character cap, so a large brief costs its full size in every session's
+  cached prompt; check it with `ac principles brief | wc -c`.
 
 **blindfold** keeps the two plan-blind agents plan-blind, the rule ADR-021 and the agents' own prose
 already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces it per agent:

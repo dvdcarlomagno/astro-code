@@ -71,6 +71,8 @@ the hook script itself never reads a switch. Phase 37's `PROBE.md` records what 
 
 `witness` (phase 41) is `hooks/features/witness.js` plus `hooks/lib/gates.js` (the gate table and marker rewrite). It keeps module-level turn state (the origin and typed command of the current turn, from `prompt.submit` and `command.run`) and rewrites a gate `Bash` call on `tool.call`; it never blocks, and it registers no settings hook. `ac` still never detects: the flags it receives are declarations.
 
+`brief-section` (phase 42) is `hooks/features/brief-section.js`: one `astro-mods:brief` section appended through `prompt.compose`. The settings hooks stay registered (Cursor and Codex run them), so inside Claude it drops their output by exact content: the engine exposes no hook name, only the entry text (phase 42 `PROBE.md`). `ac mods feed brief-section` (`lib/modfeed.mjs`, `sessionParts` in `lib/retrieval.mjs`) is the one place that says what the hooks print, sharing `shortlist`'s selection and logging no usage, so the plugin reimplements nothing. A SessionStart entry goes only if it is byte-equal to a part, and the PreCompact segment only if it equals the position re-read just before. The invariant: output is dropped only while the section is served, and once something was dropped the section stays even if `failOpen` switches the mods off, so the model never holds zero copies; before any drop a failure removes the section and the hooks deliver as today.
+
 ## The numbering registry (the core guarantee)
 
 The registry is a single `registry.json` on an orphan branch (`astro-registry` by
