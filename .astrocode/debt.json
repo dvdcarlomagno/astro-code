@@ -467,6 +467,26 @@
       "file": "lib/fixes.mjs"
     },
     {
+      "id": "2026-10-12-brief-section-double-logs-served-usage",
+      "title": "brief-section double-logs 'served' usage for every rule at each session start/compaction",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-12T16:12:13.615Z",
+      "why": "The plugin runs `ac principles brief --stage session --by session` (BRIEF_ARGV), which adds 86 'served' rows to <store>/.local/usage.jsonl. The update hook's `--part 1/4` call still adds its 78. So with the mod on, each startup, compaction or clear logs every rule as served twice, including rules the packed hooks CUT. usageReport's 'ignored' list (served >= IGNORED_MIN_SERVES and never cited) then fills about 2x faster. The feed was deliberately made non-logging ('the hooks still log their part 1'), but the brief call was not. Observed: usage.jsonl went from 3222 to 3308 lines after the plugin's brief call and from 3308 to 3386 after part 1. I checked this against C1-C8: C7 explicitly excludes paths ac writes; C4 counts invocations, not logging; C8's fails-if covers brief and hook output, both of which are unchanged.",
+      "phase": "42",
+      "file": "mods/astro-mods/hooks/features/brief-section.js"
+    },
+    {
+      "id": "2026-10-12-sandbox-recipes-override-home-but",
+      "title": "Sandbox recipes override HOME but inherit CLAUDE_CONFIG_DIR, so claude plugin calls land in the real profile",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-12T15:34:12.565Z",
+      "why": "Phase 42's verifier ran ac mods enable in a scratchpad HOME on a machine with CLAUDE_CONFIG_DIR set; the astro-code marketplace (pointing at the sandbox) and astro-mods@astro-code were written into the real /data/claude/accounts/ScaleUpLabs profile. Sandboxes in CRITERIA/ACCEPTANCE recipes and test helpers must unset CLAUDE_CONFIG_DIR (and similar host env).",
+      "phase": "42",
+      "file": "lib/mods.mjs"
+    },
+    {
       "id": "2026-10-12-witness-a-bash-write-of-the-human",
       "title": "witness: a Bash write of the human CONTEXT.md marker (printf >, sed -i) is not witnessed",
       "status": "open",

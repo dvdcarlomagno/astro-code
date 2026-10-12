@@ -487,3 +487,12 @@ _2026-10-11 · at d6b0961_
 **Rejected:** any human-started turn counts (an autonomous turn would read as human); denying unwitnessed accepts (unattended runs would stall); annotating instead of correcting (the record would still say human)
 
 _Amended 2026-10-12: phase 41 probe outcome_
+
+_Amended 2026-10-12: publish the phase 41 remediation sentence (a typed ! ac line is never witnessed), accepted with phase 41 on 2026-10-12_
+
+## ADR-075 — ac install and ac update install the astro-mods plugin with every mod off wherever Claude Code meets the floor, so ac mods enable/disable only flip switches and never edit settings.json; refines ADR-071's distribution, which installed the plugin on the first enable
+_2026-10-12 · at 38cb91b_
+
+**Why:** Phase 42 C6 requires that turning a mod on leaves settings.json untouched. Claude Code records a plugin install in settings.json (extraKnownMarketplaces, enabledPlugins), so the only place that write can live without breaking C6 is install itself. Every mod stays off by default (ADR-071 d), and the plugin is inert with all switches off. ensurePlugin still never runs a plugin command against a config dir that does not exist (phase 39). User decision, 2026-10-12.
+
+**Rejected:** amending C6 to let the first enable edit settings.json; keeping phase 36's install-on-first-enable

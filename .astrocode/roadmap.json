@@ -26,15 +26,21 @@
       "number": 38,
       "name": "git-guard: PreToolUse settings hook refusing unscoped destructive git in the shared tree",
       "slug": "38-git-guard-pretooluse-settings-hook",
-      "status": "verified",
-      "milestone": 12
+      "status": "complete",
+      "milestone": 12,
+      "accepted_by": "matteo.alvazzi@gmail.com",
+      "accepted_kind": "human",
+      "accepted_at": "2026-10-12T12:01:27.412Z"
     },
     {
       "number": 39,
       "name": "blindfold mod: plan-blind verifier and criteria-author enforced per agent",
       "slug": "39-blindfold-mod-plan-blind-verifier-and",
-      "status": "verified",
-      "milestone": 12
+      "status": "complete",
+      "milestone": 12,
+      "accepted_by": "matteo.alvazzi@gmail.com",
+      "accepted_kind": "human",
+      "accepted_at": "2026-10-12T12:01:27.498Z"
     },
     {
       "number": 40,
@@ -50,14 +56,17 @@
       "number": 41,
       "name": "witness mod: detect human vs agent acceptance provenance (amends ADR-033)",
       "slug": "41-witness-mod-detect-human-vs-agent",
-      "status": "verified",
-      "milestone": 12
+      "status": "complete",
+      "milestone": 12,
+      "accepted_by": "matteo.alvazzi@gmail.com",
+      "accepted_kind": "human",
+      "accepted_at": "2026-10-12T12:01:27.600Z"
     },
     {
       "number": 42,
       "name": "brief-section mod: principles brief as one cached system-prompt section",
       "slug": "42-brief-section-mod-principles-brief-as",
-      "status": "pending",
+      "status": "verified",
       "milestone": 12
     },
     {
