@@ -146,6 +146,16 @@ test('witness: a chained or wrapped call never carries a forged --witnessed, and
   expect(rig.bash()).toEqual(['ac phase accept 41 && ac phase accept 55 --agent claude', 'bash -c "ac phase accept 56 --agent claude"'])
 })
 
+test('witness: a gate run through node, a path or $(which ac) is unreadable, never innocent (phase 41 C2)', async ($, on) => {
+  const rig = witnessRig(true, on)
+  await $.session.start(START)
+  await typed($, 'astro-autonomous', '')
+  await prompt($, '/astro-autonomous')
+  await $.tool.call({ tool: 'Bash', command: 'node --no-warnings bin/ac.mjs phase accept 41 --witnessed composer' })
+  await $.tool.call({ tool: 'Bash', command: '$(which ac) phase accept 41' })
+  expect(rig.bash()).toEqual(['node --no-warnings bin/ac.mjs phase accept 41 --agent claude', '$(which ac) phase accept 41 --agent claude'])
+})
+
 test('witness: a declared --agent is left untouched', async ($, on) => {
   const rig = witnessRig(true, on)
   await $.session.start(START)

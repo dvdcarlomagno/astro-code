@@ -33,7 +33,7 @@
 // `$.ui.toast` is spelled here, in this file's own hooks, and `$` is never handed to an imported
 // helper (the plugin validator follows `$` only through functions declared in the file).
 import { isOn } from '../lib/switches.js'
-import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath } from '../lib/gates.js'
+import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath, GATE_VERBS } from '../lib/gates.js'
 
 const NOTICE = {
   agent: 'witness: no typed /astro-accept|/astro-fix-accept for this id this turn — recorded as agent (--agent claude). ADR-074, ADR-033.',
@@ -108,8 +108,10 @@ export async function witnessTool($, e, next) {
 function decideBash(e) {
   if (typeof e.command !== 'string') return { out: e, say: null }
   const hit = findGates(e.command)
-  if (hit.kind === 'none') return { out: e, say: null }
-  if (hit.kind === 'ambiguous') {
+  // findGates found no gate, yet the gate verbs are there (`node --no-warnings bin/ac.mjs phase accept`,
+  // `$(which ac) phase accept`): unreadable, not innocent.
+  if (hit.kind === 'none' && !GATE_VERBS.test(e.command)) return { out: e, say: null }
+  if (hit.kind === 'ambiguous' || hit.kind === 'none') {
     // unreadable: every gate the human did not type is the agent's, and no gate keeps a --witnessed
     // it did not get from witness (phase 41 verify, C2: `ac phase accept 41 && ac phase accept 55
     // --witnessed composer` after a typed /astro-accept 41). The typed gate itself stays declared.

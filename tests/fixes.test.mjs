@@ -116,6 +116,15 @@ test('a fix is findable by id, by bare slug, or by fragment', async () => {
   assert.equal(findFix(root, 'nothing-like-this'), null);
 });
 
+test('a slug or fragment that names more than one fix resolves to nothing, never the first hit (phase 41)', async () => {
+  const root = project();
+  const mine = await addFix(root, { title: 'sample bug', now: NOW });
+  const other = await addFix(root, { title: 'other sample bug', now: NOW });
+  assert.equal(findFix(root, 'sample-bug'), null, 'ends both ids: ambiguous');
+  assert.equal(findFix(root, mine.id)?.id, mine.id, 'the full id still works');
+  assert.equal(findFix(root, 'other-sample-bug')?.id, other.id, 'a slug unique to one fix still works');
+});
+
 // --- the status line ------------------------------------------------------------
 
 test('an open fix surfaces in the context WITHOUT hiding the phase', async () => {

@@ -330,7 +330,11 @@ export function segmentDeclaresAgent(hit) {
   })
 }
 
-const RAW_GATE = /\b(?:ac|ac\.mjs)\s+(?:phase\s+(?:accept|reject)|fix\s+accept)\s+(?:\$\{?\w+\}?|[^\s'"`;&|()$<>]+)/g
+// The gate verbs, whatever runs them: `ac`, `node … ac.mjs`, `$(which ac)`, a wrapper. Matching the
+// verbs alone is deliberate (phase 41 verify, C2): a spelling witness can't parse is treated as
+// unreadable, never as "not a gate".
+export const GATE_VERBS = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\b/
+const RAW_GATE = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\s+(?:\$\{?\w+\}?|[^\s'"`;&|()$<>]+)/g
 
 /**
  * For a call findGates cannot read (`bash -c`, two gates, a variable ref): splice

@@ -8,7 +8,7 @@ import { basename, join, dirname, resolve } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { findRoot, paths } from '../lib/paths.mjs';
-import { initPlanning, phaseContextStatus, contextAuthor } from '../lib/planning.mjs';
+import { initPlanning, phaseContextStatus, classifyContext } from '../lib/planning.mjs';
 import { profileModels, PROFILE_NAMES, localModelSession, sessionModels } from '../lib/models.mjs';
 
 // A local-model session (lib/models.mjs) cannot serve the configured tiers: every role runs
@@ -2189,12 +2189,10 @@ async function main() {
           const status = phaseContextStatus(r, ph.slug);
           if (status !== 'ready') { console.log('none'); return; }
           const file = join(paths(r).phases, ph.slug, 'CONTEXT.md');
-          // `contextAuthor` returns `null` for the plain human marker and a (possibly
-          // empty) string for the agent form — an empty string still DECLARES agent
-          // provenance (`<!-- astro-discuss: captured by agent:  -->`, no name given),
-          // so a truthy check on the name wrongly reported that capture as 'human'.
-          const author = contextAuthor(readFileSync(file, 'utf8'));
-          console.log(author !== null ? `agent${author ? ` ${author}` : ''}` : 'human');
+          // classifyContext decides: an empty agent name still DECLARES agent provenance
+          // (`<!-- astro-discuss: captured by agent:  -->`), and only a line-1 human marker is human.
+          const c = classifyContext(readFileSync(file, 'utf8'));
+          console.log(c.kind === 'agent' ? `agent${c.author ? ` ${c.author}` : ''}` : c.kind === 'human' ? 'human' : 'none');
           return;
         }
         console.log(phaseContextStatus(r, ph.slug));

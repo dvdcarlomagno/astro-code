@@ -582,6 +582,17 @@ test('ADR-037 (B4): a rescued ADR followed by another heading keeps its body too
   assert.match(after, /## ADR-999 — second/);
 });
 
+test('phase 41: a human marker below line 1 is prose — not ready, and --author never says human', async () => {
+  const { phaseContextStatus } = await import('../lib/planning.mjs');
+  const dir = mkWorkdir(null);
+  await addPhase(dir, { number: 1, name: 'Do a thing' });
+  const slug = findPhase(dir, '1').slug;
+  writeFileSync(join(paths(dir).phases, slug, 'CONTEXT.md'), '# T\n<!-- astro-discuss: captured -->\n');
+  assert.strictEqual(phaseContextStatus(dir, slug), 'stub');
+  const res = run(['phase', 'context', '1', '--author'], dir);
+  assert.strictEqual(res.stdout.trim(), 'none');
+});
+
 test('ADR-037 (B5): the discuss gate accepts BOTH the human and the agent marker', async () => {
   const { phaseContextStatus, contextAuthor } = await import('../lib/planning.mjs');
   const dir = mkWorkdir(null);
