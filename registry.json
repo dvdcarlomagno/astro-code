@@ -602,6 +602,15 @@
       "branch": "develop",
       "claimed_at": "2026-10-12T06:48:46.158Z",
       "status": "active"
+    },
+    {
+      "type": "fix",
+      "id": "2026-10-12-hook-registrations-can-point-at-scripts",
+      "name": "Hook registrations can point at scripts the installed copy doesn't have: settings.json lists astro-principles.mjs 2/4..4/4 while ~/.astro/code is still 0.38.0, so every session start logs 3 'SessionStart:startup hook error' (MODULE_NOT_FOUND)",
+      "owner": "matteo.alvazzi@gmail.com",
+      "branch": "develop",
+      "claimed_at": "2026-10-12T07:38:16.347Z",
+      "status": "active"
     }
   ]
 }
