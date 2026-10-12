@@ -22,15 +22,19 @@
 // malformed event throws into register.js's `.catch(failOpen)`.
 //
 // Order: classic.SessionStart can run BEFORE session.start (F20, `-p`), and session.start fires only
-// once per process (F21). So both go through loadBrief(), which runs once per registration and
-// reads the switches itself when classic got there first. The position is read at prompt.compose,
-// not turn.start, which can run a turn late (F18), and the compose answer is not held across turns
-// (F17), so the section text is one module variable, rebuilt only when the position really changes.
+// once per process (F21). The two are ONE startup whichever comes first: the first starts a load
+// (the switches, then the fetch) and names the other its `partner`, which then awaits that same
+// load instead of fetching again. The claim is made before the first await, so two that overlap
+// still share one load. The position is read at prompt.compose, not turn.start, which can run a
+// turn late (F18), and the compose answer is not held across turns (F17), so the section text is
+// one module variable, rebuilt only when the position really changes.
 //
-// Every session.start and every classic.SessionStart after the first refetches: the store may have
-// changed, and a stale part list would let the hooks' new output through next to the section. A
-// /reload-plugins registers afresh and does not re-fire session.start (F21), so the next
-// classic.SessionStart recomputes the brief; until then the hooks deliver.
+// Every other session.start and classic.SessionStart refetches: the store may have changed, and a
+// stale part list would let the hooks' new output through next to the section. The bug this
+// prevents (phase 42 C3/C4): with classic first, session.start used to fetch again and mark ITS
+// load as the startup's, so the next compaction reused it and missed a store change in between.
+// A /reload-plugins registers afresh and does not re-fire session.start (F21), so the next
+// classic.SessionStart starts a load of its own; until then the hooks deliver.
 import { isOn, setSwitches, SWITCHES_ARGV, SWITCHES_TIMEOUT_MS } from '../lib/switches.js'
 import { forgetTurn } from './witness.js'
 
@@ -44,25 +48,25 @@ export const FEED_TIMEOUT_MS = 1500
 export const BRIEF_TIMEOUT_MS = 2000
 export const POSITION_TIMEOUT_MS = 1500
 
-let loading = null // the one load of this registration (a promise), or null before the first
+let loading = null // the latest load (a promise), or null before the first
+let partner = null // 'session' | 'classic': the startup event that reuses `loading`; null once the pair met
 let cwd = null
 let parts = []
 let position = ''
 let brief = ''
 let section = null // { id, text, scope } once served
 let dropped = false // some astro output was already removed from what the model reads
-let fresh = false // session.start fetched and no classic.SessionStart has used it yet
 let told = false
 
 export function resetBriefSection() {
   loading = null
+  partner = null
   cwd = null
   parts = []
   position = ''
   brief = ''
   section = null
   dropped = false
-  fresh = false
   told = false
 }
 
@@ -118,15 +122,10 @@ async function fetchAll($, dir) {
   }
 }
 
-function loadBrief($, dir) {
-  if (!loading) loading = fetchAll($, dir)
-  return loading
-}
-
-/** A new fetch, replacing the registration's one: the store may have changed since the last. */
-function reloadBrief($, dir) {
-  loading = fetchAll($, dir)
-  return loading
+/** A startup's load: the switches (a failure throws into failOpen), then the fetch. */
+async function startupLoad($, dir) {
+  setSwitches(await $.process.run(SWITCHES_ARGV, { timeoutMs: SWITCHES_TIMEOUT_MS }))
+  await fetchAll($, dir)
 }
 
 /** Re-read the position (one cheap `ac` call); rebuild the section only if it really changed. */
@@ -147,29 +146,34 @@ async function refreshPosition($) {
 /**
  * session.start -- the plugin's ONE registration for it (F22). It lives here, not in register.js,
  * because `$` may not cross an import. It reads NO field of `e` but cwd (PROBE: cwd, surface,
- * isInteractive), reads the switches from `ac`, runs the brief fetch, and passes the event on.
+ * isInteractive), reads the switches from `ac` and runs the brief fetch (or awaits the load an
+ * earlier classic.SessionStart of the same startup began, which did both), and passes the event on.
  */
 export async function sessionStart($, e, next) {
   forgetTurn()
-  setSwitches(await $.process.run(SWITCHES_ARGV, { timeoutMs: SWITCHES_TIMEOUT_MS }))
-  await reloadBrief($, e.cwd) // never throws: its failures are the feature's own
-  fresh = true
+  if (partner === 'session') {
+    partner = null // classic.SessionStart of this startup got there first (F20): its load read the switches too
+  } else {
+    partner = 'classic'
+    loading = startupLoad($, e.cwd)
+  }
+  await loading // only the switches read throws; the fetch's failures are the feature's own
   return next(e)
 }
 
 /** classic.SessionStart: drop the entries that are exactly the parts the hooks print. */
 export async function briefSessionStart($, e, next) {
-  if (!loading) {
-    // classic ran before session.start (F20): read the switches here, then the load
-    setSwitches(await $.process.run(SWITCHES_ARGV, { timeoutMs: SWITCHES_TIMEOUT_MS }))
-    await loadBrief($, e.cwd)
-  } else if (fresh) {
-    await loading // session.start just fetched it: this is the same startup
+  if (partner === 'classic') {
+    partner = null // session.start of this startup already started the load
+  } else if (!loading) {
+    partner = 'session' // classic ran before session.start (F20), or after a /reload-plugins (F21)
+    loading = startupLoad($, e.cwd)
   } else {
     // a compaction or /clear: the hooks print the store as it is NOW, so the parts must be too
-    await reloadBrief($, e.cwd)
+    partner = null
+    loading = fetchAll($, e.cwd)
   }
-  fresh = false
+  await loading
   const r = await next(e)
   if (!served() || !r || r.additionalContext === undefined) return r
   if (!Array.isArray(r.additionalContext)) throw new Error('additionalContext is not an array')

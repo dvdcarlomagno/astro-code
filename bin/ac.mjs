@@ -3075,14 +3075,11 @@ async function main() {
       if (res.claude === 'absent') console.error(`⚠ ${feature} is a Claude Code mod — no Claude Code found here, so it cannot take effect (switch recorded)`);
       else if (res.claude === 'old' || res.claude === 'unknown') console.error(`⚠ ${feature} needs Claude Code ≥ ${MOD_FLOOR} (found ${res.version || 'an unreadable version'}) — switch recorded; plugin not installed`);
       if (res.install === 'needed') console.error('⚠ astro-mods is not shipped yet (~/.astro/code/mods missing) — run `ac install` first, then re-run `ac mods enable ' + feature + '` (switch recorded)');
-      for (const r of res.plugin || []) {
-        if (r.outcome === 'installed') console.log(`✓ astro-mods installed → ${r.dir} [${r.label}]`);
-        else if (r.outcome !== 'already') {
-          console.error(`⚠ ${r.dir} [${r.label}]: ${r.message}`);
-          if (r.fix) console.error(`  fix: ${r.fix}`);
-        }
+      // enable never installs the plugin (ADR-075): a dir without it is named with `ac install`
+      for (const r of (res.plugin || []).filter((x) => x.outcome !== 'already')) {
+        console.error(`⚠ ${r.dir} [${r.label}]: ${r.message}`);
+        if (r.fix) console.error(`  fix: ${r.fix}`);
       }
-      if ((res.plugin || []).some((r) => r.outcome === 'installed')) console.log('• a running Claude Code session loads it on /reload-plugins');
       return;
     }
 

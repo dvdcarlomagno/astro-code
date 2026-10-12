@@ -246,20 +246,24 @@ test('with no claude on PATH a mod is recorded, called Claude Code-only, and not
   assert.equal(s.claude.found, false);
 });
 
-// ── C6: first enable installs, later ones do not, disable leaves it inert ───
+// ── C6: ac install installs the plugin; enable and disable never touch it (ADR-075) ───
 
-test('the first mod enable installs astro-mods from the astro-code marketplace; later enables and disables do not touch it', () => {
+const changesPlugin = (log) => /\tplugin (install|uninstall|enable|disable) |\tplugin marketplace (add|remove) /.test(log);
+
+test('a mod enable never installs astro-mods: it names ac install until install has run, and disable leaves the plugin installed', () => {
   const b = box();
-  const mods = seedMarketplace(b.T);
+  seedMarketplace(b.T);
   const first = b.ac(['mods', 'enable', 'blindfold']);
   assert.equal(first.status, 0, out(first));
-  assert.ok(b.log().includes(`plugin marketplace add ${mods}`), b.log());
-  assert.match(b.log(), /plugin install astro-mods@astro-code/);
-  assert.equal(b.status().plugin.installed, true);
+  assert.match(out(first), /not installed here — run `ac install`/);
+  assert.equal(changesPlugin(b.log()), false, b.log());
+  assert.equal(b.status().plugin.installed, false);
+  assert.equal(b.ac(['install']).status, 0);
   const installs = () => b.log().split('\n').filter((l) => /\tplugin install /.test(l)).length;
-  const n = installs();
-  b.ac(['mods', 'enable', 'witness']);
-  assert.equal(installs(), n, 'no second install');
+  assert.equal(installs(), 1, 'ac install installed it');
+  const second = b.ac(['mods', 'enable', 'witness']);
+  assert.doesNotMatch(out(second), /not installed/);
+  assert.equal(installs(), 1, 'no second install');
   b.ac(['mods', 'disable', 'blindfold']);
   const off = b.ac(['mods', 'disable', 'witness']);
   assert.match(off.stdout, /off/);
@@ -298,11 +302,10 @@ function withProfile(b) {
   writeFileSync(join(b.T, '.claude', '.jean-claude', 'profiles.json'), JSON.stringify({ profiles: { p2: { configDir: join(b.T, 'p2') } } }));
 }
 
-test('the plugin reaches the base dir and every jean-claude profile', () => {
+test('ac install puts the plugin in the base dir and every jean-claude profile', () => {
   const b = box();
   withProfile(b);
-  seedMarketplace(b.T);
-  const r = b.ac(['mods', 'enable', 'blindfold']);
+  const r = b.ac(['install']);
   assert.equal(r.status, 0, out(r));
   const st = b.state();
   assert.deepEqual(st.default.plugins, ['astro-mods@astro-code']);
@@ -312,15 +315,36 @@ test('the plugin reaches the base dir and every jean-claude profile', () => {
   assert.ok(s.plugin.dirs.every((d) => d.installed));
 });
 
-test('a failed install leaves no dir with the marketplace but without the plugin', () => {
+// phase 42 C6: the profile jean-claude adds after `ac install` has hooks of its own and no plugin;
+// enabling a mod used to install it there, which Claude Code records in that settings.json.
+test('a profile added after ac install: enabling a mod installs nothing, leaves every settings.json byte-identical and names ac install', () => {
+  const b = box();
+  assert.equal(b.ac(['install']).status, 0);
+  withProfile(b);
+  const p2 = join(b.T, 'p2', 'settings.json');
+  writeFileSync(p2, JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'echo mine' }] }] } }, null, 2));
+  const files = [join(b.T, '.claude', 'settings.json'), p2];
+  const before = files.map(sha);
+  const logged = b.log().length;
+  const e = b.ac(['mods', 'enable', 'brief-section']);
+  assert.equal(e.status, 0, out(e));
+  assert.match(out(e), /p2 \[[^\]]+\]: .*not installed here — run `ac install`/);
+  assert.equal(changesPlugin(b.log().slice(logged)), false, b.log().slice(logged));
+  b.ac(['mods', 'disable', 'brief-section']);
+  assert.deepEqual(files.map(sha), before, 'no settings.json changed');
+  assert.deepEqual(b.state()[join(b.T, 'p2')] ?? { marketplaces: [], plugins: [] }, { marketplaces: [], plugins: [] });
+});
+
+test('a failed install leaves no dir with the marketplace but without the plugin, and enable still records the switch', () => {
   const b = box();
   withProfile(b);
-  seedMarketplace(b.T);
-  const r = b.ac(['mods', 'enable', 'blindfold'], { CLAUDE_STUB_FAIL_INSTALL: '1' });
-  assert.equal(r.status, 1, out(r));
+  const r = b.ac(['install'], { CLAUDE_STUB_FAIL_INSTALL: '1' });
+  assert.match(out(r), /astro-mods install failed/);
   for (const s of Object.values(b.state())) {
     assert.equal(s.marketplaces.length > 0 && s.plugins.length === 0, false, 'half-installed dir');
   }
+  const e = b.ac(['mods', 'enable', 'blindfold']);
+  assert.equal(e.status, 0, out(e));
   assert.equal(b.status().features.find((f) => f.name === 'blindfold').on, true, 'the switch stays recorded');
 });
 
@@ -688,7 +712,7 @@ test('enable blindfold and enable witness before ac install: one install-first l
   assert.deepEqual(on, ['blindfold', 'witness']);
 });
 
-test('after ac install the same enable installs the plugin and prints no install-first line', () => {
+test('after ac install the same enable prints no install-first line, and the plugin is installed', () => {
   const b = box();
   assert.equal(b.ac(['mods', 'enable', 'blindfold']).status, 0);
   assert.equal(b.ac(['install']).status, 0);

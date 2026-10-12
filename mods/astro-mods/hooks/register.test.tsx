@@ -345,30 +345,65 @@ test('brief-section off: no section, no brief run, hook output untouched', async
   expect(rig.toasts).toEqual([])
 })
 
-// the store changes mid-session: a second session.start and a compaction recompute the brief
-test('brief-section: a second session.start and a compact re-fetch, so the new rules are served and the new hook parts dropped', async ($, on) => {
-  let rev = 1
+// A store that changes mid-session: `rev` moves both what the hooks print and what `ac` answers.
+const storeRig = (on: (...a: any[]) => void) => {
+  const store = { rev: 1 }
   const asked: string[] = []
   on('process.run', (_$: unknown, e: { argv: string[] }) => {
     const k = e.argv.join(' ')
     asked.push(k)
     if (k === 'ac mods status --json --switches-only') return { value: ran(JSON.stringify({ switches: { 'brief-section': true }, warnings: [] })) }
-    if (k === 'ac mods feed brief-section') return { value: ran(JSON.stringify({ serve: true, parts: [`PART rev${rev}`], position: POSITION })) }
+    if (k === 'ac mods feed brief-section') return { value: ran(JSON.stringify({ serve: true, parts: [`PART rev${store.rev}`], position: POSITION })) }
     if (k === 'ac mods feed brief-section --position') return { value: ran(JSON.stringify({ position: POSITION })) }
-    if (k === 'ac principles brief --stage session --by session') return { value: ran(`BRIEF rev${rev}\n`) }
+    if (k === 'ac principles brief --stage session --by session') return { value: ran(`BRIEF rev${store.rev}\n`) }
     throw new Error(`unscripted argv: ${k}`)
   })
   on('session.start', (_$: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
-  on('classic.SessionStart', () => ({ additionalContext: [`PART rev${rev}`] }))
+  on('classic.SessionStart', () => ({ additionalContext: [`PART rev${store.rev}`] }))
   on('prompt.compose', () => ({ sections: [] }))
-  const briefRuns = () => asked.filter(k => k.startsWith('ac principles brief')).length
+  return { store, briefRuns: () => asked.filter(k => k.startsWith('ac principles brief')).length }
+}
+
+// the store changes mid-session: a second session.start and a compaction recompute the brief
+test('brief-section: a second session.start and a compact re-fetch, so the new rules are served and the new hook parts dropped', async ($, on) => {
+  const { store, briefRuns } = storeRig(on)
   await $.session.start(START)
   expect((await ($ as any).classic.SessionStart(SS)).additionalContext).toEqual([])
   expect(briefRuns()).toEqual(1)
-  rev = 2
+  store.rev = 2
   expect((await ($ as any).classic.SessionStart({ ...SS, source: 'compact' })).additionalContext).toEqual([])
   expect((briefSections(await $.prompt.compose(COMPOSE))[0] as any).text).toContain('BRIEF rev2')
-  rev = 3
+  store.rev = 3
   await $.session.start(START)
   expect((briefSections(await $.prompt.compose(COMPOSE))[0] as any).text).toContain('BRIEF rev3')
 })
+
+// PROBE F20: under -p classic.SessionStart completes BEFORE session.start, interactively after, and
+// their start order was not observed. Every order is ONE startup: one brief run between the two,
+// a stable section across turns, then a compaction after a store change still re-fetches, and a
+// reload (a second session.start) runs the brief exactly once more.
+const ORDERS: Array<[string, (s: any) => Promise<unknown>]> = [
+  ['classic.SessionStart before session.start', async (s) => { const out = await s.classic.SessionStart(SS); await s.session.start(START); return out }],
+  ['session.start before classic.SessionStart', async (s) => { await s.session.start(START); return s.classic.SessionStart(SS) }],
+  ['both at once, classic first', async (s) => (await Promise.all([s.classic.SessionStart(SS), s.session.start(START)]))[0]],
+  ['both at once, session.start first', async (s) => (await Promise.all([s.session.start(START), s.classic.SessionStart(SS)]))[1]],
+]
+for (const [order, startup] of ORDERS) {
+  test(`brief-section, ${order}: one brief run at startup, and a compact after a store change re-fetches`, async ($, on) => {
+    const { store, briefRuns } = storeRig(on)
+    expect(((await startup($)) as any).additionalContext).toEqual([])
+    expect(briefRuns()).toEqual(1)
+    const texts = new Set<string>()
+    for (let i = 0; i < 5; i++) texts.add((briefSections(await $.prompt.compose(COMPOSE))[0] as any).text)
+    expect([...texts]).toEqual([`BRIEF rev1\n\n${POSITION}`])
+    expect(briefRuns()).toEqual(1)
+    store.rev = 2
+    expect((await ($ as any).classic.SessionStart({ ...SS, source: 'compact' })).additionalContext).toEqual([])
+    expect((briefSections(await $.prompt.compose(COMPOSE))[0] as any).text).toEqual(`BRIEF rev2\n\n${POSITION}`)
+    expect(briefRuns()).toEqual(2)
+    store.rev = 3
+    await $.session.start(START)
+    expect(briefRuns()).toEqual(3)
+    expect((briefSections(await $.prompt.compose(COMPOSE))[0] as any).text).toEqual(`BRIEF rev3\n\n${POSITION}`)
+  })
+}

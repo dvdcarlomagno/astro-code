@@ -136,7 +136,8 @@ test('uninstall removes the plugin before the marketplace in every dir it owns, 
   mkdirSync(join(b.T, '.claude', '.jean-claude'), { recursive: true });
   mkdirSync(join(b.T, 'p2'), { recursive: true });
   writeFileSync(join(b.T, '.claude', '.jean-claude', 'profiles.json'), JSON.stringify({ profiles: { p2: { configDir: join(b.T, 'p2') } } }));
-  writeFileSync(b.stateFile, JSON.stringify({ [join(b.T, 'p2')]: { marketplaces: [{ name: 'astro-code', path: '/somebody/elses' }], plugins: [] } }));
+  // keep what install put in the base dir: enabling a mod never installs it again (ADR-075)
+  writeFileSync(b.stateFile, JSON.stringify({ ...b.state(), [join(b.T, 'p2')]: { marketplaces: [{ name: 'astro-code', path: '/somebody/elses' }], plugins: [] } }));
   b.ac(['mods', 'enable', 'blindfold']);
   assert.deepEqual(b.state().default.plugins, [PLUGIN]);
 

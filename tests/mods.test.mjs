@@ -381,16 +381,25 @@ test('enableMod on a mod feature with an old claude records the switch and insta
   assert.equal(gone.claude, 'absent');
 });
 
-test('enableMod on a mod feature at the floor installs the plugin through ensurePlugin', async () => {
-  const { enableMod } = await mods();
+// ADR-075: Claude Code records a plugin install in settings.json, so `ac install` is the only
+// place the plugin is installed and enabling a mod only READS where it stands (phase 42 C6: a
+// profile added after install used to get the plugin, and a settings.json edit, on enable).
+test('enableMod on a mod feature at the floor installs nothing: it reads each dir and names ac install where the plugin is missing', async () => {
+  const { enableMod, ensurePlugin } = await mods();
   const h = home();
   mkdirSync(join(h, '.astro', 'code', 'mods'), { recursive: true });
   const fake = fakeClaude();
+  ensurePlugin({ home: h, run: fake.run, targets: baseOnly(h) }); // `ac install` ran before p2 existed
+  const before = fake.plugin().length;
   const r = enableMod({ home: h, run: fake.run, targets: twoDirs(h), feature: 'blindfold' });
   assert.equal(r.claude, 'ok');
-  assert.deepEqual(r.plugin.map((p) => p.outcome), ['installed', 'installed']);
   assert.equal(r.built, true);
   assert.equal(r.phase, 39);
+  assert.deepEqual(r.plugin.map((p) => [p.label, p.outcome]), [['base', 'already'], ['p2', 'missing']]);
+  assert.match(r.plugin[1].message, /run `ac install`/);
+  const ran = fake.plugin().slice(before).map((c) => c.args.slice(1).join(' '));
+  assert.ok(ran.length > 0 && ran.every((a) => a === 'marketplace list --json' || a === 'list --json'), ran.join('\n'));
+  assert.deepEqual(fake.state[join(h, 'p2')], { marketplaces: [], plugins: [] });
 });
 
 test('modsStatus: blindfold on with the plugin installed can take effect; on a missing config dir it names the dir', async () => {
@@ -419,11 +428,12 @@ test('enableMod of a mod before ac install ships the marketplace records the swi
   assert.equal(r.plugin, null);
   assert.equal(fake.plugin().length, 0);
   assert.equal(readMods({ home: h }).switches.blindfold, true);
-  // with the marketplace shipped it installs as before
+  // with the marketplace shipped it still installs nothing (ADR-075): each dir names `ac install`
   mkdirSync(join(h, '.astro', 'code', 'mods'), { recursive: true });
   const again = enableMod({ home: h, run: fake.run, targets: twoDirs(h), feature: 'blindfold' });
   assert.equal(again.install, undefined);
-  assert.deepEqual(again.plugin.map((p) => p.outcome), ['installed', 'installed']);
+  assert.deepEqual(again.plugin.map((p) => p.outcome), ['missing', 'missing']);
+  assert.ok(!fake.verbs().some((v) => v === 'marketplace add' || v === 'install'), fake.verbs().join(', '));
 });
 
 test('enableMod before install still reports an old or absent claude as before', async () => {
@@ -700,7 +710,7 @@ test('plugin lifecycle against dirs that do not exist makes zero claude calls an
   const args = { home: h, run: fake.run, targets };
   assert.deepEqual(pluginState(args).map((s) => [s.label, s.noDir, s.marketplace, s.installed]), [['base', true, 'absent', false], ['p2', true, 'absent', false]]);
   assert.deepEqual(ensurePlugin(args).map((r) => r.outcome), ['skipped', 'skipped']);
-  assert.match(ensurePlugin(args)[0].message, /start Claude Code once, then re-run ac mods enable/);
+  assert.match(ensurePlugin(args)[0].message, /start Claude Code once, then run `ac install`/);
   assert.deepEqual(updatePlugin(args).map((r) => r.outcome), ['skipped', 'skipped']);
   assert.deepEqual(removePlugin(args).map((r) => r.outcome), ['skipped', 'skipped']);
   assert.equal(fake.calls.length, 0, 'not even a --version: nothing ran');
