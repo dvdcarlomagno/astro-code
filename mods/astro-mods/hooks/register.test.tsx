@@ -344,3 +344,31 @@ test('brief-section off: no section, no brief run, hook output untouched', async
   expect(rig.asked.some(k => k.startsWith('ac principles brief'))).toEqual(false)
   expect(rig.toasts).toEqual([])
 })
+
+// the store changes mid-session: a second session.start and a compaction recompute the brief
+test('brief-section: a second session.start and a compact re-fetch, so the new rules are served and the new hook parts dropped', async ($, on) => {
+  let rev = 1
+  const asked: string[] = []
+  on('process.run', (_$: unknown, e: { argv: string[] }) => {
+    const k = e.argv.join(' ')
+    asked.push(k)
+    if (k === 'ac mods status --json --switches-only') return { value: ran(JSON.stringify({ switches: { 'brief-section': true }, warnings: [] })) }
+    if (k === 'ac mods feed brief-section') return { value: ran(JSON.stringify({ serve: true, parts: [`PART rev${rev}`], position: POSITION })) }
+    if (k === 'ac mods feed brief-section --position') return { value: ran(JSON.stringify({ position: POSITION })) }
+    if (k === 'ac principles brief --stage session --by session') return { value: ran(`BRIEF rev${rev}\n`) }
+    throw new Error(`unscripted argv: ${k}`)
+  })
+  on('session.start', (_$: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  on('classic.SessionStart', () => ({ additionalContext: [`PART rev${rev}`] }))
+  on('prompt.compose', () => ({ sections: [] }))
+  const briefRuns = () => asked.filter(k => k.startsWith('ac principles brief')).length
+  await $.session.start(START)
+  expect((await ($ as any).classic.SessionStart(SS)).additionalContext).toEqual([])
+  expect(briefRuns()).toEqual(1)
+  rev = 2
+  expect((await ($ as any).classic.SessionStart({ ...SS, source: 'compact' })).additionalContext).toEqual([])
+  expect((briefSections(await $.prompt.compose(COMPOSE))[0] as any).text).toContain('BRIEF rev2')
+  rev = 3
+  await $.session.start(START)
+  expect((briefSections(await $.prompt.compose(COMPOSE))[0] as any).text).toContain('BRIEF rev3')
+})

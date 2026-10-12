@@ -173,12 +173,15 @@ system-prompt section, instead of as four SessionStart hook outputs plus a PreCo
 
 - On Claude Code: at session start the mod reads the brief (`ac principles brief`) and a one-line
   position (milestone, phase, state, next command) through `ac`, and appends them as one section
-  that is cached with the system prompt and survives `/compact` and `/clear`. The brief is read once
-  per session; the position line changes only when the project state really changes, so the cache is
+  that is cached with the system prompt and survives `/compact` and `/clear`. The brief is read at
+  each session start and again on a compaction or `/clear` (so it follows the store); the position line changes only when the project state really changes, so the cache is
   not broken between turns.
 - No second copy: the mod drops the SessionStart brief parts and the PreCompact position note when
   they are exactly what the hooks print (`ac mods feed brief-section` says what that is). The update
-  banner and any other tool's hook output are never touched, and `settings.json` is never edited.
+  banner and any other tool's hook output are never touched, and no hook entry in `settings.json` is
+  edited. The first `ac mods enable <mod>` installs the astro-mods plugin (ADR-071), and Claude Code
+  records that in `extraKnownMarketplaces` and `enabledPlugins`; enabling and disabling after that
+  leaves the file unchanged.
 - If `ac` cannot build the brief, the mod adds no section, drops nothing and tells you once, so the
   session gets the hooks' brief as before.
 - Cursor and Codex are unchanged: they keep the four hook parts. The `principles.sessionBrief: false`

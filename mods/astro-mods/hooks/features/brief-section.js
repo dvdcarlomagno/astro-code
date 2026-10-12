@@ -27,8 +27,10 @@
 // not turn.start, which can run a turn late (F18), and the compose answer is not held across turns
 // (F17), so the section text is one module variable, rebuilt only when the position really changes.
 //
-// Known gap: a /reload-plugins registers afresh and does not re-fire session.start (F21), so the next
-// classic.SessionStart (a compaction or /clear) recomputes the brief; until then the hooks deliver.
+// Every session.start and every classic.SessionStart after the first refetches: the store may have
+// changed, and a stale part list would let the hooks' new output through next to the section. A
+// /reload-plugins registers afresh and does not re-fire session.start (F21), so the next
+// classic.SessionStart recomputes the brief; until then the hooks deliver.
 import { isOn, setSwitches, SWITCHES_ARGV, SWITCHES_TIMEOUT_MS } from '../lib/switches.js'
 import { forgetTurn } from './witness.js'
 
@@ -49,6 +51,7 @@ let position = ''
 let brief = ''
 let section = null // { id, text, scope } once served
 let dropped = false // some astro output was already removed from what the model reads
+let fresh = false // session.start fetched and no classic.SessionStart has used it yet
 let told = false
 
 export function resetBriefSection() {
@@ -59,6 +62,7 @@ export function resetBriefSection() {
   brief = ''
   section = null
   dropped = false
+  fresh = false
   told = false
 }
 
@@ -119,6 +123,12 @@ function loadBrief($, dir) {
   return loading
 }
 
+/** A new fetch, replacing the registration's one: the store may have changed since the last. */
+function reloadBrief($, dir) {
+  loading = fetchAll($, dir)
+  return loading
+}
+
 /** Re-read the position (one cheap `ac` call); rebuild the section only if it really changed. */
 async function refreshPosition($) {
   try {
@@ -142,19 +152,24 @@ async function refreshPosition($) {
 export async function sessionStart($, e, next) {
   forgetTurn()
   setSwitches(await $.process.run(SWITCHES_ARGV, { timeoutMs: SWITCHES_TIMEOUT_MS }))
-  await loadBrief($, e.cwd) // never throws: its failures are the feature's own
+  await reloadBrief($, e.cwd) // never throws: its failures are the feature's own
+  fresh = true
   return next(e)
 }
 
 /** classic.SessionStart: drop the entries that are exactly the parts the hooks print. */
 export async function briefSessionStart($, e, next) {
   if (!loading) {
-    // classic ran before session.start (F20): read the switches here, then the same load
+    // classic ran before session.start (F20): read the switches here, then the load
     setSwitches(await $.process.run(SWITCHES_ARGV, { timeoutMs: SWITCHES_TIMEOUT_MS }))
     await loadBrief($, e.cwd)
+  } else if (fresh) {
+    await loading // session.start just fetched it: this is the same startup
   } else {
-    await loading
+    // a compaction or /clear: the hooks print the store as it is NOW, so the parts must be too
+    await reloadBrief($, e.cwd)
   }
+  fresh = false
   const r = await next(e)
   if (!served() || !r || r.additionalContext === undefined) return r
   if (!Array.isArray(r.additionalContext)) throw new Error('additionalContext is not an array')
