@@ -260,3 +260,87 @@ test('witness: the same marker after a typed /astro-discuss 1 is left as the hum
   await $.tool.call({ tool: 'Write', file_path: CTX, content: HUMAN })
   expect(rig.writes()).toEqual([HUMAN])
 })
+
+// brief-section (phase 42): the principles brief as ONE astro-mods:brief section, and no second copy.
+// PROBE.md (phase 42) names the events: prompt.compose adds the section (F14), classic.SessionStart
+// carries each hook's additionalContext unwrapped and byte-equal (F2, F3), and the PreCompact output
+// rides a session.append row on door 'command' (F9-F11). A hook beneath the plugin answers what the
+// engine would; process.run answers per argv, so the plugin never reaches a real `ac`.
+const BRIEF = 'HARD RULES\n- RULE one\n- RULE two\n\nIN SCOPE\n- RULE three'
+const PARTS = ['SESSION BRIEF part 1\n- RULE one', 'SESSION BRIEF part 2\n- RULE two']
+const POSITION = 'proj · M1 · Phase 42 executing · Next: /astro-verify 42'
+const FOREIGN_CTX = 'a foreign hook says: - RULE one'
+type Mode = 'ok' | 'enoent' | 'exit1' | 'empty'
+const briefRig = (on: (...a: any[]) => void, { switchOn = true, mode = 'ok' as Mode } = {}) => {
+  const asked: string[] = []
+  const toasts: string[] = []
+  on('process.run', (_$: unknown, e: { argv: string[] }) => {
+    const k = e.argv.join(' ')
+    asked.push(k)
+    if (k === 'ac mods status --json --switches-only') return { value: ran(JSON.stringify({ switches: { 'brief-section': switchOn }, warnings: [] })) }
+    if (k === 'ac mods feed brief-section') return { value: ran(JSON.stringify({ serve: true, parts: PARTS, position: POSITION })) }
+    if (k === 'ac mods feed brief-section --position') return { value: ran(JSON.stringify({ position: POSITION })) }
+    if (k === 'ac principles brief --stage session --by session') {
+      if (mode === 'enoent') throw new Error('spawn ac ENOENT')
+      if (mode === 'exit1') return { value: ran('', 1) }
+      if (mode === 'empty') return { value: ran('') }
+      return { value: ran(`${BRIEF}\n`) }
+    }
+    throw new Error(`unscripted argv: ${k}`)
+  })
+  on('ui.toast', (_$: unknown, e: unknown) => { toasts.push(JSON.stringify(e)); return { value: undefined } })
+  on('session.start', (_$: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  on('classic.SessionStart', (_$: unknown, e: { source: string }) => ({ additionalContext: [FOREIGN_CTX, ...PARTS] }))
+  return { asked, toasts }
+}
+const briefSections = (r: { sections: Array<{ id: string }> }) => r.sections.filter(s => s.id === 'astro-mods:brief')
+// the kit hands hooks the composed input only when the call names one (a bare compose() reaches them as undefined)
+const COMPOSE = { model: 'claude-opus-5-5', promptModel: 'claude-opus-5-5', surfaces: [], tools: [], outputStyle: null, traits: [] }
+const SS = { source: 'startup', cwd: '/work/proj' }
+
+test('brief-section on: one astro-mods:brief section, BRIEF then the position, the same text every compose', async ($, on) => {
+  const rig = briefRig(on)
+  on('prompt.compose', () => ({ sections: [{ id: 'lean_body', text: 'core', scope: 'shared' }] }))
+  await $.session.start(START)
+  const first = await $.prompt.compose(COMPOSE)
+  const mine = briefSections(first)
+  expect(mine.length).toEqual(1)
+  expect(first.sections.at(-1)).toEqual(mine[0])
+  expect((mine[0] as any).scope).toEqual('session')
+  expect((mine[0] as any).text).toEqual(`${BRIEF}\n\n${POSITION}`)
+  for (let i = 0; i < 4; i++) expect((briefSections(await $.prompt.compose(COMPOSE))[0] as any).text).toEqual((mine[0] as any).text)
+  expect(rig.asked.filter(k => k.startsWith('ac principles brief')).length).toEqual(1)
+})
+
+test('brief-section on: the hooks\' parts are dropped, a foreign entry quoting a BRIEF line is kept', async ($, on) => {
+  briefRig(on)
+  await $.session.start(START)
+  const out = await ($ as any).classic.SessionStart(SS)
+  expect(out.additionalContext).toEqual([FOREIGN_CTX])
+})
+
+// The PreCompact row (session.append, door 'command') cannot be driven here: the test kit has no
+// bottom for session.append (a hook that answers without next is skipped, and next(e) has nothing
+// beneath), so that path is covered by tests/mods_plugin.test.mjs and by PROBE.md's live runs.
+
+for (const mode of ['enoent', 'exit1', 'empty'] as Mode[]) {
+  test(`brief-section fails open when the brief ${mode}: no section, hooks pass through, one notice`, async ($, on) => {
+    const rig = briefRig(on, { mode })
+    on('prompt.compose', () => ({ sections: [{ id: 'lean_body', text: 'core', scope: 'shared' }] }))
+    await $.session.start(START)
+    for (let i = 0; i < 3; i++) expect(briefSections(await $.prompt.compose(COMPOSE)).length).toEqual(0)
+    const out = await ($ as any).classic.SessionStart(SS)
+    expect(out.additionalContext).toEqual([FOREIGN_CTX, ...PARTS])
+    expect(rig.toasts.length).toEqual(1)
+  })
+}
+
+test('brief-section off: no section, no brief run, hook output untouched', async ($, on) => {
+  const rig = briefRig(on, { switchOn: false })
+  on('prompt.compose', () => ({ sections: [] }))
+  await $.session.start(START)
+  expect(briefSections(await $.prompt.compose(COMPOSE)).length).toEqual(0)
+  expect((await ($ as any).classic.SessionStart(SS)).additionalContext).toEqual([FOREIGN_CTX, ...PARTS])
+  expect(rig.asked.some(k => k.startsWith('ac principles brief'))).toEqual(false)
+  expect(rig.toasts).toEqual([])
+})
