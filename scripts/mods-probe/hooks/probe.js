@@ -41,6 +41,18 @@
 //     { deny: 'astro-mods probe: refused on purpose' } (what stops, what the workflow does
 //     next). Unset, the probe stays a pure observer.
 //
+// Phase 41 additions (witness: rewrite channel, origins, `!` form, the UAT answer):
+//   - ASTRO_MODS_PROBE_REWRITE=1: a tool.call Bash whose command is exactly
+//     `echo witness-probe-a` is answered next({ ...e, command: 'echo witness-probe-b' }); what
+//     next resolved to is logged (does the rewrite reach the executed command?);
+//   - tool.call AskUserQuestion awaits next(e) and logs the KEYS and depth-2 shape of its
+//     result (strings cut to 80) plus e's keys: is the answer, and who gave it, visible?;
+//   - tool.call Write / Edit already log their argument keys: file_path, content, old_string,
+//     new_string appear as shapes; prompt.submit logs the 80-char head of text (expansion and
+//     `!` forms), and command.run logs args in full (short);
+//   - tool.call logs next.origin and a 40-char head of a Bash command (the same cut tool.check
+//     input already uses): does a `!` line reach tool.call, and with what origin?
+//
 // The log is appended through $.fs, which only has read/write: read the file, add the
 // line, write it back, serialised on one promise chain so concurrent events never lose a
 // line. Fine for a probe; not a pattern for the shipped plugin.
@@ -124,7 +136,17 @@ async function onSessionStart($, e, next) {
   return next(e)
 }
 async function onToolCall($, e, next) {
-  await record($, 'tool.call', e)
+  await record($, 'tool.call', e, { origin: next.origin, command: e.tool === 'Bash' && typeof e.command === 'string' ? { head: e.command.slice(0, 40), length: e.command.length } : undefined }, true)
+  if (e.tool === 'Bash' && e.command === 'echo witness-probe-a' && (await $.env.get('ASTRO_MODS_PROBE_REWRITE')) === '1') {
+    const r = await next({ ...e, command: 'echo witness-probe-b' })
+    await record($, 'tool.call.rewrite', e, { sent: 'echo witness-probe-b', resolved: clean('r', r, 0), shape: shape(r) }, true)
+    return r
+  }
+  if (e.tool === 'AskUserQuestion') {
+    const r = await next(e)
+    await record($, 'tool.call.ask', e, { eKeys: Object.keys(e), eShape: walk(e, 3), eVals: clean('e', e, 0), resultKeys: r && typeof r === 'object' ? Object.keys(r) : null, result: clean('result', r, 0), shape: shape(r) }, true)
+    return r
+  }
   return next(e)
 }
 const spawned = new Map() // agentId -> subagentType, from agent.spawn results (probe-own)
