@@ -99,3 +99,66 @@ Verdict (decision 2): not-observable
 - A rewrite in the headless run; `AskUserQuestion` answered headless.
 - Any field attesting a human answered the `AskUserQuestion`; members of `answers`/`annotations`.
 - The origin of a Remote Control (`bridge`) prompt.
+
+## Live end-to-end check (phase 41 t11)
+
+Run 2026-10-12 on Claude Code 2.1.292, in the astro-forge container (the same place the
+probe runs in were done); the host was used only for `host claude plugin ...` and `ssh host true`.
+`<scratch>` is a `mktemp -d` project: `git init`, bare `<scratch>-remote.git` as `origin`,
+`ac init`, `ac registry init`, phases 1 `one` and 2 `two` (`ac phase add`), each with an
+ACCEPTANCE.md, both `ac phase verify`d. `<shim>` = `<scratch>-shim/ac`, a `sh` script: for
+`mods status --json --switches-only` it prints `{"switches":{"witness":true}}`, otherwise it
+`exec`s `/data/bin/ac "$@"`. The real `~/.astro/config.json` was never touched.
+
+Commands (the interactive session needs `CLAUDE_CONFIG_DIR` passed explicitly; tmux's own
+environment otherwise has no login):
+
+```
+tmux new -d -s w41 -x 200 -y 50 "cd <scratch> && env -u CLAUDECODE -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR PATH=<scratch>-shim:$PATH claude --plugin-dir <repo>/mods/astro-mods --permission-mode bypassPermissions"
+  (trust prompt: Up, Enter) then typed: /astro-accept 1   -> AskUserQuestion, Accept by Enter
+  then typed: Create .astrocode/phases/02-two/CONTEXT.md with your Write tool. Its first line must be exactly the HTML comment <!-- astro-discuss: captured --> ...
+cd <scratch> && env -u CLAUDECODE -u CLAUDE_CODE_CHILD_SESSION PATH=<scratch>-shim:$PATH claude -p --plugin-dir <repo>/mods/astro-mods --permission-mode bypassPermissions "/astro-accept 2"
+  (the model asked in plain text and stopped, phase 2 still verified), then
+cd <scratch> && ... claude -p --continue --plugin-dir <repo>/mods/astro-mods --permission-mode bypassPermissions "accept"
+```
+
+Outcomes:
+- Interactive typed `/astro-accept 1` then Accept: `ac phase show 1` -> `status:"complete"`,
+  `accepted_kind:"human"`, `accepted_evidence:"composer"`. PASS.
+- Headless: `/astro-accept 2` alone does not reach the sign-off (headless has no AskUserQuestion; the
+  model asks in text, exit 0, no hang, no deny). The follow-up `-p --continue "accept"` ran a plain
+  `ac phase accept`; witness added `--agent`: phase 2 `complete`, `accepted_by:"claude"`,
+  `accepted_kind:"agent"`, no `accepted_evidence`. No hang, no deny. PASS (via the two-step form).
+- Composer request to Write a CONTEXT.md whose first line is `<!-- astro-discuss: captured -->`,
+  no `/astro-discuss` typed: the file on disk starts `<!-- astro-discuss: captured by agent: claude -->`
+  and `ac phase context 2 --author` prints `agent claude`. PASS. (A first attempt using a prose
+  `Captured: human` line is not the ac marker, so `--author` said `none`; not a witness case.)
+- Noted: a `SessionStart` hook of the globally installed astro plugin printed a non-blocking
+  `node:internal/modules/cjs/loader` failure in the scratch project; unrelated to witness.
+
+Gates:
+- `node --test tests/` with `claude` on PATH: exit 0; tests 1853, pass 1852, fail 0, skipped 1.
+- Same with `/usr/local/bin` (where `claude` lives) removed from PATH, so no `claude`: exit 0; tests
+  1853, pass 1846, fail 0, skipped 7 (the live tests skip).
+- `host ~/.local/bin/claude plugin validate --strict mods/astro-mods`: exit 0, "Validation passed".
+  (`claude` is not on the host's non-interactive PATH; the full path was used.) The same command
+  in the container also passes.
+- `claude plugin test mods/astro-mods` in the container: exit 0, 12 pass, 0 fail. On the host it
+  exits 1 with no test run: "hooks modules are turned off in this process: the rollout switch was
+  saved off by an earlier session and is not refreshed yet" (host environment, not the mod).
+
+| criterion | evidence |
+|---|---|
+| C1 | typed `/astro-accept 1` live -> `accepted_evidence:"composer"`, `accepted_kind:"human"` |
+| C2 | headless accept -> `accepted_kind:"agent"`, no evidence, no hang, no deny |
+| C3 | Write of the human marker with no typed `/astro-discuss` -> `captured by agent: claude`; `--author` = `agent claude` |
+| C4 | ADR-074 amended with the probe outcome through `ac decision amend` (UAT answer not attestable) |
+| C5 | `claude plugin test` (12 pass) covers off-switch byte-identical and cold-call-left-declared |
+| C6 | register.test.tsx witness scenarios pass in `claude plugin test` |
+| C7 | `claude plugin validate --strict` exit 0 (host and container) |
+| C8 | `node --test tests/` exit 0, with and without `claude` on PATH |
+| C9 | ADR-074 text states subagent calls, empty-id typed command, unknown turn, bridge and MCP shell are not witnessed |
+| C10 | ADR-074 states `ac` still never detects; scratch run used a PATH shim, real `~/.astro/config.json` untouched |
+
+The C-number mapping is a summary by subject, not a re-read of CRITERIA.md; the verifier
+gathers its own evidence.
