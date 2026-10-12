@@ -1,5 +1,6 @@
 // astro-mods -- the optional, Claude-only enforcement layer (ADR-071). Features so far:
-// blindfold (phase 39: tool.check + agent.spawn). session.start reads the switches from `ac`
+// blindfold (phase 39: tool.check + agent.spawn), witness (phase 41: command.run, prompt.submit,
+// tool.call). session.start reads the switches from `ac`
 // and passes the event through.
 //
 // The feature convention (phases 39-44 each add "one file + one line"):
@@ -18,10 +19,12 @@
 import { SWITCHES_ARGV, SWITCHES_TIMEOUT_MS, setSwitches, resetSwitches } from './lib/switches.js'
 import { failOpen, resetNotice } from './lib/failopen.js'
 import { toolCheck, agentSpawn, resetBlindfold } from './features/blindfold.js'
+import { witnessCommand, witnessPrompt, witnessTool, resetWitness, forgetTurn } from './features/witness.js'
 
 // session.start fires at session start and again on each /reload-plugins; it reads NO field
 // of `e` (PROBE.md: the event carries cwd, surface and isInteractive, none of which is needed).
 async function sessionStart($, e, next) {
+  forgetTurn()
   setSwitches(await $.process.run(SWITCHES_ARGV, { timeoutMs: SWITCHES_TIMEOUT_MS }))
   return next(e)
 }
@@ -30,7 +33,11 @@ export function register(on, options) {
   resetSwitches()
   resetNotice()
   resetBlindfold()
+  resetWitness()
   on('session.start', sessionStart).catch(failOpen)
   on('tool.check', toolCheck).catch(failOpen)
   on('agent.spawn', agentSpawn).catch(failOpen)
+  on('command.run', witnessCommand).catch(failOpen)
+  on('prompt.submit', witnessPrompt).catch(failOpen)
+  on('tool.call', witnessTool).catch(failOpen)
 }
