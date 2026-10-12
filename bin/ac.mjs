@@ -667,6 +667,9 @@ async function main() {
 
       if (sub === 'accept') {
         checkFlags('fix accept', flags);
+        // A bare or empty --agent on an ACCEPT would otherwise record a human sign-off (agentSigner
+        // falsy): refuse it rather than guess. A reject keeps declaring agent on a bare flag (below).
+        if (flags.agent !== undefined && (typeof flags.agent !== 'string' || !flags.agent.trim())) die('fix accept --agent needs a name, e.g. --agent claude (ADR-033: an agent signer is declared by name)');
         const evidence = witnessedEvidence(flags);
         const done = await acceptFix(r, fix.id, {
           by: typeof flags.by === 'string' ? flags.by : gitIdentity(r).owner,
@@ -2237,6 +2240,9 @@ async function main() {
         // ADR-074 amends the last step, not this one: ac still never sniffs. The optional
         // witness mod can see where a turn began, and TELLS ac what it saw with
         // `--witnessed composer`; ac records that as `accepted_evidence` and nothing else.
+        // A bare or empty --agent on an ACCEPT would otherwise record a human sign-off (agentSigner
+        // falsy): refuse it rather than guess. A reject keeps declaring agent on a bare flag (below).
+        if (flags.agent !== undefined && (typeof flags.agent !== 'string' || !flags.agent.trim())) die('phase accept --agent needs a name, e.g. --agent claude (ADR-033: an agent signer is declared by name)');
         const agentSigner = typeof flags.agent === 'string' ? flags.agent : null;
         const by = agentSigner || (typeof flags.by === 'string' ? flags.by : gitIdentity(r).owner);
         const kind = agentSigner ? 'agent' : 'human';

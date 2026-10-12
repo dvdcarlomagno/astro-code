@@ -136,6 +136,16 @@ test('witness: a turn started by the SDK is the agent even with the right typed 
   expect(rig.bash()).toEqual(['ac phase accept 2 --agent claude'])
 })
 
+test('witness: a chained or wrapped call never carries a forged --witnessed, and its other gates are the agent (phase 41 C2)', async ($, on) => {
+  const rig = witnessRig(true, on)
+  await $.session.start(START)
+  await typed($, 'astro-accept', '41')
+  await prompt($, '/astro-accept 41')
+  await $.tool.call({ tool: 'Bash', command: 'ac phase accept 41 && ac phase accept 55 --witnessed composer' })
+  await $.tool.call({ tool: 'Bash', command: 'bash -c "ac phase accept 56 --witnessed composer"' })
+  expect(rig.bash()).toEqual(['ac phase accept 41 && ac phase accept 55 --agent claude', 'bash -c "ac phase accept 56 --agent claude"'])
+})
+
 test('witness: a declared --agent is left untouched', async ($, on) => {
   const rig = witnessRig(true, on)
   await $.session.start(START)
@@ -190,6 +200,23 @@ test('witness: a human CONTEXT.md marker written outside a typed /astro-discuss 
   await prompt($, 'write the context')
   await $.tool.call({ tool: 'Write', file_path: CTX, content: HUMAN })
   expect(rig.writes()).toEqual(['<!-- astro-discuss: captured by agent: claude -->\n# C\n'])
+})
+
+test('witness: an Edit that would make line 1 the human marker is turned back to the agent marker (phase 41 C6)', async ($, on) => {
+  const rig = witnessRig(true, on)
+  const AGENT = '<!-- astro-discuss: captured by agent: claude -->'
+  const file = `${AGENT}\n# C\n`
+  on('fs.read', () => ({ value: file }))
+  await $.session.start(START)
+  await typed($, 'astro-accept', '41', SDK)
+  await $.tool.call({ tool: 'Edit', file_path: CTX, old_string: ' by agent: claude', new_string: '' })
+  await $.tool.call({ tool: 'Edit', file_path: CTX, old_string: AGENT, new_string: '\n<!-- astro-discuss: captured -->' })
+  await $.tool.call({ tool: 'Edit', file_path: CTX, old_string: '# C', new_string: '# Context' })
+  expect(rig.ran.map(e => [e.old_string, e.new_string])).toEqual([
+    [file, file],
+    [file, `\n${AGENT}\n# C\n`],
+    ['# C', '# Context'],
+  ])
 })
 
 test('witness: the same marker after a typed /astro-discuss 1 is left as the human wrote it', async ($, on) => {

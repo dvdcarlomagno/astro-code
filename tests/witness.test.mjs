@@ -150,12 +150,14 @@ test('idsMatch: phases compare by their leading integer', async () => {
   assert.ok(!idsMatch('phase', '41', '4'));
 });
 
-test('idsMatch: a fix is witnessed only for the exact id typed (ac resolves partial ids)', async () => {
+test('idsMatch: a fix matches the exact id, or <date>-<typed slug>; never a longer slug or a bare ref', async () => {
   const { idsMatch } = await gates();
   // phase 41 verify C3: `ac fix accept sample-bug` can resolve to 2026-10-12-other-sample-bug
   assert.ok(idsMatch('fix', '2026-10-11-foo', '2026-10-11-foo'));
   assert.ok(idsMatch('fix', 'foo', 'foo'));
-  assert.ok(!idsMatch('fix', 'foo', '2026-10-11-foo'), 'a bare id is not the dated one');
+  assert.ok(idsMatch('fix', 'foo', '2026-10-11-foo'), 'the slug /astro-fix-accept documents, run with its date');
+  assert.ok(idsMatch('fix', 'sample-bug', '2026-10-12-sample-bug'));
+  assert.ok(!idsMatch('fix', 'sample-bug', '2026-10-12-other-sample-bug'), 'a longer slug that ends with it is another fix');
   assert.ok(!idsMatch('fix', '2026-10-11-foo', 'foo'), 'the dated id is not a bare ref');
   assert.ok(!idsMatch('fix', '2026-10-12-sample-bug', 'sample-bug'));
   assert.ok(!idsMatch('fix', 'fo', '2026-10-11-foo'), 'a fragment is not the slug');
@@ -277,4 +279,14 @@ test('rewriteRaw / segmentDeclaresAgent: unreadable gate calls and empty --agent
   assert.ok(!segmentDeclaresAgent(findGates('ac phase accept 45 --agent')));
   assert.ok(!segmentDeclaresAgent(findGates('ac phase accept 41 --agent ""')));
   assert.ok(segmentDeclaresAgent(findGates('ac phase accept 41 --agent bob')));
+});
+
+test('editRewrite: an Edit that leaves line 1 claiming human provenance becomes a whole-file replacement (phase 41 C6)', async () => {
+  const { editRewrite, AGENT_MARKER } = await gates();
+  const file = `${AGENT_MARKER}\n# C\n`;
+  assert.deepStrictEqual(editRewrite(file, { old_string: ' by agent: claude', new_string: '' }), { old_string: file, new_string: file, replace_all: false });
+  assert.deepStrictEqual(editRewrite(file, { old_string: AGENT_MARKER, new_string: '\n<!-- astro-discuss: captured -->' }), { old_string: file, new_string: `\n${AGENT_MARKER}\n# C\n`, replace_all: false });
+  assert.strictEqual(editRewrite(file, { old_string: '# C', new_string: '# Context' }), null, 'an ordinary edit is left alone');
+  assert.strictEqual(editRewrite(file, { old_string: 'missing', new_string: 'x' }), null, 'an Edit that does not apply is left alone');
+  assert.strictEqual(editRewrite('<!-- astro-discuss: captured -->\n# C\n', { old_string: '# C', new_string: '# D' }), null, 'already human: not this Edit\'s claim');
 });

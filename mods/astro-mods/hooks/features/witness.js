@@ -33,7 +33,7 @@
 // `$.ui.toast` is spelled here, in this file's own hooks, and `$` is never handed to an imported
 // helper (the plugin validator follows `$` only through functions declared in the file).
 import { isOn } from '../lib/switches.js'
-import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, isPhaseContextPath } from '../lib/gates.js'
+import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath } from '../lib/gates.js'
 
 const NOTICE = {
   agent: 'witness: no typed /astro-accept|/astro-fix-accept for this id this turn — recorded as agent (--agent claude). ADR-074, ADR-033.',
@@ -92,6 +92,7 @@ export async function witnessTool($, e, next) {
   let say = null
   if (e.tool === 'Bash') ({ out, say } = decideBash(e))
   else if (e.tool === 'Write' || e.tool === 'Edit') ({ out, say } = decideFile(e))
+  if (e.tool === 'Edit' && out === e && say === null) ({ out, say } = await decideEditEffect($, e))
   if (say && !told[say]) {
     // set first: a toast that throws (no UI under -p) must not earn a second notice
     told[say] = true
@@ -109,9 +110,12 @@ function decideBash(e) {
   const hit = findGates(e.command)
   if (hit.kind === 'none') return { out: e, say: null }
   if (hit.kind === 'ambiguous') {
-    // unreadable: it is the agent's unless the human typed a gate command this turn
-    if (turn === null || (turn.origin === 'composer' && turn.typed)) return { out: e, say: 'undetermined' }
-    const command = rewriteRaw(e.command)
+    // unreadable: every gate the human did not type is the agent's, and no gate keeps a --witnessed
+    // it did not get from witness (phase 41 verify, C2: `ac phase accept 41 && ac phase accept 55
+    // --witnessed composer` after a typed /astro-accept 41). The typed gate itself stays declared.
+    if (turn === null) return { out: e, say: 'undetermined' }
+    const typed = turn.origin === 'composer' && turn.typed ? turn.typed : null
+    const command = rewriteRaw(e.command, AGENT_NAME, (ref) => typed !== null && idsMatch(typed.kind, typed.id, ref))
     return command === null ? { out: e, say: 'undetermined' } : { out: { ...e, command }, say: 'agent' }
   }
   // Any --agent word, even bare or empty, already DECLARES agent provenance (ac's own reject code):
@@ -124,6 +128,20 @@ function decideBash(e) {
   }
   const command = rewriteGate(e.command, hit, { add: `--agent ${AGENT_NAME}`, strip: ['--witnessed', '--agent'] })
   return { out: { ...e, command }, say: 'agent' }
+}
+
+// An Edit whose own text looks harmless can still make line 1 of the file the human marker
+// (phase 41 verify, C6): read the file, apply the Edit in memory, and judge the result. Reading is
+// a check, not state (ADR-071 c); a failed read leaves the call as declared.
+async function decideEditEffect($, e) {
+  if (isPhaseContextPath(e.file_path) === null) return { out: e, say: null }
+  let current
+  try { current = await $.fs.read(e.file_path) } catch { return { out: e, say: null } }
+  const edit = editRewrite(typeof current === 'string' ? current : current?.text, e)
+  if (edit === null) return { out: e, say: null }
+  if (turn === null || undeterminedFor('discuss marker')) return { out: e, say: 'undetermined' }
+  if (witnessed('discuss marker', String(isPhaseContextPath(e.file_path)), e)) return { out: e, say: null }
+  return { out: { ...e, ...edit }, say: 'marker' }
 }
 
 function decideFile(e) {

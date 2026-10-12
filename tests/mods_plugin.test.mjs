@@ -209,8 +209,9 @@ const BASH = [
   ['C3 reject after typed accept', typedAccept(41), bash('ac phase reject 41 --reason x'), `ac phase reject 41${W} --reason x`, null],
   ['C3 reject after typed accept of another phase', typedAccept(40), bash('ac phase reject 41 --reason x'), `ac phase reject 41${A} --reason x`, AGENT_RE],
   ['C3 fix accept after typed fix-accept of the exact id', typedFixAccept('2026-10-11-foo'), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${W}`, null],
-  // a bare typed id is not the dated one: ac resolves partial ids, so it could be another fix (phase 41 verify C3)
-  ['C3 fix accept after a typed bare id', typedFixAccept('foo'), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${A}`, AGENT_RE],
+  // the documented slug form: the agent runs it with its date; a longer slug is another fix (phase 41 verify C3)
+  ['C3 fix accept after a typed bare slug', typedFixAccept('foo'), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${W}`, null],
+  ['C3 fix accept of a longer slug after a typed bare slug', typedFixAccept('foo'), bash('ac fix accept 2026-10-11-other-foo'), `ac fix accept 2026-10-11-other-foo${A}`, AGENT_RE],
   ['C3 fix accept after bang', [submit('! ac fix accept 2026-10-11-foo')], bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${W}`, null],
   ['C3 fix accept after another fix id', typedFixAccept('bar'), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${A}`, AGENT_RE],
   ['C3 fix accept after typed phase accept', typedAccept(41), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${A}`, AGENT_RE],

@@ -338,6 +338,16 @@ test('ADR-074: --witnessed and --agent contradict each other, in either order, a
   }
 });
 
+test('ADR-033: a bare or empty --agent on an accept is refused, never recorded as a human sign-off', async () => {
+  for (const args of [['--agent'], ['--agent', '']]) {
+    const dir = await verifiedPhase();
+    const res = run(['phase', 'accept', '1', ...args], dir);
+    assert.notStrictEqual(res.status, 0, `${JSON.stringify(args)} must be refused`);
+    assert.match(res.stderr, /--agent needs a name/);
+    assert.strictEqual(findPhase(dir, '1').status, 'verified');
+  }
+});
+
 test('ADR-074: --witnessed takes exactly one value, composer', async () => {
   for (const args of [['--witnessed', 'human'], ['--witnessed']]) {
     const dir = await verifiedPhase();

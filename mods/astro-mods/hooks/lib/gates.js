@@ -49,7 +49,6 @@ export const GATES = deepFreeze({
 export const AGENT_NAME = 'claude'
 export const AGENT_MARKER = `<!-- astro-discuss: captured by agent: ${AGENT_NAME} -->`
 export const HUMAN_MARKER = /^<!--\s*astro-discuss:\s*captured\s*-->$/i
-const ANY_MARKER = /<!--\s*astro-discuss:\s*captured\b([^>]*)-->/gi
 const HUMAN_INLINE = /<!--\s*astro-discuss:\s*captured\s*-->/gi
 
 const PHASE_REF = /^\d+(-[A-Za-z0-9._-]+)?$/
@@ -238,21 +237,18 @@ export function idsMatch(kind, typed, ref) {
   // A fix is witnessed only for the exact id the human typed: `ac fix accept` resolves suffixes and
   // partial ids, so `sample-bug` can land on `2026-10-12-other-sample-bug` (phase 41 verify, C3).
   if (!FIX_REF.test(typed) || !FIX_REF.test(ref)) return false
-  return typed === ref
+  if (typed === ref) return true
+  // /astro-fix-accept takes the bare slug and the agent runs `ac fix accept <date>-<slug>`: the same
+  // fix when the ref is exactly a date prefix plus what was typed (never a longer slug that merely ends with it)
+  return /^\d{4}-\d{2}-\d{2}-/.test(ref) && !/^\d{4}-\d{2}-\d{2}-/.test(typed) && ref.slice(11) === typed
 }
 
 // ── the CONTEXT.md marker ─────────────────────────────────────────────────────
 
 /** Mirrors lib/planning.mjs `classifyContext` for one line: is it a human provenance claim? */
 export function isHumanMarkerLine(line) {
-  const s = String(line)
-  if (HUMAN_MARKER.test(s.trim())) return true
-  let saw = false
-  for (const m of s.matchAll(ANY_MARKER)) {
-    if (m[1].trim()) return false
-    saw = true
-  }
-  return saw
+  // ac counts a human claim only when the whole first non-blank line IS the marker (phase 41)
+  return HUMAN_MARKER.test(String(line).trim())
 }
 
 /** `<digits>-<slug>/CONTEXT.md` under `.astrocode/phases/` -> the phase number, else null. */
@@ -291,6 +287,23 @@ export function markerRewrite({ tool, content, new_string } = {}) {
   return text.slice(0, t.start) + next + text.slice(t.end)
 }
 
+/**
+ * An Edit's effect on the provenance line, which its own new_string can hide (deleting just
+ * ` by agent: claude`, or inserting the human marker above line 1). Given the file as it is now,
+ * returns the Edit rewritten to a whole-file replacement whose first non-blank line is the agent
+ * marker, or null when the result does not claim human provenance or the Edit doesn't apply.
+ */
+export function editRewrite(current, { old_string, new_string, replace_all } = {}) {
+  if (typeof current !== 'string' || typeof old_string !== 'string' || typeof new_string !== 'string' || !old_string) return null
+  if (!current.includes(old_string)) return null
+  const after = replace_all ? current.split(old_string).join(new_string) : current.replace(old_string, () => new_string)
+  const t = targetLine(after, true)
+  if (!t || !isHumanMarkerLine(t.line)) return null
+  const before = targetLine(current, true)
+  if (before && isHumanMarkerLine(before.line)) return null // already human: not this Edit's claim
+  return { old_string: current, new_string: after.slice(0, t.start) + AGENT_MARKER + after.slice(t.end), replace_all: false }
+}
+
 /** Does the gate segment already carry a word starting with `prefix` (e.g. `--agent`)? */
 export function segmentHas(hit, prefix) {
   const refAt = hit.words.findIndex((w) => w.ref)
@@ -325,11 +338,15 @@ const RAW_GATE = /\b(?:ac|ac\.mjs)\s+(?:phase\s+(?:accept|reject)|fix\s+accept)\
  * agent. Used only when the turn is known not to be the human's typed gate. Null when nothing
  * was spliced.
  */
-export function rewriteRaw(command, name = AGENT_NAME) {
+export function rewriteRaw(command, name = AGENT_NAME, keep = () => false) {
   if (typeof command !== 'string') return null
   let changed = false
-  const out = command.replace(RAW_GATE, (m, at) => {
-    const after = command.slice(at + m.length).split(/[;&|\n"')]/)[0]
+  // A --witnessed in a call witness cannot read was not put there by witness: drop it, so a chained
+  // or wrapped gate can never carry a forged human sign-off (phase 41 verify, C2).
+  const bare = command.replace(/\s--witnessed(?:=[^\s'"]+|\s+[^\s'"`;&|)]+)?/g, () => { changed = true; return '' })
+  const out = bare.replace(RAW_GATE, (m, at) => {
+    if (keep(m.trim().split(/\s+/).pop())) return m
+    const after = bare.slice(at + m.length).split(/[;&|\n"')]/)[0]
     if (/(^|\s)--agent(=|\s|$)/.test(after)) return m // any declared --agent, even bare or empty, is left alone
     changed = true
     return `${m} --agent ${name}`
