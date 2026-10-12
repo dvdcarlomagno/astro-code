@@ -53,6 +53,19 @@
 //   - tool.call logs next.origin and a 40-char head of a Bash command (the same cut tool.check
 //     input already uses): does a `!` line reach tool.call, and with what origin?
 //
+// Phase 42 additions (brief-section: can a mod see, drop or replace settings-hook output, and
+// does a session-scope compose section reach the model, cached?):
+//   - classic.* (every settings-hook event) logs e's keys, then the keys of next(e)'s answer and the
+//     head and length of each additionalContext entry;
+//   - prompt.compose logs each section's id, scope and length; prompt.attachment logs origin and the
+//     head of the text; session.append logs door, origin, message type/name/role and a content head;
+//     turn.start, session.compact log keys; session.start also times a trivial $.process.run;
+//   - ASTRO_MODS_PROBE_TRY=<abs json>: { drop: [exact strings], dropLines: [substrings], section: "text" }. Then the probe
+//     appends { id: 'mods-probe:try', scope: 'session' } in prompt.compose, removes exact-equal
+//     entries from every classic additionalContext and from prompt.attachment text, removes lines
+//     containing a dropLines string from a door:'command' session.append row, and logs
+//     whether any session.append / classic output carried them. Unset, it stays a pure observer.
+//
 // The log is appended through $.fs, which only has read/write: read the file, add the
 // line, write it back, serialised on one promise chain so concurrent events never lose a
 // line. Fine for a probe; not a pattern for the shipped plugin.
@@ -131,8 +144,18 @@ async function record($, event, e, result, raw) {
   }
 }
 
+const bud = next => { try { return { ms: next.budget.ms, remainingMs: next.budget.remainingMs } } catch { return null } }
+
 async function onSessionStart($, e, next) {
-  await record($, 'session.start', e)
+  const t0 = Date.now()
+  let run
+  try {
+    const r = await $.process.run(['node', '-e', '0'], { cwd: e.cwd })
+    run = { exitCode: r.exitCode, ms: Date.now() - t0, cwdOption: 'accepted', budget: bud(next) }
+  } catch (err) {
+    run = { error: String(err) }
+  }
+  await record($, 'session.start', e, run, true)
   return next(e)
 }
 async function onToolCall($, e, next) {
@@ -210,6 +233,78 @@ async function onCommandRun($, e, next) {
   return next(e)
 }
 
+async function tryConfig($) {
+  try {
+    const path = await $.env.get('ASTRO_MODS_PROBE_TRY')
+    if (!path || !(await $.fs.exists(path))) return null
+    return JSON.parse(await $.fs.read(path))
+  } catch {
+    return null
+  }
+}
+
+const head = (v, n = 80) => (typeof v === 'string' ? { head: v.slice(0, n), length: v.length } : shape(v))
+
+async function onClassic($, e, next) {
+  const r = await next(e)
+  const entries = Array.isArray(r?.additionalContext) ? r.additionalContext.map(x => head(x)) : null
+  const name = e?.hook_event_name ?? null
+  await record($, 'classic', { hook_event_name: name, source: e?.source, trigger: e?.trigger }, { eKeys: Object.keys(e ?? {}), name, origin: next.origin, budget: bud(next), resultKeys: r && typeof r === 'object' ? Object.keys(r) : null, additionalContext: entries, rShape: walk(r, 2) }, true)
+  const cfg = await tryConfig($)
+  if (cfg && Array.isArray(cfg.drop) && Array.isArray(r?.additionalContext)) {
+    const kept = r.additionalContext.filter(x => !cfg.drop.includes(x))
+    if (kept.length !== r.additionalContext.length) {
+      await record($, 'classic.dropped', { hook_event_name: name }, { before: r.additionalContext.length, after: kept.length }, true)
+      return { ...r, additionalContext: kept }
+    }
+  }
+  return r
+}
+async function onCompose($, e, next) {
+  const r = await next(e)
+  await record($, 'prompt.compose', { traits: e?.traits, model: e?.model }, { budget: bud(next), sections: (r?.sections ?? []).map(s => ({ id: s.id, scope: s.scope, length: s.text?.length })) }, true)
+  const cfg = await tryConfig($)
+  if (cfg && typeof cfg.section === 'string' && r?.sections) return { ...r, sections: [...r.sections, { id: 'mods-probe:try', text: cfg.section, scope: 'session' }] }
+  return r
+}
+async function onAttachment($, e, next) {
+  const r = await next(e)
+  await record($, 'prompt.attachment', { type: e?.type }, { origin: next.origin, eKeys: Object.keys(e ?? {}), text: head(r?.text) }, true)
+  const cfg = await tryConfig($)
+  if (cfg && Array.isArray(cfg.drop) && cfg.drop.includes(r?.text)) return { ...r, text: null }
+  return r
+}
+async function onAppend($, e, next) {
+  const m = e?.message
+  await record($, 'session.append', e, { door: e?.door, origin: next.origin, type: m?.type, name: m?.name, role: m?.role, content: head(typeof m?.content === 'string' ? m.content : JSON.stringify(m?.content ?? null), 120) }, true)
+  const cfg = await tryConfig($)
+  if (cfg && Array.isArray(cfg.dropLines) && e?.door === 'command' && Array.isArray(m?.content)) {
+    // experiment: remove whole lines that contain an exact string (the PreCompact row holds every
+    // PreCompact hook's output in one text block)
+    let hit = false
+    const content = m.content.map(b => {
+      if (b?.type !== 'text' || typeof b.text !== 'string') return b
+      const kept = b.text.split('\n').filter(l => !cfg.dropLines.some(d => l.includes(d)))
+      if (kept.length === b.text.split('\n').length) return b
+      hit = true
+      return { ...b, text: kept.join('\n') }
+    })
+    if (hit) {
+      await record($, 'session.append.rewritten', e, { door: e.door }, true)
+      return next({ ...e, message: { ...m, content } })
+    }
+  }
+  return next(e)
+}
+async function onTurnStart($, e, next) {
+  await record($, 'turn.start', e, { budget: bud(next) }, true)
+  return next(e)
+}
+async function onCompact($, e, next) {
+  await record($, 'session.compact', e)
+  return next(e)
+}
+
 // a probe that breaks lets the action through: it observes, it never gates
 function pass($, e, next) {
   return next(e)
@@ -223,4 +318,10 @@ export function register(on) {
   on('turn.complete', onTurnComplete).catch(pass)
   on('prompt.submit', onPromptSubmit).catch(pass)
   on('command.run', onCommandRun).catch(pass)
+  on('classic.*', onClassic).catch(pass)
+  on('prompt.compose', onCompose).catch(pass)
+  on('prompt.attachment', onAttachment).catch(pass)
+  on('session.append', onAppend).catch(pass)
+  on('turn.start', onTurnStart).catch(pass)
+  on('session.compact', onCompact).catch(pass)
 }
