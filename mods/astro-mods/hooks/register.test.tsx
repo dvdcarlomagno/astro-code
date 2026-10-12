@@ -407,3 +407,21 @@ for (const [order, startup] of ORDERS) {
     expect((briefSections(await $.prompt.compose(COMPOSE))[0] as any).text).toEqual(`BRIEF rev3\n\n${POSITION}`)
   })
 }
+
+// A reload (session.start again) has no startup classic.SessionStart to pair with: the compaction
+// or /clear after it is not its partner and must re-fetch, or the section keeps the reload-time
+// brief while the hooks' new parts reach the model next to it (phase 42 C3/C4).
+for (const [order, startup] of [ORDERS[1], ORDERS[0]]) {
+  for (const source of ['compact', 'clear']) {
+    test(`brief-section, ${order}, then a reload: a ${source} after a store change re-fetches`, async ($, on) => {
+      const { store, briefRuns } = storeRig(on)
+      await startup($)
+      await $.session.start(START)
+      expect(briefRuns()).toEqual(2)
+      store.rev = 2
+      expect((await ($ as any).classic.SessionStart({ ...SS, source })).additionalContext).toEqual([])
+      expect((briefSections(await $.prompt.compose(COMPOSE))[0] as any).text).toEqual(`BRIEF rev2\n\n${POSITION}`)
+      expect(briefRuns()).toEqual(3)
+    })
+  }
+}

@@ -29,10 +29,15 @@
 // turn late (F18), and the compose answer is not held across turns (F17), so the section text is
 // one module variable, rebuilt only when the position really changes.
 //
+// Only a classic.SessionStart of a process start (source startup or resume) can be a partner (F7,
+// F21); a compaction or /clear never is. A reload's session.start has no startup classic after it,
+// so the compaction that follows must not take the reload's load for its own.
+//
 // Every other session.start and classic.SessionStart refetches: the store may have changed, and a
-// stale part list would let the hooks' new output through next to the section. The bug this
+// stale part list would let the hooks' new output through next to the section. The bugs this
 // prevents (phase 42 C3/C4): with classic first, session.start used to fetch again and mark ITS
-// load as the startup's, so the next compaction reused it and missed a store change in between.
+// load as the startup's, so the next compaction reused it and missed a store change in between;
+// and after a reload, the next compaction was taken for the reload's partner the same way.
 // A /reload-plugins registers afresh and does not re-fire session.start (F21), so the next
 // classic.SessionStart starts a load of its own; until then the hooks deliver.
 import { isOn, setSwitches, SWITCHES_ARGV, SWITCHES_TIMEOUT_MS } from '../lib/switches.js'
@@ -163,10 +168,11 @@ export async function sessionStart($, e, next) {
 
 /** classic.SessionStart: drop the entries that are exactly the parts the hooks print. */
 export async function briefSessionStart($, e, next) {
-  if (partner === 'classic') {
+  const startup = e.source !== 'compact' && e.source !== 'clear' // only a process start pairs (F7)
+  if (startup && partner === 'classic') {
     partner = null // session.start of this startup already started the load
   } else if (!loading) {
-    partner = 'session' // classic ran before session.start (F20), or after a /reload-plugins (F21)
+    partner = startup ? 'session' : null // classic ran before session.start (F20), or after a /reload-plugins (F21)
     loading = startupLoad($, e.cwd)
   } else {
     // a compaction or /clear: the hooks print the store as it is NOW, so the parts must be too
