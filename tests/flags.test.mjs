@@ -285,6 +285,145 @@ test('ADR-033: --agent is allowlisted, and a typo of it is still rejected', asyn
   assert.strictEqual(findPhase(dir, '1').status, 'verified', 'the rejected accept must not have closed the phase');
 });
 
+// ── ADR-074: `--witnessed composer` — evidence recorded, never detected ───────
+//
+// The witness mod (phase 41) TELLS `ac` what it saw. `ac` itself still never sniffs.
+
+test('ADR-074: --witnessed composer records accepted_evidence beside accepted_kind human', async () => {
+  const dir = await verifiedPhase();
+  const res = run(['phase', 'accept', '1', '--witnessed', 'composer'], dir);
+  assert.strictEqual(res.status, 0, res.stderr);
+  assert.match(res.stdout, /witnessed/);
+  const ph = findPhase(dir, '1');
+  assert.strictEqual(ph.status, 'complete');
+  assert.strictEqual(ph.accepted_kind, 'human');
+  assert.strictEqual(ph.accepted_evidence, 'composer');
+  for (const args of [['phase', 'show', '1'], ['phase', 'show', '1', '--json']]) {
+    const show = run(args, dir);
+    assert.strictEqual(show.status, 0, show.stderr);
+    const rec = JSON.parse(show.stdout);
+    assert.strictEqual(rec.accepted_kind, 'human');
+    assert.strictEqual(rec.accepted_evidence, 'composer');
+  }
+  assert.notStrictEqual(run(['phase', 'show', '99'], dir).status, 0);
+});
+
+test('ADR-074: a plain accept has no evidence key, and ac never sniffs the environment', async () => {
+  const plain = await verifiedPhase();
+  assert.strictEqual(run(['phase', 'accept', '1'], plain).status, 0);
+  assert.strictEqual('accepted_evidence' in findPhase(plain, '1'), false);
+
+  const inClaude = await verifiedPhase();
+  const res = spawnSync(process.execPath, [AC, 'phase', 'accept', '1'], {
+    cwd: inClaude, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
+    env: { ...process.env, CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli' },
+  });
+  assert.strictEqual(res.status, 0, res.stderr);
+  const ph = findPhase(inClaude, '1');
+  assert.strictEqual('accepted_evidence' in ph, false, 'ac must not infer a witness from CLAUDECODE or a tty');
+  assert.strictEqual(ph.accepted_kind, 'human');
+});
+
+test('ADR-074: --witnessed and --agent contradict each other, in either order, and nothing is written', async () => {
+  for (const args of [
+    ['--witnessed', 'composer', '--agent', 'bot'],
+    ['--agent', 'bot', '--witnessed', 'composer'],
+    ['--witnessed', 'composer', '--agent'],
+  ]) {
+    const dir = await verifiedPhase();
+    const res = run(['phase', 'accept', '1', ...args], dir);
+    assert.notStrictEqual(res.status, 0, `${args.join(' ')} must be refused`);
+    assert.match(res.stderr, /✖.*--witnessed.*--agent|--agent.*--witnessed/);
+    assert.strictEqual(findPhase(dir, '1').status, 'verified');
+  }
+});
+
+test('ADR-074: --witnessed takes exactly one value, composer', async () => {
+  for (const args of [['--witnessed', 'human'], ['--witnessed']]) {
+    const dir = await verifiedPhase();
+    const res = run(['phase', 'accept', '1', ...args], dir);
+    assert.notStrictEqual(res.status, 0, `${args.join(' ')} must be refused`);
+    assert.strictEqual(findPhase(dir, '1').status, 'verified');
+  }
+});
+
+test('ADR-074: a typo of --witnessed is still an unknown flag (ADR-029)', async () => {
+  const dir = await verifiedPhase();
+  const res = run(['phase', 'accept', '1', '--witnesed', 'composer'], dir);
+  assert.notStrictEqual(res.status, 0);
+  assert.match(res.stderr, /unknown flag/i);
+  assert.strictEqual(findPhase(dir, '1').status, 'verified');
+});
+
+test('ADR-074: phase reject carries the evidence on the rejection entry only when witnessed', async () => {
+  const dir = await verifiedPhase();
+  const res = run(['phase', 'reject', '1', '--reason', 'x', '--witnessed', 'composer'], dir);
+  assert.strictEqual(res.status, 0, res.stderr);
+  assert.match(res.stdout, /witnessed/);
+  const last = findPhase(dir, '1').rejections.at(-1);
+  assert.strictEqual(last.evidence, 'composer');
+  assert.strictEqual(last.kind, 'human');
+
+  const plain = await verifiedPhase();
+  assert.strictEqual(run(['phase', 'reject', '1', '--reason', 'x'], plain).status, 0);
+  assert.strictEqual('evidence' in findPhase(plain, '1').rejections.at(-1), false);
+
+  const both = await verifiedPhase();
+  const bad = run(['phase', 'reject', '1', '--reason', 'x', '--witnessed', 'composer', '--agent', 'bot'], both);
+  assert.notStrictEqual(bad.status, 0);
+  assert.strictEqual(findPhase(both, '1').status, 'verified');
+  assert.strictEqual(findPhase(both, '1').rejections, undefined, 'a refused call must add no entry');
+});
+
+test('ADR-074: fix accept --witnessed composer records accepted_evidence on the fix', async () => {
+  const addFixed = () => {
+    const dir = mkWorkdir(null);
+    const add = run(['fix', 'add', 'a bug'], dir);
+    assert.strictEqual(add.status, 0, add.stderr);
+    return { dir, id: add.stdout.match(/fix (\S+)/)[1] };
+  };
+  const { dir, id } = addFixed();
+  const res = run(['fix', 'accept', id, '--witnessed', 'composer'], dir);
+  assert.strictEqual(res.status, 0, res.stderr);
+  assert.match(res.stdout, /witnessed/);
+  const rec = JSON.parse(run(['fix', 'show', id], dir).stdout);
+  assert.strictEqual(rec.accepted_kind, 'human');
+  assert.strictEqual(rec.accepted_evidence, 'composer');
+
+  const b = addFixed();
+  const bad = run(['fix', 'accept', b.id, '--witnessed', 'composer', '--agent', 'bot'], b.dir);
+  assert.notStrictEqual(bad.status, 0);
+  assert.notStrictEqual(JSON.parse(run(['fix', 'show', b.id], b.dir).stdout).status, 'accepted');
+
+  const c = addFixed();
+  assert.strictEqual(run(['fix', 'accept', c.id], c.dir).status, 0);
+  assert.strictEqual('accepted_evidence' in JSON.parse(run(['fix', 'show', c.id], c.dir).stdout), false);
+});
+
+test('ADR-074: a witnessed accept never back-fills an earlier record', async () => {
+  const dir = await verifiedPhase();
+  assert.strictEqual(run(['phase', 'accept', '1'], dir).status, 0);
+  const before = structuredClone(findPhase(dir, '1'));
+  await addPhase(dir, { number: 2, name: 'Second' });
+  await setPhaseStatus(dir, findPhase(dir, '2').slug, 'verified');
+  assert.strictEqual(run(['phase', 'accept', '2', '--witnessed', 'composer'], dir).status, 0);
+  const show = run(['phase', 'show', '1'], dir);
+  assert.strictEqual(show.status, 0, show.stderr);
+  assert.deepStrictEqual(findPhase(dir, '1'), before);
+  assert.doesNotMatch(show.stdout, /witness/i);
+  assert.doesNotMatch(run(['status'], dir).stdout, /witness/i);
+});
+
+test('ADR-074: the agent rewrite end to end is an ordinary --agent accept', async () => {
+  const dir = await verifiedPhase();
+  const res = run(['phase', 'accept', '1', '--agent', 'claude'], dir);
+  assert.strictEqual(res.status, 0, res.stderr);
+  const ph = findPhase(dir, '1');
+  assert.strictEqual(ph.accepted_kind, 'agent');
+  assert.strictEqual(ph.status, 'complete');
+  assert.strictEqual('accepted_evidence' in ph, false);
+});
+
 // ── ADR-034: `ac canon pull` must never destroy a local-only ADR ──────────────
 //
 // Found by the v0.11.0 benchmark. The chain: astro-code's own planner emitted a task
