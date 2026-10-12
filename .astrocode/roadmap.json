@@ -50,7 +50,7 @@
       "number": 41,
       "name": "witness mod: detect human vs agent acceptance provenance (amends ADR-033)",
       "slug": "41-witness-mod-detect-human-vs-agent",
-      "status": "pending",
+      "status": "verified",
       "milestone": 12
     },
     {

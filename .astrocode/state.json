@@ -2,10 +2,10 @@
   "version": 1,
   "project": "astro-code",
   "active_milestone": 12,
-  "active_phase": null,
+  "active_phase": "41-witness-mod-detect-human-vs-agent",
   "status": "planning",
   "decisions": [],
   "blockers": [],
-  "updated_at": "2026-10-11T20:49:30.696Z",
+  "updated_at": "2026-10-12T11:38:16.594Z",
   "activity": null
 }
