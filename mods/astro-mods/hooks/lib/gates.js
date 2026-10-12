@@ -231,6 +231,8 @@ export function idsMatch(kind, typed, ref) {
   if (typeof typed !== 'string' || typeof ref !== 'string') return false
   if (kind === 'phase') {
     if (!PHASE_REF.test(typed) || !PHASE_REF.test(ref)) return false
+    // A slug-shaped ref (`41-x`) is safe to read by its leading number: ac's findPhase never resolves
+    // a `<digits>-…` ref by phase NAME (phase 41 verify, C2 d), so it can only be phase 41's slug.
     const lead = (s) => Number(/^0*(\d+)/.exec(s)[1])
     return lead(typed) === lead(ref)
   }
@@ -254,7 +256,14 @@ export function isHumanMarkerLine(line) {
 /** `<digits>-<slug>/CONTEXT.md` under `.astrocode/phases/` -> the phase number, else null. */
 export function isPhaseContextPath(path) {
   if (typeof path !== 'string') return null
-  const m = /(?:^|\/)\.astrocode\/phases\/(\d+)-[^/]+\/CONTEXT\.md$/.exec(path.replace(/\\/g, '/'))
+  // `phases//41-x`, `/./`, `/../` and a case-insensitive filesystem all reach the same file (phase 41 C6)
+  const out = []
+  for (const seg of path.replace(/\\/g, '/').split('/')) {
+    if (seg === '' || seg === '.') { if (out.length === 0) out.push(''); continue }
+    if (seg === '..') { if (out.length > 1 || (out.length === 1 && out[0] !== '')) out.pop(); continue }
+    out.push(seg)
+  }
+  const m = /(?:^|\/)\.astrocode\/phases\/(\d+)-[^/]+\/CONTEXT\.md$/i.exec(out.join('/'))
   return m ? Number(m[1]) : null
 }
 
@@ -333,7 +342,32 @@ export function segmentDeclaresAgent(hit) {
 // The gate verbs, whatever runs them: `ac`, `node … ac.mjs`, `$(which ac)`, a wrapper. Matching the
 // verbs alone is deliberate (phase 41 verify, C2): a spelling witness can't parse is treated as
 // unreadable, never as "not a gate".
+export const RAW_SEES = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\s+[^\s'"`;&|()<>]/
 export const GATE_VERBS = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\b/
+// What the shell will see once quotes and line continuations are gone: `phase "accept" 41` and
+// `phase \\<newline>accept` are the same gate (phase 41 verify, C2/C3).
+export const shellText = (s) => String(s).replace(/\\\r?\n/g, ' ').replace(/["'\\]/g, '')
+
+/**
+ * Last resort for a gate witness cannot parse even on the raw text: drop any --witnessed (quoted or
+ * not) and append ` --agent <name>` to every top-level segment whose shell text names a gate and
+ * declares no agent. Never a human sign-off by default.
+ */
+export function signSegments(command, name = AGENT_NAME) {
+  const parts = String(command).split(/(&&|\|\||;|\||(?<!\\)\n)/) // a backslash-newline continues the segment
+  let changed = false
+  const out = parts.map((p, i) => {
+    if (i % 2 === 1) return p
+    const t = shellText(p)
+    if (!GATE_VERBS.test(t)) return p
+    let q = p.replace(/\s--witnessed(?:=\S+|\s+["']?[^\s"';&|)]*["']?)?/g, () => { changed = true; return '' })
+    if (/(^|\s)--agent(=|\s|$)/.test(shellText(q))) return q
+    changed = true
+    const trail = /\s*$/.exec(q)[0]
+    return q.slice(0, q.length - trail.length) + ` --agent ${name}` + trail
+  })
+  return changed ? out.join('') : null
+}
 const RAW_GATE = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\s+(?:\$\{?\w+\}?|[^\s'"`;&|()$<>]+)/g
 
 /**

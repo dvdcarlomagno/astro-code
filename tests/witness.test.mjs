@@ -290,3 +290,21 @@ test('editRewrite: an Edit that leaves line 1 claiming human provenance becomes 
   assert.strictEqual(editRewrite(file, { old_string: 'missing', new_string: 'x' }), null, 'an Edit that does not apply is left alone');
   assert.strictEqual(editRewrite('<!-- astro-discuss: captured -->\n# C\n', { old_string: '# C', new_string: '# D' }), null, 'already human: not this Edit\'s claim');
 });
+
+test('isPhaseContextPath: //, /./, /../ and case still name the phase CONTEXT.md (phase 41 C6)', async () => {
+  const { isPhaseContextPath } = await gates();
+  for (const p of ['/w/.astrocode/phases//41-x/CONTEXT.md', '/w/.astrocode/phases/41-x/./CONTEXT.md',
+    '/w/.astrocode/phases/41-x/../41-x/CONTEXT.md', '/w/.astrocode/phases/41-x/context.md']) {
+    assert.strictEqual(isPhaseContextPath(p), 41, p);
+  }
+  assert.strictEqual(isPhaseContextPath('/w/.astrocode/phases/41-x/PLAN.md'), null);
+});
+
+test('signSegments: a quoted or continued gate verb is still signed as the agent, and loses --witnessed (phase 41 C2/C3)', async () => {
+  const { signSegments } = await gates();
+  assert.strictEqual(signSegments('node --no-warnings bin/ac.mjs phase "accept" 41 --witnessed composer'), 'node --no-warnings bin/ac.mjs phase "accept" 41 --agent claude');
+  assert.strictEqual(signSegments('node bin/ac.mjs phase \\\naccept 41 --witnessed composer'), 'node bin/ac.mjs phase \\\naccept 41 --agent claude');
+  assert.strictEqual(signSegments('ac fix "accept" sample-bug --witnessed "composer" && ls'), 'ac fix "accept" sample-bug --agent claude && ls');
+  assert.strictEqual(signSegments('ac phase accept "41" --agent bot'), null, 'a declared agent is left alone');
+  assert.strictEqual(signSegments('ls -la'), null);
+});

@@ -33,7 +33,7 @@
 // `$.ui.toast` is spelled here, in this file's own hooks, and `$` is never handed to an imported
 // helper (the plugin validator follows `$` only through functions declared in the file).
 import { isOn } from '../lib/switches.js'
-import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath, GATE_VERBS } from '../lib/gates.js'
+import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath, GATE_VERBS, shellText, signSegments, RAW_SEES } from '../lib/gates.js'
 
 const NOTICE = {
   agent: 'witness: no typed /astro-accept|/astro-fix-accept for this id this turn — recorded as agent (--agent claude). ADR-074, ADR-033.',
@@ -110,14 +110,17 @@ function decideBash(e) {
   const hit = findGates(e.command)
   // findGates found no gate, yet the gate verbs are there (`node --no-warnings bin/ac.mjs phase accept`,
   // `$(which ac) phase accept`): unreadable, not innocent.
-  if (hit.kind === 'none' && !GATE_VERBS.test(e.command)) return { out: e, say: null }
+  if (hit.kind === 'none' && !GATE_VERBS.test(shellText(e.command))) return { out: e, say: null }
   if (hit.kind === 'ambiguous' || hit.kind === 'none') {
     // unreadable: every gate the human did not type is the agent's, and no gate keeps a --witnessed
     // it did not get from witness (phase 41 verify, C2: `ac phase accept 41 && ac phase accept 55
     // --witnessed composer` after a typed /astro-accept 41). The typed gate itself stays declared.
     if (turn === null) return { out: e, say: 'undetermined' }
     const typed = turn.origin === 'composer' && turn.typed ? turn.typed : null
-    const command = rewriteRaw(e.command, AGENT_NAME, (ref) => typed !== null && idsMatch(typed.kind, typed.id, ref))
+    const keep = (ref) => typed !== null && idsMatch(typed.kind, typed.id, ref)
+    // the raw-text pass first; if a quoted verb or ref hides the gate from it, sign every segment
+    let command = rewriteRaw(e.command, AGENT_NAME, keep)
+    if (GATE_VERBS.test(shellText(command ?? e.command)) && !RAW_SEES.test(command ?? e.command)) command = signSegments(command ?? e.command) ?? command
     return command === null ? { out: e, say: 'undetermined' } : { out: { ...e, command }, say: 'agent' }
   }
   // Any --agent word, even bare or empty, already DECLARES agent provenance (ac's own reject code):

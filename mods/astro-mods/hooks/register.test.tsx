@@ -156,6 +156,20 @@ test('witness: a gate run through node, a path or $(which ac) is unreadable, nev
   expect(rig.bash()).toEqual(['node --no-warnings bin/ac.mjs phase accept 41 --agent claude', '$(which ac) phase accept 41 --agent claude'])
 })
 
+test('witness: a quoted verb or ref is still a gate: never witnessed in an autonomous turn (phase 41 C2/C3)', async ($, on) => {
+  const rig = witnessRig(true, on)
+  await $.session.start(START)
+  await typed($, 'astro-autonomous', '')
+  await prompt($, '/astro-autonomous')
+  await $.tool.call({ tool: 'Bash', command: 'node --no-warnings bin/ac.mjs phase "accept" 41 --witnessed composer' })
+  await $.tool.call({ tool: 'Bash', command: 'node --no-warnings bin/ac.mjs phase accept "41" --witnessed composer' })
+  await $.tool.call({ tool: 'Bash', command: 'node --no-warnings bin/ac.mjs fix "accept" sample-bug --witnessed composer' })
+  for (const cmd of rig.bash()) {
+    expect(cmd.includes('--witnessed')).toEqual(false)
+    expect(cmd.includes('--agent claude')).toEqual(true)
+  }
+})
+
 test('witness: a declared --agent is left untouched', async ($, on) => {
   const rig = witnessRig(true, on)
   await $.session.start(START)
