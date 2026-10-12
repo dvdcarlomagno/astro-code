@@ -185,11 +185,11 @@ test('markerRewrite: CRLF and leading blank lines are kept', async () => {
   );
 });
 
-test('markerRewrite: an agent marker is never upgraded, and a marker that is not line 1 is left alone', async () => {
+test('markerRewrite: an agent marker is never upgraded, and a Write marker on any line is rewritten', async () => {
   const { markerRewrite, AGENT_MARKER } = await gates();
   assert.strictEqual(markerRewrite({ tool: 'Write', content: `${AGENT_MARKER}\n# T\n` }), null);
   assert.strictEqual(markerRewrite({ tool: 'Write', content: '<!-- astro-discuss: captured by agent: bob -->\n' }), null);
-  assert.strictEqual(markerRewrite({ tool: 'Write', content: '# T\nx\n<!-- astro-discuss: captured -->\n' }), null);
+  assert.strictEqual(markerRewrite({ tool: 'Write', content: '# T\nx\n<!-- astro-discuss: captured by agent: bob -->\n' }), null);
 });
 
 test('markerRewrite: an Edit reads new_string, and only its first line counts', async () => {
@@ -246,4 +246,26 @@ test('isPhaseContextPath: only a phase directory CONTEXT.md names a phase', asyn
   for (const p of ['/a/.astrocode/CONTEXT.md', '/a/phases/41-x/CONTEXT.md', '/a/.astrocode/phases/41-x/PLAN.md', undefined, 42]) {
     assert.strictEqual(isPhaseContextPath(p), null, String(p));
   }
+});
+
+test('markerRewrite: a Write human marker past line 1 becomes the agent marker (ac reads it as human)', async () => {
+  const { markerRewrite, AGENT_MARKER } = await gates();
+  assert.strictEqual(markerRewrite({ tool: 'Write', content: '# T\n<!-- astro-discuss: captured -->\nbody\n' }), `# T\n${AGENT_MARKER}\nbody\n`);
+});
+
+test('idsMatch: two dated fixes match only on the same date', async () => {
+  const { idsMatch } = await gates();
+  assert.ok(!idsMatch('fix', '2026-10-01-foo-bar', '2026-09-01-foo-bar'));
+  assert.ok(idsMatch('fix', '2026-10-01-foo-bar', '2026-10-01-foo-bar'));
+});
+
+test('rewriteRaw / segmentDeclaresAgent: unreadable gate calls and empty --agent values', async () => {
+  const { rewriteRaw, findGates, segmentDeclaresAgent } = await gates();
+  assert.strictEqual(rewriteRaw('ac phase accept 41 && ac phase accept 42'), 'ac phase accept 41 --agent claude && ac phase accept 42 --agent claude');
+  assert.strictEqual(rewriteRaw('bash -c "ac phase accept 41"'), 'bash -c "ac phase accept 41 --agent claude"');
+  assert.strictEqual(rewriteRaw('N=41; ac phase accept $N'), 'N=41; ac phase accept $N --agent claude');
+  assert.strictEqual(rewriteRaw('ac phase accept 41 --agent bob && ls'), null);
+  assert.ok(!segmentDeclaresAgent(findGates('ac phase accept 45 --agent')));
+  assert.ok(!segmentDeclaresAgent(findGates('ac phase accept 41 --agent ""')));
+  assert.ok(segmentDeclaresAgent(findGates('ac phase accept 41 --agent bob')));
 });

@@ -39,9 +39,7 @@ human accepts. This is the **human gate** after `/astro-verify` (the AI gate).
    machine's verdict, `complete` is supposed to mean a human agreed. It is declared everywhere; witnessed where the host
    allows (ADR-074). When the operator accepts, their assistant runs this same
    command — so the record is only honest if the signer declares it.
-   Optionally, if enabled, the witness mod corrects a call made outside a typed
-   `/astro-accept <n>` to `--agent` and marks a typed one `--witnessed composer` —
-   declare honestly either way. Recording a machine
+   Declare honestly either way. Recording a machine
    sign-off as human does not just mislabel a field; it makes the two-gate guarantee
    unauditable, which is the whole reason the second gate exists. The same rule extends
    to rejection: a stand-in agent MUST run

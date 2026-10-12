@@ -226,7 +226,7 @@ export function parseBang(text) {
 
 /**
  * Do a typed id and a gate's ref name the same thing? Phases compare by leading integer, fixes
- * compare whole once a leading date is dropped. An undetermined (null) side never matches.
+ * compare whole (the date is dropped only when one side is bare). An undetermined (null) side never matches.
  */
 export function idsMatch(kind, typed, ref) {
   if (typeof typed !== 'string' || typeof ref !== 'string') return false
@@ -235,8 +235,11 @@ export function idsMatch(kind, typed, ref) {
     const lead = (s) => Number(/^0*(\d+)/.exec(s)[1])
     return lead(typed) === lead(ref)
   }
-  const bare = (s) => s.replace(/^\d{4}-\d{2}-\d{2}-/, '')
+  const DATE = /^\d{4}-\d{2}-\d{2}-/
+  const bare = (s) => s.replace(DATE, '')
   if (!FIX_REF.test(typed) || !FIX_REF.test(ref)) return false
+  // two dated ids name the same fix only on the same date; a bare id matches either date
+  if (DATE.test(typed) && DATE.test(ref)) return typed === ref
   return bare(typed) !== '' && bare(typed) === bare(ref)
 }
 
@@ -282,6 +285,12 @@ function targetLine(text, skipBlank) {
 export function markerRewrite({ tool, content, new_string } = {}) {
   const text = tool === 'Write' ? content : tool === 'Edit' ? new_string : undefined
   if (typeof text !== 'string') return null
+  // `ac` reads a human marker on ANY line of a Write as a human brief (classifyContext), so a
+  // Write is rewritten wherever the marker sits
+  if (tool === 'Write') {
+    const all = text.replace(HUMAN_INLINE, AGENT_MARKER)
+    return all === text ? null : all
+  }
   const t = targetLine(text, tool === 'Write')
   if (!t || !isHumanMarkerLine(t.line)) return null
   const next = HUMAN_MARKER.test(t.line.trim()) ? AGENT_MARKER : t.line.replace(HUMAN_INLINE, AGENT_MARKER)
@@ -300,4 +309,36 @@ export function segmentValue(hit, flag) {
   const rest = hit.words.slice(refAt + 1)
   const i = rest.findIndex((w) => w.text === flag)
   return i === -1 ? undefined : rest[i + 1]?.text
+}
+
+/** Does the gate segment declare an agent with a real name (`--agent claude`, `--agent=claude`)? */
+export function segmentDeclaresAgent(hit) {
+  const refAt = hit.words.findIndex((w) => w.ref)
+  const rest = hit.words.slice(refAt + 1)
+  return rest.some((w, i) => {
+    if (w.text.startsWith('--agent=')) return w.text.length > 8
+    if (w.text !== '--agent') return false
+    const v = rest[i + 1]?.text
+    return typeof v === 'string' && v !== '' && !v.startsWith('-')
+  })
+}
+
+const RAW_GATE = /\b(?:ac|ac\.mjs)\s+(?:phase\s+(?:accept|reject)|fix\s+accept)\s+(?:\$\{?\w+\}?|[^\s'"`;&|()$<>]+)/g
+
+/**
+ * For a call findGates cannot read (`bash -c`, two gates, a variable ref): splice
+ * ` --agent <name>` after every gate ref found in the raw text, unless that call already names an
+ * agent. Used only when the turn is known not to be the human's typed gate. Null when nothing
+ * was spliced.
+ */
+export function rewriteRaw(command, name = AGENT_NAME) {
+  if (typeof command !== 'string') return null
+  let changed = false
+  const out = command.replace(RAW_GATE, (m, at) => {
+    const after = command.slice(at + m.length).split(/[;&|\n"')]/)[0]
+    if (/^\s+--agent(?:=|\s+)[^\s'"-]/.test(after)) return m
+    changed = true
+    return `${m} --agent ${name}`
+  })
+  return changed ? out : null
 }

@@ -208,7 +208,8 @@ already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces i
   (`ac phase show <n> --json`). `ac` never detects; it records what the caller declares.
 - Fail open: an unknown turn, an empty typed id or a command it cannot parse is left declared, with
   one notice.
-- Known gaps: MCP shell tools (`ctx_shell`), an `ac` alias or script, a subagent's call (never
+- Known gaps: a typed `! ac phase accept <n>` line (the host shows it to no hook, so it is never
+  witnessed; use the slash command), MCP shell tools (`ctx_shell`), an `ac` alias or script, a subagent's call (never
   witnessed), Remote Control (`bridge`, counts as no signal so it is recorded as agent), and a prompt
   queued mid-turn. The UAT question's answer is not attestable (phase 41 `PROBE.md`).
 

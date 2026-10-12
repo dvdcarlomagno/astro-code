@@ -311,13 +311,12 @@ for (const [label, events, call, field] of FILES) {
   });
 }
 
-test('C6c/d an agent-form marker, another file, or the marker on line 3 is unchanged in every turn', async () => {
+test('C6c/d an agent-form marker, another file, or an Edit marker on line 3 is unchanged in every turn', async () => {
   const { AGENT_MARKER } = await import('../mods/astro-mods/hooks/lib/gates.js');
   const calls = [
     write(`${AGENT_MARKER}\nbody\n`),
     edit(`${AGENT_MARKER}\nbody`),
     write(`${HUMAN}\nbody\n`, '/p/notes/CONTEXT.md'),
-    write(`# t\n\n${HUMAN}\n`),
     edit(`# t\n\n${HUMAN}`),
   ];
   for (const call of calls) {

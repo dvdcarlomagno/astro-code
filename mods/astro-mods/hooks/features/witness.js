@@ -33,7 +33,7 @@
 // `$.ui.toast` is spelled here, in this file's own hooks, and `$` is never handed to an imported
 // helper (the plugin validator follows `$` only through functions declared in the file).
 import { isOn } from '../lib/switches.js'
-import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, markerRewrite, isPhaseContextPath } from '../lib/gates.js'
+import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, isPhaseContextPath } from '../lib/gates.js'
 
 const NOTICE = {
   agent: 'witness: no typed /astro-accept|/astro-fix-accept for this id this turn — recorded as agent (--agent claude). ADR-074, ADR-033.',
@@ -108,14 +108,19 @@ function decideBash(e) {
   if (typeof e.command !== 'string') return { out: e, say: null }
   const hit = findGates(e.command)
   if (hit.kind === 'none') return { out: e, say: null }
-  if (hit.kind === 'ambiguous') return { out: e, say: 'undetermined' }
-  if (segmentHas(hit, '--agent')) return { out: e, say: null }
+  if (hit.kind === 'ambiguous') {
+    // unreadable: it is the agent's unless the human typed a gate command this turn
+    if (turn === null || (turn.origin === 'composer' && turn.typed)) return { out: e, say: 'undetermined' }
+    const command = rewriteRaw(e.command)
+    return command === null ? { out: e, say: 'undetermined' } : { out: { ...e, command }, say: 'agent' }
+  }
+  if (segmentDeclaresAgent(hit)) return { out: e, say: null }
   if (turn === null || undeterminedFor(hit.gate)) return { out: e, say: 'undetermined' }
   if (witnessed(hit.gate, hit.ref, e)) {
     const command = segmentHas(hit, '--witnessed') ? e.command : rewriteGate(e.command, hit, { add: '--witnessed composer' })
     return { out: command === e.command ? e : { ...e, command }, say: null }
   }
-  const command = rewriteGate(e.command, hit, { add: `--agent ${AGENT_NAME}`, strip: ['--witnessed'] })
+  const command = rewriteGate(e.command, hit, { add: `--agent ${AGENT_NAME}`, strip: ['--witnessed', '--agent'] })
   return { out: { ...e, command }, say: 'agent' }
 }
 
