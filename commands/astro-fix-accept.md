@@ -58,8 +58,11 @@ If you are an autonomous agent standing in for the operator — running unattend
 closing on their behalf without them confirming — you MUST pass
 `ac fix accept <id> --agent "<your name>"`, which records `accepted_kind: "agent"`.
 
-astro-code cannot detect which happened: when the operator accepts, their assistant runs
-this same command. The record is only honest if the signer declares it. This matters more
+It is declared everywhere; witnessed where the host allows (ADR-074). When the operator
+accepts, their assistant runs this same command. The record is only honest if the signer
+declares it. Optionally, if enabled, the witness mod corrects a call made outside a typed
+`/astro-fix-accept <id>` to `--agent` and marks a typed one `--witnessed composer` —
+declare honestly either way. This matters more
 for a bug than for a phase — a bug wrongly marked fixed stops being looked for, which is
 worse than a bug known to be open.
 

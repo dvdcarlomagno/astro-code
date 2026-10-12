@@ -114,12 +114,12 @@ needs it, and on Codex, Cursor or a Claude Code without the plugin everything wo
 | `git-guard` | hook | phase 38 (built) | refuse unscoped destructive git in the shared tree |
 | `blindfold` | mod | phase 39 (built) | keep the verifier and criteria-author plan-blind |
 | `spawn-policy` | mod | phase 40 | refuse a parallel executor spawned without worktree isolation (ADR-008) |
-| `witness` | mod | phase 41 | tell a human acceptance from an agent's |
+| `witness` | mod | phase 41 (built) | tell a human acceptance from an agent's |
 | `brief-section` | mod | phase 42 | principles brief as one cached system-prompt section |
 | `phase-band` | mod | phase 43 | phase band with next-command buttons |
 | `live-capture` | mod | phase 44 | offer principle capture from human-typed prompts |
 
-`canon-guard`, `git-guard` and `blindfold` are built; the other five are **not built yet**: today you can switch one on and
+`canon-guard`, `git-guard`, `blindfold` and `witness` are built; the other four are **not built yet**: today you can switch one on and
 `ac` records it, and it takes effect when its phase lands. A `hook` is a plain settings hook
 (Cursor imports it too); a `mod` is part of the `astro-mods` Claude Code plugin.
 
@@ -194,6 +194,23 @@ already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces i
 - Reload: the plugin reads the switch at session start, so run `/reload-plugins` after
   `ac mods enable|disable blindfold`. Agents already running when it reloads are not identified.
 - Codex and Cursor keep the prose rule in the agent files; the mod is Claude Code only.
+
+**witness** records whether a gate was accepted by the human typing it. Optionally, on Claude Code,
+`ac mods enable witness`:
+
+- What counts as human: a main-loop `ac phase accept|reject` or `ac fix accept` whose ref matches the
+  gate command the human typed in the composer this turn (`/astro-accept <n>`, `/astro-fix-accept <id>`).
+  The gate table is `hooks/lib/gates.js` in the astro-mods plugin; it is not copied here.
+- Rewrite, never block: a typed gate gets `--witnessed composer`; any other gate call gets
+  `--agent claude` and any `--witnessed` the model supplied is stripped. A call that already says
+  `--agent` is left as is.
+- `accepted_evidence`: `--witnessed composer` is stored as `accepted_evidence: "composer"`
+  (`ac phase show <n> --json`). `ac` never detects; it records what the caller declares.
+- Fail open: an unknown turn, an empty typed id or a command it cannot parse is left declared, with
+  one notice.
+- Known gaps: MCP shell tools (`ctx_shell`), an `ac` alias or script, a subagent's call (never
+  witnessed), Remote Control (`bridge`, counts as no signal so it is recorded as agent), and a prompt
+  queued mid-turn. The UAT question's answer is not attestable (phase 41 `PROBE.md`).
 
 ```bash
 ac mods                          # every feature: on/off, kind, and whether it can take effect here (--json too)
@@ -923,6 +940,8 @@ ac status                      # project / milestone / phases
 ac phase add "Foundation"      # claim + add a phase
 ac phase check "<name>"        # is someone already building this?
 ac phase accept <n>            # human gate — requires a prior `verified`
+ac phase accept <n> --witnessed composer  # evidence the witness mod adds; also on `phase reject` and `fix accept`. `ac` never detects: it records what is declared
+ac phase show <n> [--json]     # one phase's record, incl. accepted_kind / accepted_evidence
 ac phase reject <n> --reason … [--agent name]  # UAT failed → rejected + a blocker (--agent: machine-signed)
 ac phase surprise <n> [--healed n] [--remediation-cycles n] [--stopped-reason r] [--note "…"]  # execute records a run surprise
 ac phase context <n> [--author]  # discuss-gate status, or who captured it: human | agent <name> | none

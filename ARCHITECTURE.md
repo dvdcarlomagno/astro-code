@@ -69,6 +69,8 @@ registration: `lib/mods.mjs` `syncHookFeatures` writes or removes the entry in e
 (and Cursor's `hooks.json` when it is not importing Claude's), `ac install`/`update` re-run it, and
 the hook script itself never reads a switch. Phase 37's `PROBE.md` records what blocks on each host. `git-guard` (phase 38) is a second `GUARD_HOOKS` entry, and the spec carries the per-host `verdict` (Claude asks, Cursor denies) that the script and `ac mods status` both read; phase 38's `PROBE.md` records why.
 
+`witness` (phase 41) is `hooks/features/witness.js` plus `hooks/lib/gates.js` (the gate table and marker rewrite). It keeps module-level turn state (the origin and typed command of the current turn, from `prompt.submit` and `command.run`) and rewrites a gate `Bash` call on `tool.call`; it never blocks, and it registers no settings hook. `ac` still never detects: the flags it receives are declarations.
+
 ## The numbering registry (the core guarantee)
 
 The registry is a single `registry.json` on an orphan branch (`astro-registry` by
