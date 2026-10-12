@@ -78,6 +78,26 @@ slash form is not witnessed end-to-end.
   witnessed. Also fails if the evidence is recorded for accepts but dropped for rejects
   or fixes.
 
+#### Amendment to C2 and C3 (2026-10-12, approved by the user after four verify rounds)
+Each round found another way to spell a gate command so that witness could not read it: a
+chained call, `bash -c`, `node … ac.mjs`, `$(which ac)`, a quoted verb or ref, a line
+continuation, or a name that looks like a slug. Bash can always build the command another
+way (`V=accept; ac phase $V …`, `xargs`, encodings), and ADR-074 records witness as
+evidence, not a lock.
+
+So "any agent-run gate" in C2/C3 is **bounded to a corpus**:
+- the cases listed above;
+- every forged or mis-signed form the verify rounds found. These are kept as tests in
+  `tests/witness.test.mjs`, `tests/mods_plugin.test.mjs`, `tests/flags.test.mjs`,
+  `tests/fixes.test.mjs` and the engine scenarios in `mods/astro-mods/hooks/register.test.tsx`.
+
+**Fails if:**
+- any corpus form gets the wrong result;
+- a corpus test was removed or weakened.
+
+A NEW shell spelling found outside the corpus is **not** a C2/C3 failure. Report it as a
+finding (`outsideCriteria: true`), so it lands in the debt register and can join the corpus.
+
 ### C4 — witness never touches a call that already declares `--agent`, never blocks, and does nothing at all when switched off
 - **Observe:** [engine] With witness on, `ac phase accept <n> --agent bot` in a
   non-composer turn arrives downstream byte-identical. With witness on, the same call after
