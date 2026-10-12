@@ -56,15 +56,31 @@ function clone(T, { hooks = false } = {}) {
 
 // ── install ─────────────────────────────────────────────────────────────────
 
-test('install ships the marketplace into the astro home, offers mods in one line, and calls no plugin command', () => {
+// ADR-075: install puts the plugin in place with every switch off, so `ac mods enable` later
+// never edits settings.json (phase 42 C6).
+test('install ships the marketplace, installs the plugin with every mod off, and offers mods in one line', () => {
   const b = box();
   const r = b.ac(['install']);
   assert.equal(r.status, 0, out(r));
   assert.equal(r.stdout.split('\n').filter((l) => /ac mods enable/.test(l)).length, 1, r.stdout);
   assert.ok(existsSync(join(mods(b.T), '.claude-plugin', 'marketplace.json')));
   assert.ok(existsSync(join(mods(b.T), 'astro-mods', '.claude-plugin', 'plugin.json')));
-  assert.ok(!/plugin/.test(b.log()), 'install never installs the plugin');
+  assert.deepEqual(b.state().default.plugins, [PLUGIN]);
+  assert.match(r.stdout, /astro-mods installed \(every mod off\)/);
   assert.equal(existsSync(join(b.T, '.astro', 'config.json')), false, 'no switch is turned on');
+  const again = b.ac(['install']);
+  assert.ok(!/astro-mods installed/.test(again.stdout), 'a re-install is silent about an installed plugin');
+  assert.equal(b.lines().filter((l) => l.includes(`plugin install ${PLUGIN}`)).length, 1, b.log());
+});
+
+test('after install, enabling and disabling a mod runs no plugin-changing command', () => {
+  const b = box();
+  b.ac(['install']);
+  const before = b.lines().length;
+  assert.equal(b.ac(['mods', 'enable', 'blindfold']).status, 0);
+  assert.equal(b.ac(['mods', 'disable', 'blindfold']).status, 0);
+  const after = b.lines().slice(before);
+  assert.ok(!after.some((l) => /plugin (install|uninstall|enable|disable)|marketplace (add|remove)/.test(l)), after.join('\n'));
 });
 
 test('install makes no mods offer on an old claude or with none on PATH, and still succeeds', () => {
@@ -89,12 +105,14 @@ test('re-install replaces the shipped mods tree, so a file deleted upstream is g
 
 // ── update ──────────────────────────────────────────────────────────────────
 
-test('update does not install an absent plugin', () => {
+test('update installs an absent plugin with every mod off, and does not also refresh it', () => {
   const b = box();
   const c = clone(b.T);
   const r = b.ac(['update', c]);
   assert.equal(r.status, 0, out(r));
-  assert.ok(!/plugin (update|install)/.test(b.log()), b.log());
+  assert.deepEqual(b.state().default.plugins, [PLUGIN]);
+  assert.ok(!/plugin update/.test(b.log()), b.log());
+  assert.equal(existsSync(join(b.T, '.astro', 'config.json')), false, 'no switch is turned on');
   assert.ok(existsSync(join(mods(b.T), '.claude-plugin', 'marketplace.json')), 'the shipped copy is refreshed');
 });
 

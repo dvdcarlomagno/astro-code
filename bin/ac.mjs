@@ -28,6 +28,16 @@ function claudeMeetsModFloor() {
   const cv = claudeVersion();
   return !!(cv.found && cv.version && compareVersions(cv.version, MOD_FLOOR) >= 0);
 }
+// Phase 42 (ADR-075) -- install/update put the astro-mods plugin in place with every switch off,
+// so the plugin's own settings.json keys are written here and `ac mods enable` never edits that
+// file. Only a change, a collision or a failure is worth a line; `already` is silent.
+function reportPluginEnsure(results) {
+  for (const r of results) {
+    if (r.outcome === 'installed') console.log(`✓ astro-mods installed (every mod off) → ${r.dir} [${r.label}]`);
+    else if (r.outcome === 'collision') console.error(`⚠ astro-mods not installed in ${r.dir} [${r.label}]: ${r.message}${r.fix ? `\n  fix: ${r.fix}` : ''}`);
+    else if (r.outcome === 'failed') console.error(`⚠ astro-mods install failed in ${r.dir} [${r.label}]: ${r.message}`);
+  }
+}
 // #93 — one line for what `agent_tools` in ~/.astro/config.json added, warnings on stderr.
 // Guard re-sync outcomes from install/update: only a change (or a failure) is worth a line.
 function reportGuards(res) {
@@ -144,7 +154,7 @@ import {
 import { reportOutcome } from '../hooks/_astro-fleet.mjs';
 import { configTargets } from '../lib/hosts/claude.mjs';
 import { briefSectionFeed } from '../lib/modfeed.mjs';
-import { FEATURES, MOD_FLOOR, readMods, modsStatus, enableMod, disableMod, claudeVersion, compareVersions, updatePlugin, removePlugin } from '../lib/mods.mjs';
+import { FEATURES, MOD_FLOOR, readMods, modsStatus, enableMod, disableMod, claudeVersion, compareVersions, ensurePlugin, updatePlugin, removePlugin } from '../lib/mods.mjs';
 
 function parseArgs(args) {
   const flags = {};
@@ -459,7 +469,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac agent-tools add|remove <agent|*> <MCP tool…>  change them — applied to the installed agents at once
   ac agent-tools clear [<agent|*>]    drop them (all, or one agent's)
   ac mods [status [<feature>]] [--json]  optional Claude Code enforcement: what is on, and whether it can take effect here
-  ac mods enable|disable <feature>    one switch in ~/.astro/config.json; the first mod installs the astro-mods plugin
+  ac mods enable|disable <feature>    one switch in ~/.astro/config.json; ac install already installed the plugin
   ac mods feed brief-section [--position]   what the SessionStart/PreCompact hooks print, as JSON (read by the brief-section mod)
   ac milestone check "<name>"         see if a milestone with a similar name exists
   ac milestone complete [--force]     archive the current milestone + retire its claims
@@ -2945,7 +2955,10 @@ async function main() {
       }
       reportAgentTools(res);
       reportGuards(res);
-      if (claudeMeetsModFloor()) console.log('• optional on Claude Code: enforcement mods — see `ac mods status`, turn one on with `ac mods enable <feature>`');
+      if (claudeMeetsModFloor()) {
+        reportPluginEnsure(ensurePlugin());
+        console.log('• optional on Claude Code: enforcement mods — see `ac mods status`, turn one on with `ac mods enable <feature>`');
+      }
       console.log('  after pulling updates, refresh the global CLI: npm install -g .');
       return;
     }
@@ -3165,9 +3178,12 @@ async function main() {
       }
       reportAgentTools(res);
       reportGuards(res);
-      // refresh astro-mods only where it is installed; an absent plugin is never installed here
+      // install astro-mods where it is absent (every mod off, ADR-075), then refresh it
       if (claudeMeetsModFloor()) {
-        for (const r of updatePlugin()) {
+        const ensured = ensurePlugin();
+        reportPluginEnsure(ensured);
+        const fresh = new Set(ensured.filter((r) => r.outcome === 'installed').map((r) => r.dir));
+        for (const r of updatePlugin({ targets: [...configTargets()].filter(([dir]) => !fresh.has(dir)) })) {
           if (r.outcome === 'updated') console.log(`✓ astro-mods refreshed → ${r.dir} [${r.label}]`);
           else if (r.outcome === 'failed') console.error(`⚠ astro-mods refresh failed in ${r.dir} [${r.label}]: ${r.message}`);
         }

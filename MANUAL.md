@@ -179,9 +179,9 @@ system-prompt section, instead of as four SessionStart hook outputs plus a PreCo
 - No second copy: the mod drops the SessionStart brief parts and the PreCompact position note when
   they are exactly what the hooks print (`ac mods feed brief-section` says what that is). The update
   banner and any other tool's hook output are never touched, and no hook entry in `settings.json` is
-  edited. The first `ac mods enable <mod>` installs the astro-mods plugin (ADR-071), and Claude Code
-  records that in `extraKnownMarketplaces` and `enabledPlugins`; enabling and disabling after that
-  leaves the file unchanged.
+  edited. `ac install` installs the astro-mods plugin with every mod off (ADR-075), and Claude Code
+  records that in `extraKnownMarketplaces` and `enabledPlugins`; `ac mods enable` and `disable`
+  leave the file unchanged.
 - If `ac` cannot build the brief, the mod adds no section, drops nothing and tells you once, so the
   session gets the hooks' brief as before.
 - Cursor and Codex are unchanged: they keep the four hook parts. The `principles.sessionBrief: false`
@@ -238,7 +238,7 @@ already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces i
 ```bash
 ac mods                          # every feature: on/off, kind, and whether it can take effect here (--json too)
 ac mods status blindfold         # just one
-ac mods enable blindfold         # turn one on; the first mod also installs the plugin
+ac mods enable blindfold         # turn one on (`ac install` already installed the plugin, every mod off)
 ac mods disable blindfold        # turn it off; the plugin stays installed and inert
 ```
 
