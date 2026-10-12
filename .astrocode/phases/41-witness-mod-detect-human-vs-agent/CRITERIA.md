@@ -33,6 +33,17 @@ harness. Run `claude plugin test` in `mods/astro-mods` (via `host` if the contai
   fails if `ac` accepts the flag but stores nothing, or stores it but `ac phase show` /
   the accept output never shows it.
 
+#### Amendment to C1 (2026-10-12, approved by the user after verify)
+The `!` form cannot be witnessed on Claude Code 2.1.292. PROBE.md found that a typed
+`! ac …` line fires no `prompt.submit`, `command.run` or `tool.call` event, and ADR-074
+records this as a host limit.
+
+So the `!`-form half of C1 is out of scope: such a line reaches `ac` undeclared, as with the
+mod off. **Only the slash form must be witnessed end-to-end**, as observed above.
+
+"Only works for the slash form" is no longer a Fails-if condition. C1 **fails if** the typed
+slash form is not witnessed end-to-end.
+
 ### C2 — Any turn that is not the human typing the *matching* gate command records the gate as agent, by rewrite and never by block
 - **Observe:** [engine] Each case below ends with `tool.call` Bash `ac phase accept <n>`:
   (a) a composer-typed `/astro-autonomous` (any human-started turn that is not the gate
