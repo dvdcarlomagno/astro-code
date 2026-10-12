@@ -186,14 +186,17 @@ function stripSegment(text, pos) {
   return text.slice(0, from) + text.slice(to)
 }
 
-/** session.append: drop the PreCompact hook output equal to the freshly read position. */
+/**
+ * session.append: drop the PreCompact hook output equal to the freshly read position. The rewrite
+ * is made on the INPUT row and handed to next(): `next(e)` resolves to the row as stored
+ * ({ message, uuid }, no `door`), and a hook that relays another row is skipped (types).
+ */
 export async function briefAppend($, e, next) {
-  const r = await next(e)
-  if (!served() || !r || r.door !== 'command' || !r.message || !Array.isArray(r.message.content)) return r
-  const blocks = r.message.content
-  if (!blocks.some((b) => b && typeof b.text === 'string' && b.text.includes('PreCompact ['))) return r
+  if (!served() || !e || e.door !== 'command' || !e.message || !Array.isArray(e.message.content)) return next(e)
+  const blocks = e.message.content
+  if (!blocks.some((b) => b && typeof b.text === 'string' && b.text.includes('PreCompact ['))) return next(e)
   await refreshPosition($)
-  if (!position) return r
+  if (!position) return next(e)
   let changed = false
   const content = blocks.map((b) => {
     if (!b || typeof b.text !== 'string') return b
@@ -202,7 +205,7 @@ export async function briefAppend($, e, next) {
     changed = true
     return { ...b, text }
   })
-  if (!changed) return r
+  if (!changed) return next(e)
   dropped = true
-  return { ...r, message: { ...r.message, content } }
+  return next({ ...e, message: { ...e.message, content } })
 }

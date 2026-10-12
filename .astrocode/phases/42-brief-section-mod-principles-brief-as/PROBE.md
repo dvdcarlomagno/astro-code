@@ -145,6 +145,14 @@ sessions. Nothing is copied from the docs. Anything not seen is marked `not obse
   `{plugin:'engine',tier:'core'}`) and could drop it (`{ text: null }`), but `classic.SessionStart` is the
   earlier and exact place (per entry).
 
+- **F25** The `session.append` event carries `door` and `message` (`message.content` is an array of
+  `{ type: 'text', text }` blocks); `next(e)` resolves to the row as STORED, `{ message, uuid }`, which
+  has no `door`. A hook that relays another row than `next` gave is skipped (engine type declarations,
+  `SessionAppendResult`; the engine's own message in `claude plugin test`). So the PreCompact segment is
+  removed by rewriting the INPUT, `next({ ...e, message: { ...e.message, content } })`, which is what
+  F11's live run did, and never by rewriting the result. The test kit has no bottom for `session.append`,
+  so this path is not reachable through `claude plugin test`.
+
 ### Timing of `ac` (median of 7 wall-clock runs, container, cold `node` start each)
 
 | command | repo | seeded store |
