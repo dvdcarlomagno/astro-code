@@ -58,3 +58,5 @@ re-discussing on its own. Without the flag nothing changes.
 - **Stop loud, not silent.** Any failed gate halts the run with the reason — never paper
   over a failure to "keep the pipeline moving."
 - Clear the live status (`ac activity clear`) on any stop, success or failure.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

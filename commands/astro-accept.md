@@ -66,3 +66,5 @@ human accepts. This is the **human gate** after `/astro-verify` (the AI gate).
    didn't happen (e.g. on reject).
 
 Keep it real — UAT is about "is this what I actually wanted?", not re-running unit tests.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

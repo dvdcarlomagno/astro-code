@@ -203,3 +203,5 @@ its **percent**, or **both** (the default). The setting is **per user** —
    why and stop.
 4. **Finish** with `ac statusline preview`, and one line: it takes effect on the next
    statusline repaint.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

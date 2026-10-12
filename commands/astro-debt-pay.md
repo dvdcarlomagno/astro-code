@@ -69,3 +69,5 @@ spend an hour on debt" is a single command rather than five.
 6. **Report the new pressure** — `ac debt score` — so the effort has a visible effect.
    Paying a *recurring* item moves the number far more than paying an isolated one, which
    is the behaviour the score exists to encourage.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

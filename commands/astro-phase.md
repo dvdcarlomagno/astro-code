@@ -49,3 +49,5 @@ which is what ADR-021 exists to prevent.
 
 Don't hand-edit `.astrocode/ROADMAP.md` — it's generated. Numbering and name tracking
 only work through `ac`.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

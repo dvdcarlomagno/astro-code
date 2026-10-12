@@ -40,3 +40,5 @@ Turn a loose idea into settled decisions before it ever claims a phase number.
 Everything about the round format, the checkpoint, the nudge and how unknowns are
 handled lives in the shared method — this command states only where things are saved
 and how the item is picked, never the mechanics themselves.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

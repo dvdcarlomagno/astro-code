@@ -70,3 +70,5 @@ The record stays in `.astrocode/fixes.json` with `accepted_at` — what broke an
 the most useful history a project has. Only the working directory is archived.
 
 Mention that `ac fix list` is now shorter, and if nothing else is open, say so.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

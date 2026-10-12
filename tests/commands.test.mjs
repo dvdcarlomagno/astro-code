@@ -1002,3 +1002,19 @@ test('/astro-backlog lists and stops when given no argument; triage is opt-in', 
       'not delete them',
   );
 });
+
+// Asking the user (templates/asking.md): every command that puts a question to the user points
+// at the one spec, and the spec itself states the four rules — frame first, effect first,
+// options by consequence, an "Explain more" way out. Restating the rules in a command is drift bait.
+test('every command that asks the user references templates/asking.md, and the spec states its rules', () => {
+  const askers = readdirSync(COMMANDS).filter((f) => f.endsWith('.md'))
+    .filter((f) => readFileSync(join(COMMANDS, f), 'utf8').includes('AskUserQuestion'));
+  assert.ok(askers.length > 0);
+  for (const f of askers) {
+    assert.match(readFileSync(join(COMMANDS, f), 'utf8'), /\$\(ac path templates\)\/asking\.md/, `${f} asks the user but does not reference templates/asking.md`);
+  }
+  const spec = readFileSync(join(COMMANDS, '..', 'templates', 'asking.md'), 'utf8');
+  for (const rule of [/Frame the round before asking/i, /starts from the effect/i, /described by what happens/i, /Explain more/]) {
+    assert.match(spec, rule);
+  }
+});
