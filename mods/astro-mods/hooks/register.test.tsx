@@ -145,6 +145,28 @@ test('witness: a declared --agent is left untouched', async ($, on) => {
   expect(rig.toasts).toEqual([])
 })
 
+test('witness: a bare or empty --agent is a declaration too, in a typed or an SDK turn (phase 41 C4)', async ($, on) => {
+  const rig = witnessRig(true, on)
+  await $.session.start(START)
+  await typed($, 'astro-accept', '45')
+  await prompt($, '/astro-accept 45')
+  await $.tool.call({ tool: 'Bash', command: 'ac phase reject 45 --agent --reason x' })
+  await $.tool.call({ tool: 'Bash', command: 'ac phase accept 45 --agent ""' })
+  await typed($, 'astro-accept', '41', SDK)
+  await $.tool.call({ tool: 'Bash', command: 'ac phase reject 41 --reason x --agent' })
+  expect(rig.bash()).toEqual(['ac phase reject 45 --agent --reason x', 'ac phase accept 45 --agent ""', 'ac phase reject 41 --reason x --agent'])
+})
+
+test('witness: a fix ref that is not exactly the typed id is the agent (phase 41 C3)', async ($, on) => {
+  const rig = witnessRig(true, on)
+  await $.session.start(START)
+  await typed($, 'astro-fix-accept', '2026-10-12-sample-bug')
+  await prompt($, '/astro-fix-accept 2026-10-12-sample-bug')
+  await $.tool.call({ tool: 'Bash', command: 'ac fix accept sample-bug' })
+  await $.tool.call({ tool: 'Bash', command: 'ac fix accept 2026-10-12-sample-bug' })
+  expect(rig.bash()).toEqual(['ac fix accept sample-bug --agent claude', 'ac fix accept 2026-10-12-sample-bug --witnessed composer'])
+})
+
 test('witness: with the switch off the calls are byte-identical', async ($, on) => {
   const rig = witnessRig(false, on)
   await $.session.start(START)

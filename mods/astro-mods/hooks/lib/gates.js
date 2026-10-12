@@ -235,12 +235,10 @@ export function idsMatch(kind, typed, ref) {
     const lead = (s) => Number(/^0*(\d+)/.exec(s)[1])
     return lead(typed) === lead(ref)
   }
-  const DATE = /^\d{4}-\d{2}-\d{2}-/
-  const bare = (s) => s.replace(DATE, '')
+  // A fix is witnessed only for the exact id the human typed: `ac fix accept` resolves suffixes and
+  // partial ids, so `sample-bug` can land on `2026-10-12-other-sample-bug` (phase 41 verify, C3).
   if (!FIX_REF.test(typed) || !FIX_REF.test(ref)) return false
-  // two dated ids name the same fix only on the same date; a bare id matches either date
-  if (DATE.test(typed) && DATE.test(ref)) return typed === ref
-  return bare(typed) !== '' && bare(typed) === bare(ref)
+  return typed === ref
 }
 
 // ── the CONTEXT.md marker ─────────────────────────────────────────────────────
@@ -285,12 +283,8 @@ function targetLine(text, skipBlank) {
 export function markerRewrite({ tool, content, new_string } = {}) {
   const text = tool === 'Write' ? content : tool === 'Edit' ? new_string : undefined
   if (typeof text !== 'string') return null
-  // `ac` reads a human marker on ANY line of a Write as a human brief (classifyContext), so a
-  // Write is rewritten wherever the marker sits
-  if (tool === 'Write') {
-    const all = text.replace(HUMAN_INLINE, AGENT_MARKER)
-    return all === text ? null : all
-  }
+  // Only the provenance line is rewritten: `ac phase context --author` reads the first non-blank
+  // line, and a marker quoted later in the body is prose, not a claim (phase 41 verify, C6).
   const t = targetLine(text, tool === 'Write')
   if (!t || !isHumanMarkerLine(t.line)) return null
   const next = HUMAN_MARKER.test(t.line.trim()) ? AGENT_MARKER : t.line.replace(HUMAN_INLINE, AGENT_MARKER)
@@ -336,7 +330,7 @@ export function rewriteRaw(command, name = AGENT_NAME) {
   let changed = false
   const out = command.replace(RAW_GATE, (m, at) => {
     const after = command.slice(at + m.length).split(/[;&|\n"')]/)[0]
-    if (/^\s+--agent(?:=|\s+)[^\s'"-]/.test(after)) return m
+    if (/(^|\s)--agent(=|\s|$)/.test(after)) return m // any declared --agent, even bare or empty, is left alone
     changed = true
     return `${m} --agent ${name}`
   })

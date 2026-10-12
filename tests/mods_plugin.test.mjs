@@ -208,7 +208,9 @@ const BASH = [
   ['C2 model-supplied --witnessed in an sdk turn', [run('astro-accept', '41', 'sdk'), submit('/astro-accept 41', 'sdk')], bash('ac phase accept 41 --witnessed composer'), `ac phase accept 41${A}`, AGENT_RE],
   ['C3 reject after typed accept', typedAccept(41), bash('ac phase reject 41 --reason x'), `ac phase reject 41${W} --reason x`, null],
   ['C3 reject after typed accept of another phase', typedAccept(40), bash('ac phase reject 41 --reason x'), `ac phase reject 41${A} --reason x`, AGENT_RE],
-  ['C3 fix accept after typed fix-accept', typedFixAccept('foo'), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${W}`, null],
+  ['C3 fix accept after typed fix-accept of the exact id', typedFixAccept('2026-10-11-foo'), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${W}`, null],
+  // a bare typed id is not the dated one: ac resolves partial ids, so it could be another fix (phase 41 verify C3)
+  ['C3 fix accept after a typed bare id', typedFixAccept('foo'), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${A}`, AGENT_RE],
   ['C3 fix accept after bang', [submit('! ac fix accept 2026-10-11-foo')], bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${W}`, null],
   ['C3 fix accept after another fix id', typedFixAccept('bar'), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${A}`, AGENT_RE],
   ['C3 fix accept after typed phase accept', typedAccept(41), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${A}`, AGENT_RE],

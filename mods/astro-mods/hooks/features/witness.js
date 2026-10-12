@@ -114,7 +114,9 @@ function decideBash(e) {
     const command = rewriteRaw(e.command)
     return command === null ? { out: e, say: 'undetermined' } : { out: { ...e, command }, say: 'agent' }
   }
-  if (segmentDeclaresAgent(hit)) return { out: e, say: null }
+  // Any --agent word, even bare or empty, already DECLARES agent provenance (ac's own reject code):
+  // never add --witnessed to it, never rename it (phase 41 verify, C4).
+  if (segmentHas(hit, '--agent')) return { out: e, say: null }
   if (turn === null || undeterminedFor(hit.gate)) return { out: e, say: 'undetermined' }
   if (witnessed(hit.gate, hit.ref, e)) {
     const command = segmentHas(hit, '--witnessed') ? e.command : rewriteGate(e.command, hit, { add: '--witnessed composer' })

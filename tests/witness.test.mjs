@@ -150,10 +150,14 @@ test('idsMatch: phases compare by their leading integer', async () => {
   assert.ok(!idsMatch('phase', '41', '4'));
 });
 
-test('idsMatch: fixes compare whole, after a leading date is dropped', async () => {
+test('idsMatch: a fix is witnessed only for the exact id typed (ac resolves partial ids)', async () => {
   const { idsMatch } = await gates();
-  assert.ok(idsMatch('fix', 'foo', '2026-10-11-foo'));
-  assert.ok(idsMatch('fix', '2026-10-11-foo', 'foo'));
+  // phase 41 verify C3: `ac fix accept sample-bug` can resolve to 2026-10-12-other-sample-bug
+  assert.ok(idsMatch('fix', '2026-10-11-foo', '2026-10-11-foo'));
+  assert.ok(idsMatch('fix', 'foo', 'foo'));
+  assert.ok(!idsMatch('fix', 'foo', '2026-10-11-foo'), 'a bare id is not the dated one');
+  assert.ok(!idsMatch('fix', '2026-10-11-foo', 'foo'), 'the dated id is not a bare ref');
+  assert.ok(!idsMatch('fix', '2026-10-12-sample-bug', 'sample-bug'));
   assert.ok(!idsMatch('fix', 'fo', '2026-10-11-foo'), 'a fragment is not the slug');
   assert.ok(!idsMatch('fix', 'foo-bar', 'foo'));
 });
@@ -248,9 +252,14 @@ test('isPhaseContextPath: only a phase directory CONTEXT.md names a phase', asyn
   }
 });
 
-test('markerRewrite: a Write human marker past line 1 becomes the agent marker (ac reads it as human)', async () => {
+test('markerRewrite: only the first non-blank line is a provenance claim; a marker later in the body is left alone (C6 d)', async () => {
   const { markerRewrite, AGENT_MARKER } = await gates();
-  assert.strictEqual(markerRewrite({ tool: 'Write', content: '# T\n<!-- astro-discuss: captured -->\nbody\n' }), `# T\n${AGENT_MARKER}\nbody\n`);
+  assert.strictEqual(markerRewrite({ tool: 'Write', content: '# T\n<!-- astro-discuss: captured -->\nbody\n' }), null);
+  // line 1 is rewritten, a marker quoted in the body stays byte-identical (phase 41 verify C6)
+  const body = 'The human marker `<!-- astro-discuss: captured -->` means a human captured it.';
+  assert.strictEqual(
+    markerRewrite({ tool: 'Write', content: `<!-- astro-discuss: captured -->\n# T\n\n${body}\n` }),
+    `${AGENT_MARKER}\n# T\n\n${body}\n`);
 });
 
 test('idsMatch: two dated fixes match only on the same date', async () => {
