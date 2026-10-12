@@ -143,6 +143,7 @@ import {
 } from '../lib/fleet.mjs';
 import { reportOutcome } from '../hooks/_astro-fleet.mjs';
 import { configTargets } from '../lib/hosts/claude.mjs';
+import { briefSectionFeed } from '../lib/modfeed.mjs';
 import { FEATURES, MOD_FLOOR, readMods, modsStatus, enableMod, disableMod, claudeVersion, compareVersions, updatePlugin, removePlugin } from '../lib/mods.mjs';
 
 function parseArgs(args) {
@@ -185,6 +186,9 @@ const ALLOWED_FLAGS = {
   // Claude profile; `status` is read-only and stays unguarded.
   'mods enable': ['json'],
   'mods disable': ['json'],
+  // Phase 42 -- the read-only feed the brief-section mod consumes; `--json` is accepted because
+  // every `mods` verb takes it, the output is JSON regardless.
+  'mods feed': ['json', 'position'],
   'canon push': ['dry-run'],
   'canon dedupe': [],
   'decision add': ['why', 'rejected'],
@@ -456,6 +460,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac agent-tools clear [<agent|*>]    drop them (all, or one agent's)
   ac mods [status [<feature>]] [--json]  optional Claude Code enforcement: what is on, and whether it can take effect here
   ac mods enable|disable <feature>    one switch in ~/.astro/config.json; the first mod installs the astro-mods plugin
+  ac mods feed brief-section [--position]   what the SessionStart/PreCompact hooks print, as JSON (read by the brief-section mod)
   ac milestone check "<name>"         see if a milestone with a similar name exists
   ac milestone complete [--force]     archive the current milestone + retire its claims
                                        (refuses while a phase is not complete; --force overrides)
@@ -2988,7 +2993,7 @@ async function main() {
       // Phase 36 (ADR-071) — the optional Claude Code enforcement layer. A thin renderer: the
       // registry, the switches and every `claude plugin` call live in lib/mods.mjs, the only
       // writer of the `mods` key in ~/.astro/config.json.
-      for (const k of ['json', 'switches-only']) if (typeof flags[k] === 'string') { pos.push(flags[k]); flags[k] = true; }
+      for (const k of ['json', 'switches-only', 'position']) if (typeof flags[k] === 'string') { pos.push(flags[k]); flags[k] = true; }
       const names = FEATURES.map((f) => f.name);
       const unknownFeature = (n) => die(`unknown feature "${n}" — use one of: ${names.join(', ')}`);
       const sub = pos[0] || 'status';
@@ -3013,7 +3018,16 @@ async function main() {
         for (const w of st.warnings) console.error(`⚠ ${w}`);
         return;
       }
-      if (sub !== 'enable' && sub !== 'disable') die('usage: ac mods [status [<feature>]|enable <feature>|disable <feature>] [--json]');
+      if (sub === 'feed') {
+        // Phase 42 -- what the SessionStart / PreCompact hooks print, as JSON, for the brief-section
+        // mod (lib/modfeed.mjs). Read-only: never syncs, never logs usage.
+        checkFlags('mods feed', flags);
+        if (feature !== undefined && !names.includes(feature)) unknownFeature(feature);
+        if (feature !== 'brief-section') die(feature ? `no feed for ${feature} (the only feed is brief-section)` : `usage: ac mods feed brief-section [--position]   (features: ${names.join(', ')})`);
+        json(await briefSectionFeed({ cwd: process.cwd(), dir: principlesDir(), positionOnly: flags.position === true }));
+        return;
+      }
+      if (sub !== 'enable' && sub !== 'disable') die('usage: ac mods [status [<feature>]|enable <feature>|disable <feature>|feed brief-section [--position]] [--json]');
       checkFlags(`mods ${sub}`, flags);
       if (!feature) die(`usage: ac mods ${sub} <feature>   (features: ${names.join(', ')})`);
       if (sub === 'disable') {
