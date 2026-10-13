@@ -543,7 +543,7 @@ type AcMode = 'ok' | 'exit1' | 'junk' | 'truncated' | 'reject'
 
 // Everything beneath the plugin: `ac` (by argv), the file system (mtimes under .astrocode/), the agent
 // list, and a recorder for everything the band must NEVER do (a toast, a submit, a command run).
-const bandRig = (on: (...a: any[]) => void, over: { band?: boolean, projectRoot?: string } = {}) => {
+const bandRig = (on: (...a: any[]) => void, over: { band?: boolean, live?: boolean, projectRoot?: string } = {}) => {
   const rig = {
     mode: 'ok' as AcMode,
     asked: [] as string[], // every ac argv except the switches read
@@ -558,7 +558,11 @@ const bandRig = (on: (...a: any[]) => void, over: { band?: boolean, projectRoot?
   }
   on('process.run', (_$: unknown, e: { argv: string[] }) => {
     const line = [...e.argv].join(' ')
-    if (line === SWITCHES_LINE) return { value: ran(JSON.stringify({ switches: { 'phase-band': over.band ?? true }, warnings: [] })) }
+    if (line === SWITCHES_LINE) return { value: ran(JSON.stringify({ switches: { 'phase-band': over.band ?? true, 'live-capture': over.live ?? false }, warnings: [] })) }
+    // live-capture's own `ac` calls (phase 44), answered only when that mod is switched on in the rig
+    if (over.live && line === 'ac status') return { value: ran('Project:   liveproj\n') }
+    if (over.live && line.startsWith('ac principles match')) return { value: ran(JSON.stringify({ exact: [], overlap: [] })) }
+    if (over.live && line.startsWith('ac principles add')) return { value: ran('✓ principle p-1 (proposed)\n') }
     rig.asked.push(line)
     if (!(line in BAND_OUT)) rig.forbidden.push(line)
     if (rig.mode === 'reject') throw new Error('timed out')
@@ -983,4 +987,24 @@ test('live-capture: switched off, no model call and no ac principles argv', asyn
   expect(out).toEqual({ text: 'never mock the database in tests' })
   expect(rig.models).toEqual([])
   expect(principlesArgv(rig)).toEqual([])
+})
+
+// phase 44 t8: the band draws live-capture's count and claims it, so turn.complete adds no second line
+test('phase-band: it draws the live-capture count on its idle line and claims it (one surface, never both)', async ($, on) => {
+  const rig = bandRig(on, { live: true })
+  const logs: string[] = []
+  on('model.complete', () => ({ value: { isAnswered: true, text: LIVE_RULE, usage: {} } }))
+  on('session.id', () => ({ value: 'sess-1' }))
+  on('ui.log', (_$: unknown, e: { text: string }) => { logs.push(e.text); return { value: undefined } })
+  await startBand($)
+  const ui = await mountBand($)
+  expect(await lineTexts(ui)).toEqual(['M1 · P1 verified'])
+  await prompt($, 'never mock the database in tests')
+  await settle()
+  await $.turn.complete(TURN_DONE)
+  await settle()
+  expect(await lineTexts(ui)).toEqual(['M1 · P1 verified · 1 proposed — /astro-principles-review'])
+  expect(logs).toEqual([])
+  expect(rig.toasts).toEqual([])
+  await ui.unmount()
 })

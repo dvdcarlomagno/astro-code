@@ -19,6 +19,7 @@
 // off witness or blindfold: refreshes catch their own errors and set an `unavailable` reason.
 // The `.catch(failOpen)` in register.js stays as the backstop for a genuine hook bug.
 import { isOn } from '../lib/switches.js'
+import { badges, claimBadges } from '../lib/badges.js'
 import { readJsonResult, rootCandidates, signature, stalePaths, bandView, liveFrom, freshStatus } from '../lib/band.js'
 import { commandSource, completionRows } from '../lib/complete.js'
 
@@ -227,7 +228,10 @@ export async function phaseBandRender($, e, next) {
   const view = bandView(status, live, { unavailable: st.unavailable })
   if (!view.lines.length && !view.buttons.length) return next(e)
   const { Box, Text, Button } = $.ui.resolve(e)
-  const lines = view.lines.map((line) => h(Text, { dimColor: true }, line))
+  // drawing claims the in-memory badges (live-capture's count), so exactly one surface shows them
+  claimBadges()
+  const marks = badges()
+  const lines = view.lines.map((line, i) => h(Text, { dimColor: true }, i === 0 && marks.length ? `${line} · ${marks.join(' · ')}` : line))
   const buttons = view.buttons.map((b, i) =>
     h(Button, {
       key: b.key,
