@@ -502,7 +502,7 @@
       "owner": "matteo.alvazzi@gmail.com",
       "branch": "develop",
       "claimed_at": "2026-10-11T06:23:47.048Z",
-      "status": "active"
+      "status": "complete"
     },
     {
       "type": "phase",
@@ -512,7 +512,7 @@
       "owner": "matteo.alvazzi@gmail.com",
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:07.809Z",
-      "status": "active"
+      "status": "complete"
     },
     {
       "type": "phase",
@@ -522,7 +522,7 @@
       "owner": "matteo.alvazzi@gmail.com",
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:11.250Z",
-      "status": "active"
+      "status": "complete"
     },
     {
       "type": "phase",
@@ -532,7 +532,7 @@
       "owner": "matteo.alvazzi@gmail.com",
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:14.069Z",
-      "status": "active"
+      "status": "complete"
     },
     {
       "type": "phase",
@@ -542,7 +542,7 @@
       "owner": "matteo.alvazzi@gmail.com",
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:16.957Z",
-      "status": "active"
+      "status": "complete"
     },
     {
       "type": "phase",
@@ -552,7 +552,7 @@
       "owner": "matteo.alvazzi@gmail.com",
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:19.564Z",
-      "status": "active"
+      "status": "complete"
     },
     {
       "type": "phase",
@@ -562,7 +562,7 @@
       "owner": "matteo.alvazzi@gmail.com",
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:22.193Z",
-      "status": "active"
+      "status": "complete"
     },
     {
       "type": "phase",
@@ -572,7 +572,7 @@
       "owner": "matteo.alvazzi@gmail.com",
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:25.133Z",
-      "status": "active"
+      "status": "complete"
     },
     {
       "type": "phase",
@@ -582,7 +582,7 @@
       "owner": "matteo.alvazzi@gmail.com",
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:27.937Z",
-      "status": "active"
+      "status": "complete"
     },
     {
       "type": "phase",
@@ -592,7 +592,7 @@
       "owner": "matteo.alvazzi@gmail.com",
       "branch": "develop",
       "claimed_at": "2026-10-11T06:24:30.676Z",
-      "status": "active"
+      "status": "complete"
     },
     {
       "type": "fix",
