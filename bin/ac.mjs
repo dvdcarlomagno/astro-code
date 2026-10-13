@@ -146,7 +146,7 @@ import { syncPrinciples, openConflicts, getRemote, setRemote, resolveConflict } 
 import { STAGE_WORK } from '../lib/principlebrief.mjs';
 import { shortlist, askStore, cite, usageReview, clashesFor, projectContext } from '../lib/retrieval.mjs';
 import { sweep, advanceSweep } from '../lib/mine.mjs';
-import { findAstroRoot } from '../hooks/_astro-ctx.mjs';
+import { findAstroRoot, ACTIVITY_TTL_SECONDS } from '../hooks/_astro-ctx.mjs';
 import { statusJson } from '../lib/nextstep.mjs';
 import {
   connect as fleetConnect, disconnect as fleetDisconnect, setPaused as fleetSetPaused,
@@ -1805,7 +1805,7 @@ async function main() {
       {
         // the same rule the banner prints (nextAction), plus siblings; never re-derived here
         const ns = statusJson(r, now);
-        console.log(`Next:      ${ns.next}${ns.siblings.length ? `  (also ${ns.siblings.join(', ')})` : ''}`);
+        console.log(`Next:      ${ns.next ?? 'wait for the running /astro-execute'}${ns.siblings.length ? `  (also ${ns.siblings.join(', ')})` : ''}`);
       }
       console.log('Phases:');
       if (!rm.phases.length) console.log('  (none)');
@@ -1861,12 +1861,23 @@ async function main() {
     // crashed before clearing). Silent on success — it's called from command steps.
     case 'activity': {
       const r = root();
+      // A command run while another still holds the slot (a discuss beside an executing phase)
+      // keeps that verb as `prev`, and its clear puts it back, so the run underneath never loses
+      // its live status. A `prev` past the TTL is dropped rather than revived.
+      const now = Math.floor(Date.now() / 1000);
+      const fresh = (a) => a && typeof a === 'object' && typeof a.text === 'string' && a.text
+        && typeof a.at === 'number' && now - a.at <= ACTIVITY_TTL_SECONDS;
       if (pos[0] === 'clear' || pos[0] === 'off') {
-        await updateState(r, (s) => ({ ...s, activity: null }));
+        await updateState(r, (s) => ({ ...s, activity: fresh(s.activity?.prev) ? s.activity.prev : null }));
       } else {
         const text = pos.join(' ').trim();
         if (!text) die('usage: ac activity <text> | clear');
-        await updateState(r, (s) => ({ ...s, activity: { text, at: Math.floor(Date.now() / 1000) } }));
+        await updateState(r, (s) => {
+          const cur = fresh(s.activity) ? s.activity : null;
+          // the same verb again refreshes it; a different one stacks one level over it
+          const prev = cur && cur.text !== text ? { text: cur.text, at: cur.at } : (cur?.prev ?? undefined);
+          return { ...s, activity: { text, at: now, ...(fresh(prev) ? { prev } : {}) } };
+        });
       }
       return;
     }

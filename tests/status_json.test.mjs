@@ -172,3 +172,40 @@ test('--json does not read the registry: unreachable origin, no registry text', 
   assert.doesNotMatch(res.stdout + res.stderr, /registry|unreachable/i);
   JSON.parse(res.stdout);
 });
+
+test('a command run beside an executing phase restores its verb on clear, so the run keeps its live status', async () => {
+  const dir = mkProject();
+  await addPhase(dir, { number: 1, name: 'First' });
+  assert.equal(run(['activity', '⚙ executing'], dir).status, 0);
+  assert.equal(run(['activity', '✎ discussing 2'], dir).status, 0);
+  assert.equal(asJson(dir).activity, '✎ discussing 2');
+  assert.equal(run(['activity', 'clear'], dir).status, 0);
+  assert.equal(asJson(dir).activity, '⚙ executing', 'the executing verb is back');
+  assert.equal(run(['activity', 'clear'], dir).status, 0);
+  assert.equal(asJson(dir).activity, null);
+  // the same verb twice is a refresh, not a stack
+  run(['activity', '⚙ executing'], dir);
+  run(['activity', '⚙ executing'], dir);
+  run(['activity', 'clear'], dir);
+  assert.equal(asJson(dir).activity, null);
+});
+
+test('while phase N executes, next is not /astro-execute N: the next phase\'s step is offered instead', async () => {
+  const dir = mkProject();
+  await addPhase(dir, { number: 1, name: 'First' });
+  await addPhase(dir, { number: 2, name: 'Second' });
+  const s1 = findPhase(dir, '1').slug;
+  const s2 = findPhase(dir, '2').slug;
+  phaseFile(dir, s1, 'CONTEXT.md', '<!-- astro-discuss: captured -->\n# ctx\n');
+  phaseFile(dir, s1, 'PLAN.md', '# plan\n');
+  phaseFile(dir, s2, 'CONTEXT.md', '<!-- astro-discuss: captured -->\n# ctx\n');
+  run(['state', 'set', 'active_phase', s1], dir);
+  assert.equal(asJson(dir).next, '/astro-execute 1');
+  run(['activity', '⚙ executing'], dir);
+  const j = asJson(dir);
+  assert.equal(j.next, '/astro-plan 2');
+  assert.ok(!j.siblings.includes('/astro-execute 1'));
+  assert.match(run(['status'], dir).stdout, /Next:\s+\/astro-plan 2/);
+  run(['activity', 'clear'], dir);
+  assert.equal(asJson(dir).next, '/astro-execute 1');
+});
