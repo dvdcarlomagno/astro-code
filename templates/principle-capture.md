@@ -27,6 +27,13 @@ judgement proposes nothing:
   item, and which of them are steers, how they group and whether they qualify is judged
   by you, per §9, before any propose call.
 
+- **Live capture (astro-mods `live-capture`, off by default)** — only a prompt the human typed
+  at the composer (`prompt.submit` with `origin.kind` `composer`). Never a slash command or
+  its expanded body, `-p`/SDK input, notifications, peer, scheduled or plugin prompts,
+  assistant text or tool output. A Haiku judge decides whether the prompt states a standing
+  rule of the user's own, with no word list; it lifts (§2), picks the kind (§4) and gives the
+  why (§3).
+
 ## 2. Lift the generator
 
 Strip every project noun, filename, number and proper name from what is being captured.
@@ -39,6 +46,9 @@ ladder, so it is never lifted, and it stays recorded either way, in
 ## 3. Volume (D4)
 
 At most **3** proposals per moment. Each must lift (§2) AND carry a non-empty `--why`.
+Live capture counts a session as one moment: at most **3** proposals per session. Sightings
+do not count, each prompt yields at most one proposal (so strongest first reduces to first
+come), reaching the cap is silent, and a plugin reload starts a fresh count.
 Fewer is better. Nothing qualifies → propose nothing.
 
 One exception, stated once: the transcript sweep (`/astro-principles-mine`) takes at most **10**
@@ -92,8 +102,10 @@ Evidence table:
 | `/astro-accept` rejection | `"phase <N>"` | the reject reason verbatim |
 | Milestone sweep | `"milestone <n>"` | the user's words from one recurring source |
 | Transcript sweep | the item's `fromRef` (`"transcript <host>:<session>"`) | the item's `text` |
+| Live capture | `"live <session-id>"` (the plugin's own session id) | the prompt as typed |
 
-`<project>` is the `Project:` line of `ac status`.
+`<project>` is the `Project:` line of `ac status`; `--from-project` is omitted when `ac status`
+names no project.
 
 `--from-session` is omitted in every moment except the transcript sweep, whose items
 carry the transcript's session id (use the `fromSession`, `fromRef` and `text` of one
@@ -103,16 +115,21 @@ item of the group being proposed):
 ac principles add "<lifted statement>" --kind <principle|pattern|preference|antipattern> --why "<why>" --propose --from-session "<fromSession>" --from-ref "<fromRef>" --excerpt "<text>"
 ```
 
-Elsewhere no session id reaches a command, so do not probe for one.
+Elsewhere no session id reaches a command, so do not probe for one. Live capture is a plugin:
+it reads its own session id for its `--from-ref` only, and still omits `--from-session`.
 
 Never call `accept`/`amend`/`reject`/`retire` verbs and never write under
 `~/.astro/principles/` directly — the propose path above and `sight` are the only way in
-(ADR-058). The engine redacts the excerpt; do not pre-mask it.
+(ADR-058). The engine redacts the excerpt; do not pre-mask it. It redacts statement, why and excerpt before
+they are written; the typed prompt reaches live capture's Haiku judge as typed, as it already
+reached the main model.
 
 ## 6. Ordering
 
 The invocation runs strictly after the command's primary effect has already succeeded. It
-never gates or changes that effect; a failed propose never fails the command.
+never gates or changes that effect; a failed propose never fails the command. Live capture
+starts only after `prompt.submit` passed the prompt through unchanged; it runs detached and
+never delays or alters the prompt.
 
 ## 7. Reporting (D5, ADR-055)
 
@@ -142,6 +159,12 @@ like a clean one.
 
 The transcript sweep alone may add at most one `N more turns — run again` line, N being
 the miner's `remaining`, only when it is above zero; silent on it otherwise.
+
+Live capture prints no command line. Its bound: one dim transcript line
+`N proposed — /astro-principles-review` at the first turn end after its session count rises,
+or the same count in the phase band when the band draws it, never both; never a toast;
+nothing at zero. A failure gives at most one `⚠ principle capture failed: <first error>`
+line per session.
 
 ## 8. Milestone sweep recurrence rule (D2.4)
 
