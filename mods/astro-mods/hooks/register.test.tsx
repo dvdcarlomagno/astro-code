@@ -911,3 +911,76 @@ test('phase-band: across all of it the band ran only read-only ac queries and no
   expect(rig.toasts).toEqual([])
   await ui.unmount()
 })
+
+// live-capture (phase 44): hooks beneath the plugin stand for the engine. `process.run` answers the
+// switches, `ac status`, `ac principles match` and `ac principles add` and records every argv;
+// `model.complete` is recorded and answers the rule JSON; `session.id` answers 'sess-1' (the kit
+// raises `session.id` as a hook, so the ref is asserted exactly); `ui.log` and `ui.toast` record.
+const LIVE_RULE = JSON.stringify({ rule: true, lifted: 'Never mock the database in integration tests', kind: 'antipattern', why: 'mocks hid a migration bug' })
+const liveRig = (live: boolean, on: (...a: any[]) => void) => {
+  const rig = { argv: [] as string[][], models: [] as any[], logs: [] as string[], toasts: [] as string[] }
+  on('process.run', (_$: unknown, e: { argv: string[] }) => {
+    rig.argv.push([...e.argv])
+    const a = e.argv.join(' ')
+    if (a.includes('--switches-only')) return { value: ran(JSON.stringify({ switches: { 'live-capture': live }, warnings: [] })) }
+    if (a.startsWith('ac status')) return { value: ran('Project:   liveproj\n') }
+    if (a.includes('principles match')) return { value: ran(JSON.stringify({ exact: [], overlap: [] })) }
+    if (a.includes('principles add')) return { value: ran('✓ principle p-1 (proposed)\n') }
+    return { value: ran('', 1) }
+  })
+  on('model.complete', (_$: unknown, e: any) => { rig.models.push(e); return { isAnswered: true, text: LIVE_RULE, usage: {} } })
+  on('session.id', () => ({ value: 'sess-1' }))
+  on('ui.log', (_$: unknown, e: { text: string }) => { rig.logs.push(e.text); return { value: undefined } })
+  on('ui.toast', (_$: unknown, e: unknown) => { rig.toasts.push(JSON.stringify(e)); return { value: undefined } })
+  on('session.start', (_$: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  on('command.run', () => ({ text: '' }))
+  on('prompt.submit', (_$: unknown, e: { text: string }) => ({ text: e.text }))
+  on('turn.complete', () => ({ text: '' }))
+  return rig
+}
+const principlesArgv = (rig: { argv: string[][] }) => rig.argv.filter(a => a.includes('principles'))
+
+test('live-capture: a composer prompt passes unchanged, then one Haiku call and a propose carrying the live ref', async ($, on) => {
+  const rig = liveRig(true, on)
+  await $.session.start(START)
+  const out = await prompt($, 'never mock the database in tests')
+  expect(out).toEqual({ text: 'never mock the database in tests' })
+  await settle()
+  expect(rig.models.length).toEqual(1)
+  expect(rig.models[0].model).toEqual('haiku')
+  const add = rig.argv.find(a => a.includes('add') && a.includes('--propose'))!
+  expect(add).toBeDefined()
+  expect(add[add.indexOf('--from-ref') + 1]).toEqual('live sess-1')
+  expect(rig.toasts).toEqual([])
+})
+
+test('live-capture: an sdk prompt, or a typed command then its body, makes no model call', async ($, on) => {
+  const rig = liveRig(true, on)
+  await $.session.start(START)
+  await prompt($, 'never mock the database', SDK)
+  await typed($, 'astro-plan', '4')
+  await prompt($, 'Plan phase 4 and always write tests first')
+  await settle()
+  expect(rig.models).toEqual([])
+  expect(principlesArgv(rig)).toEqual([])
+})
+
+test('live-capture: after a proposal turn.complete logs one quiet count line and no toast', async ($, on) => {
+  const rig = liveRig(true, on)
+  await $.session.start(START)
+  await prompt($, 'never mock the database in tests')
+  await settle()
+  await $.turn.complete(TURN_DONE)
+  expect(rig.logs).toEqual(['1 proposed — /astro-principles-review'])
+  expect(rig.toasts).toEqual([])
+})
+
+test('live-capture: switched off, no model call and no ac principles argv', async ($, on) => {
+  const rig = liveRig(false, on)
+  await $.session.start(START)
+  const out = await prompt($, 'never mock the database in tests')
+  await settle()
+  expect(out).toEqual({ text: 'never mock the database in tests' })
+  expect(rig.models).toEqual([])
+  expect(principlesArgv(rig)).toEqual([])
+})
