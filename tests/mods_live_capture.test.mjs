@@ -79,7 +79,7 @@ function world({ project = true, name = 'liveproj' } = {}) {
     ui: { log: (t) => { w.logs.push(t) }, toast: (t) => { w.toasts.push(t) } },
   }
   w.ac = (...args) => realAc(['ac', ...args])
-  w.list = (...flags) => JSON.parse(w.ac('principles', 'list', ...flags, '--json').stdout)
+  w.list = (...flags) => JSON.parse(w.ac('principles', 'list', ...(flags.length ? flags : ['--all']), '--json').stdout)
   w.principlesArgv = () => w.argv.filter((a) => a.includes('principles'))
   w.adds = () => w.argv.filter((a) => a.includes('add'))
   w.replies = (...texts) => { w.reply = (_req, i) => answered(texts[Math.min(i, texts.length - 1)]) }
@@ -306,7 +306,7 @@ test('C6: an accepted entry stays accepted when repeated', async () => {
   const m = await boot(w)
   seed(w, S)
   const id = idOf(w)
-  assert.equal(w.ac('principles', 'accept', id).status, 0)
+  assert.equal(w.ac('principles', 'accept', id).exitCode, 0)
   w.replies(rule(S))
   await submit(m, w, typed('never mock the database'))
   const p = w.list().find((x) => x.id === id)
