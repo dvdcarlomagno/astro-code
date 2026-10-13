@@ -63,10 +63,11 @@ test('stalePaths: state files plus non-complete phase dirs, all inside .astrocod
   assert.equal(stalePaths('/p', { ...STATUS, phases: undefined }).length, 5);
 });
 
-test('bandView: idle is one line, next first, at most 3 buttons, deduped', async () => {
+test('bandView: idle is a ROADMAP row of every phase, next first, at most 3 buttons, deduped', async () => {
   const { bandView } = await band();
   const v = bandView(STATUS, null, {});
-  assert.deepEqual(v.lines, ['M12 · P38 pending']);
+  assert.deepEqual(v.lines, ['ROADMAP  ▸38  ◉40  ✓41']);
+  assert.equal(v.title, 'M12');
   assert.deepEqual(v.buttons.map(b => b.command), ['/astro-execute 38', '/astro-discuss 44', '/astro-accept 40']);
   assert.equal(v.buttons[0].label, 'Execute 38');
   assert.equal(new Set(v.buttons.map(b => b.key)).size, v.buttons.length);
@@ -80,24 +81,48 @@ test('bandView: drops commands that are not loop verbs with a numeric id', async
   assert.deepEqual(v.buttons.map(b => b.command), ['/astro-verify 7']);
 });
 
-test('bandView: activity joins the idle line; no current phase still draws one line', async () => {
+test('bandView: a live verb with no tracked run is the RUNNING row; none, no row', async () => {
   const { bandView } = await band();
   const v = bandView({ ...STATUS, activity: '⚙ executing' }, null, {});
-  assert.equal(v.lines.length, 1);
-  assert.match(v.lines[0], /^M12 · P38 pending .*⚙ executing$/);
+  assert.deepEqual(v.lines, ['ROADMAP  ▸38  ◉40  ✓41', 'RUNNING  ⚙ executing']);
   assert.equal(bandView({ ...STATUS, phase: null }, null, {}).lines.length, 1);
 });
 
-test('bandView: live lists each agent; null agents says so plainly', async () => {
+test('bandView: an Agent-tool agent is listed with its observed state', async () => {
   const { bandView } = await band();
   const v = bandView(STATUS, { live: true, agents: [{ name: 'astro-executor', state: 'running' }, { name: 'astro-verifier', state: 'failed' }], source: 'agent.list' }, {});
-  assert.deepEqual(v.lines.slice(1), ['astro-executor — running', 'astro-verifier — failed']);
-  const w = bandView({ ...STATUS, activity: '⚙ executing' }, { live: true, agents: null, source: 'activity' }, {});
-  assert.equal(w.lines.length, 3);
-  assert.match(w.lines[1], /workflow agents are not individually visible/);
-  assert.match(w.lines[2], /executing/);
-  assert.match(w.lines[2], /activity/);
-  assert.equal(bandView(STATUS, { live: false, agents: null, source: 'activity' }, {}).lines.length, 1);
+  assert.equal(v.lines[1], 'RUNNING  astro-executor — running   astro-verifier — failed');
+});
+
+test('bandView: runs fill RUNNING with their crews, mark their phases, and are not offered again', async () => {
+  const { bandView } = await band();
+  const runs = [
+    { kind: 'execute', phase: 38, agents: ['astro-executor', 'astro-executor'] },
+    { kind: 'plan', phase: 44, agents: [] },
+  ];
+  const v = bandView({ ...STATUS, phases: [...STATUS.phases, { number: 44, status: 'pending', planned: false, discussed: true }] }, null, { runs });
+  assert.deepEqual(v.lines, ['ROADMAP  ⚙38  ◉40  ✓41  ✎44', 'RUNNING  ⚙ execute 38 · 2 executors   ✎ plan 44 · starting']);
+  assert.ok(!v.buttons.some(b => b.command === '/astro-execute 38'));
+  assert.equal(v.parts[0].find(t => t.text === '⚙38').current, true, 'the current phase is marked');
+});
+
+test('bandView: more than three finished phases fold into one chip', async () => {
+  const { bandView } = await band();
+  const phases = [1, 2, 3, 4, 5].map(n => ({ number: n, status: n < 5 ? 'complete' : 'pending', planned: false, discussed: false }));
+  assert.deepEqual(bandView({ ...STATUS, phase: null, phases }, null, {}).lines, ['ROADMAP  ✓ 4 done  ○5']);
+});
+
+test('runOf, notifiedTask and crewOf read what the engine hands the band', async () => {
+  const { runOf, notifiedTask, crewOf } = await band();
+  assert.deepEqual(runOf('astro-execute-phase', { phase: '110-session-tree' }), { kind: 'execute', phase: 110 });
+  assert.deepEqual(runOf('astro-plan-phase', { phase: '7-x' }), { kind: 'plan', phase: 7 });
+  assert.equal(runOf('review-changes', { phase: '1' }), null);
+  assert.deepEqual(runOf('astro-plan-phase', null), { kind: 'plan', phase: null });
+  assert.deepEqual(notifiedTask('<task-notification>\n<task-id>w3rahirgr</task-id>\n<status>completed</status>'), { taskId: 'w3rahirgr', status: 'completed' });
+  assert.equal(notifiedTask('just text'), null);
+  assert.equal(crewOf([]), 'starting');
+  assert.equal(crewOf(['astro-researcher', 'astro-researcher', 'astro-planner']), '2 researchers · 1 planner');
+  assert.equal(crewOf(['something-else']), '1 agent');
 });
 
 test('bandView: unavailable is one dim line, reason capped, no buttons', async () => {
@@ -151,14 +176,13 @@ test('liveFrom: workflow agents not listed gives activity source, null agents, n
   assert.deepEqual(kept, { live: true, agents: [{ name: 'e', state: 'running' }], source: 'activity' });
 });
 
-test('bandView: each line comes as coloured parts that join to exactly that line', async () => {
+test('bandView: each row comes as coloured parts that join to exactly that row', async () => {
   const { bandView } = await band();
   const v = bandView({ ...STATUS, activity: '⚙ executing' }, { live: true, agents: [{ name: 'astro-executor', state: 'running' }], source: 'agent.list' }, {});
   assert.deepEqual(v.parts.map(p => p.map(t => t.text).join('')), v.lines);
   const tones = v.parts[0].map(t => t.tone);
-  assert.ok(tones.includes('state:pending'), String(tones));
-  assert.ok(tones.includes('activity'), String(tones));
-  assert.deepEqual(v.parts[1].map(t => t.tone), ['id', 'sep', 'agent:running']);
+  assert.ok(tones.includes('chip:planned') && tones.includes('chip:verified') && tones.includes('chip:done'), String(tones));
+  assert.ok(v.parts[1].some(t => t.tone === 'agent:running'));
 });
 
 test('meterOf: done of total as a bar at most 10 cells wide; none without phases', async () => {

@@ -88,43 +88,108 @@ export function meterOf(status) {
   return { done, total: phases.length, bar: '▰'.repeat(filled) + '▱'.repeat(cells - filled) }
 }
 
-/**
- * The band's lines and buttons. `live` is liveFrom's result (or null). Each line is also given as
- * `parts`, `[{text, tone}]` whose texts join to that line, so the drawing can colour a segment
- * without the line's words changing. `hint` is `ac`'s next command when it is not a phase button
- * (`/astro-milestone`, say), shown as text so the band still says what to do next.
- */
-export function bandView(status, live, { unavailable } = {}) {
-  if (unavailable) {
-    const text = `astro-code status unavailable (${String(unavailable).slice(0, REASON_MAX)})`
-    return view([[{ text, tone: 'unavailable' }]], [], null, null)
-  }
-  if (status == null) return view([], [], null, null)
-  const first = [{ text: `M${status.milestone}`, tone: 'id' }, SEP]
-  if (status.phase) {
-    first.push({ text: `P${status.phase.number}`, tone: 'id' }, { text: ' ', tone: 'sep' }, { text: String(status.phase.status), tone: `state:${status.phase.status}` })
-  } else {
-    first.push({ text: 'no current phase', tone: 'note' })
-  }
-  if (status.activity) first.push(SEP, { text: status.activity, tone: 'activity' })
-  const parts = [first]
-  if (live && live.live) {
-    if (live.agents === null) {
-      parts.push([{ text: 'workflow agents are not individually visible', tone: 'note' }])
-      if (status.activity) parts.push([{ text: `${status.activity} (source: ${live.source})`, tone: 'activity' }])
-    } else {
-      for (const a of live.agents) parts.push([{ text: a.name, tone: 'id' }, { text: ' — ', tone: 'sep' }, { text: a.state, tone: `agent:${a.state}` }])
-    }
-  }
-  const buttons = buttonsOf(status)
-  const hint = typeof status.next === 'string' && status.next && !buttons.some(b => b.command === status.next) ? status.next : null
-  return view(parts, buttons, meterOf(status), hint)
+const ROLE = { 'astro-executor': 'executor', 'astro-verifier': 'verifier', 'astro-researcher': 'researcher', 'astro-planner': 'planner', 'astro-criteria-author': 'criteria author', 'astro-mapper': 'mapper', 'astro-integrator': 'integrator' }
+const KIND = { 'astro-execute-phase': 'execute', 'astro-plan-phase': 'plan' }
+const COLLAPSE_DONE = 3 // more finished phases than this fold into one `✓ N done` chip
+
+/** `{kind, phase}` for a Workflow call astro-code started, from its result's name and its args; else null. */
+export function runOf(workflowName, args) {
+  const kind = KIND[workflowName]
+  if (!kind) return null
+  const m = /^(\d+)/.exec(String(args && typeof args === 'object' ? args.phase ?? '' : ''))
+  return { kind, phase: m ? Number(m[1]) : null }
 }
 
-const SEP = { text: ' · ', tone: 'sep' }
+/** The task id a task-notification's text names, and how it ended; null when it names none. */
+export function notifiedTask(text) {
+  const id = /<task-id>([^<\s]+)<\/task-id>/.exec(String(text))
+  if (!id) return null
+  const status = /<status>([^<\s]+)<\/status>/.exec(String(text))
+  return { taskId: id[1], status: status ? status[1] : null }
+}
 
-function view(parts, buttons, meter, hint) {
-  return { lines: parts.map(p => p.map(t => t.text).join('')), parts, buttons, meter, hint }
+/** `2 researchers · 1 planner`, from a run's live agent types; `starting` with none live. */
+export function crewOf(types) {
+  const counts = new Map()
+  for (const t of types) {
+    const role = ROLE[t] || 'agent'
+    counts.set(role, (counts.get(role) || 0) + 1)
+  }
+  if (!counts.size) return 'starting'
+  return [...counts].map(([role, n]) => `${n} ${role}${n === 1 ? '' : 's'}`).join(' · ')
+}
+
+/** One roadmap chip per phase: its glyph and tone from its state and from what is running on it. */
+function chipOf(p, runs, current) {
+  const running = runs.find(r => r.phase === p.number)
+  let glyph = '○'
+  let tone = 'chip:todo'
+  if (running) [glyph, tone] = running.kind === 'execute' ? ['⚙', 'chip:executing'] : ['✎', 'chip:planning']
+  else if (p.status === 'complete') [glyph, tone] = ['✓', 'chip:done']
+  else if (p.status === 'verified') [glyph, tone] = ['◉', 'chip:verified']
+  else if (p.status === 'rejected') [glyph, tone] = ['✗', 'chip:rejected']
+  else if (p.status === 'executing') [glyph, tone] = ['⚙', 'chip:executing']
+  else if (p.planned) [glyph, tone] = ['▸', 'chip:planned']
+  else if (p.discussed) [glyph, tone] = ['◌', 'chip:discussed']
+  return { text: `${glyph}${p.number}`, tone, current: p.number === current }
+}
+
+function roadmapRow(status, runs) {
+  const phases = Array.isArray(status.phases) ? status.phases.filter(p => p && typeof p.number === 'number') : []
+  if (!phases.length) return [{ text: 'no phases on the roadmap', tone: 'note' }]
+  const current = status.phase ? status.phase.number : null
+  const done = phases.filter(p => p.status === 'complete' && !runs.some(r => r.phase === p.number))
+  const shown = done.length > COLLAPSE_DONE ? phases.filter(p => !done.includes(p)) : phases
+  const out = done.length > COLLAPSE_DONE ? [{ text: `✓ ${done.length} done`, tone: 'chip:done' }] : []
+  for (const p of shown) {
+    if (out.length) out.push({ text: '  ', tone: 'sep' })
+    out.push(chipOf(p, runs, current))
+  }
+  return out
+}
+
+function runningRow(status, runs, live) {
+  const out = []
+  for (const r of runs) {
+    if (out.length) out.push({ text: '   ', tone: 'sep' })
+    const icon = r.kind === 'execute' ? '⚙' : '✎'
+    out.push({ text: `${icon} ${r.kind}${r.phase == null ? '' : ` ${r.phase}`}`, tone: r.kind === 'execute' ? 'run:execute' : 'run:plan' })
+    out.push({ text: ` · ${crewOf(r.agents)}`, tone: 'sep' })
+  }
+  // an Agent-tool executor or verifier, or a live verb no tracked run accounts for
+  for (const a of live && Array.isArray(live.agents) ? live.agents : []) {
+    if (out.length) out.push({ text: '   ', tone: 'sep' })
+    out.push({ text: a.name, tone: 'id' }, { text: ' — ', tone: 'sep' }, { text: a.state, tone: `agent:${a.state}` })
+  }
+  if (!out.length && status.activity) out.push({ text: status.activity, tone: 'activity' })
+  return out
+}
+
+/**
+ * The band, as rows: `ROADMAP` (every phase of the milestone as a chip), `RUNNING` (each astro
+ * workflow run in flight with its live crew, then any Agent-tool agent, else the live verb) and
+ * `NEXT` (the buttons, or a hint). `lines` holds each content row's text, the label included, so
+ * a reader (or a test) can take the band in as plain text. `runs` is `[{kind, phase, agents}]`.
+ */
+export function bandView(status, live, { unavailable, runs = [] } = {}) {
+  if (unavailable) {
+    const text = `astro-code status unavailable (${String(unavailable).slice(0, REASON_MAX)})`
+    return view([[{ text, tone: 'unavailable' }]], [], null, null, status)
+  }
+  if (status == null) return view([], [], null, null, status)
+  const rows = [[{ text: 'ROADMAP  ', tone: 'label' }, ...roadmapRow(status, runs)]]
+  const running = runningRow(status, runs, live)
+  if (running.length) rows.push([{ text: 'RUNNING  ', tone: 'label' }, ...running])
+  // a phase already being executed or planned is not offered again
+  const busy = new Set(runs.map(r => `/astro-${r.kind} ${r.phase}`))
+  const buttons = buttonsOf(status).filter(b => !busy.has(b.command))
+  const hint = typeof status.next === 'string' && status.next && !busy.has(status.next) && !buttons.some(b => b.command === status.next) ? status.next : null
+  return view(rows, buttons, meterOf(status), hint, status)
+}
+
+function view(parts, buttons, meter, hint, status) {
+  const title = status && status.milestone != null ? `M${status.milestone}` : null
+  return { lines: parts.map(p => p.map(t => t.text).join('')), parts, buttons, meter, hint, title }
 }
 
 function stateOf(status) {

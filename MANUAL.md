@@ -240,12 +240,18 @@ already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces i
 type. Optionally, on Claude Code, `ac mods enable phase-band` (off by default; headless `-p` and any
 directory outside an astro-code project draw nothing):
 
-- The band: one line (`◆ M<n> · P<n> <status>`, the state in colour) with the milestone's progress
-  on the right (`▰▰▰▱▱ 3/5`), plus up to three buttons, the next command that `ac status`
-  recommends first and at most two siblings (for example `Discuss 44` beside `Execute 43`). A next
-  command that names no phase, such as `/astro-milestone`, is shown as `next › /astro-milestone`. Commands always name a phase by number. While an `/astro-execute` run is live
-  the band expands: the Workflow tool's agents are not individually visible to a plugin (phase 43
-  `PROBE.md`), so it shows `ac`'s activity text and says so.
+- The band, under a full-width `── ✦ astro-code ──── M<n> ▰▰▱▱▱ 3/5 ──` banner:
+  - `ROADMAP`: every phase of the milestone as a chip, `✓` done, `◉` verified (waiting for your
+    accept), `▸` planned, `◌` discussed, `○` to do, `✗` rejected, `⚙` being executed, `✎` being
+    planned; the current phase is underlined, and more than three finished phases fold into `✓ N done`.
+  - `RUNNING` (only while something runs): each astro-code workflow in flight with its live crew,
+    for example `⚙ execute 110 · 3 executors   ✎ plan 112 · 2 researchers`. A run starts at its
+    Workflow call, each agent it starts joins its crew and leaves when it finishes, and the run
+    leaves the row when its task notification arrives. An Agent-tool `astro-executor` or
+    `astro-verifier` is listed with its state; with nothing tracked, `ac`'s activity text shows.
+  - `NEXT`: up to three buttons, the next command that `ac status` recommends first and at most
+    two siblings. A phase already being executed or planned is not offered again; a next command
+    that names no phase, such as `/astro-milestone`, shows as `next › /astro-milestone`.
 - A button only **fills the composer**; you press Enter. It never submits or runs anything, so an
   accept started from a button is still typed by you.
 - Autocomplete: after `/astro-discuss`, `/astro-plan`, `/astro-execute`, `/astro-verify` and

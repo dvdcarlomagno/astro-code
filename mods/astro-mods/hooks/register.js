@@ -2,7 +2,7 @@
 // blindfold (phase 39: tool.check + agent.spawn), witness (phase 41: command.run, prompt.submit,
 // tool.call), brief-section (phase 42: classic.SessionStart, prompt.compose, session.append),
 // phase-band (phase 43: session.start and agent.spawn under a matcher, turn.start, turn.complete,
-// ui.render, prompt.autocomplete), live-capture (phase 44: session.start under a matcher,
+// ui.render, prompt.autocomplete; tool.call on Workflow and task-notification prompt.submit for runs), live-capture (phase 44: session.start under a matcher,
 // command.run, prompt.submit, turn.complete).
 // session.start (brief-section.js: the validator follows `$` only within one file, and a plugin may
 // register ONE session.start, PROBE phase 42 F22) reads the switches from `ac`, runs brief-section's
@@ -28,7 +28,7 @@ import { resetSwitches } from './lib/switches.js'
 import { failOpen, resetNotice } from './lib/failopen.js'
 import { toolCheck, agentSpawn, resetBlindfold } from './features/blindfold.js'
 import { sessionStart, briefSessionStart, briefCompose, briefAppend, resetBriefSection } from './features/brief-section.js'
-import { phaseBandStart, phaseBandTurn, phaseBandDone, phaseBandSpawn, phaseBandRender, phaseBandComplete, resetPhaseBand } from './features/phase-band.js'
+import { phaseBandStart, phaseBandTurn, phaseBandDone, phaseBandSpawn, phaseBandWorkflow, phaseBandNotified, phaseBandRender, phaseBandComplete, resetPhaseBand } from './features/phase-band.js'
 import { liveSessionStart, liveCommandRun, livePromptSubmit, liveTurnComplete } from './features/live-capture.js'
 import { resetBadges } from './lib/badges.js'
 import { witnessCommand, witnessPrompt, witnessTool, resetWitness } from './features/witness.js'
@@ -55,7 +55,10 @@ export function register(on, options) {
   on('session.start', { isInteractive: true }, phaseBandStart).catch(failOpen)
   on('turn.start', phaseBandTurn).catch(failOpen)
   on('turn.complete', phaseBandDone).catch(failOpen)
-  on('agent.spawn', { subagentType: /^astro-(executor|verifier)$/ }, phaseBandSpawn).catch(failOpen)
+  on('agent.spawn', { subagentType: /^astro-/ }, phaseBandSpawn).catch(failOpen)
+  // the band's RUNNING row: an astro Workflow run starts at its tool call and ends at its notification
+  on('tool.call', { tool: 'Workflow' }, phaseBandWorkflow).catch(failOpen)
+  on('prompt.submit', { origin: { kind: 'task-notification' } }, phaseBandNotified).catch(failOpen)
   on('ui.render', { component: 'AbovePrompt' }, phaseBandRender).catch(failOpen)
   on('prompt.autocomplete', phaseBandComplete).catch(failOpen)
   // live-capture (phase 44). A plugin may register only ONE unmatched hook per event (F22), and the

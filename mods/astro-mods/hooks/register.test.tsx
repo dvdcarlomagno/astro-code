@@ -602,13 +602,15 @@ const rowsFor = async ($: any, text: string) => {
   const r = await $.prompt.autocomplete({ text, cursor: text.length, token: text.slice(start), start })
   return (r?.suggestions ?? []) as Array<{ text: string, label?: string, description?: string }>
 }
+// the band at rest over FX_STATUS: one ROADMAP row, a chip per phase (◉ verified, ▸ planned, ◌ discussed, ○ to do)
+const IDLE = ['ROADMAP  ◉1  ▸2  ◌3  ○4']
 const BAND_QUERIES = ['ac status --json', 'ac debt list --json', 'ac backlog list --json', 'ac fix list --json']
 
 test('phase-band: switch on in a project, the band draws one idle line and the buttons ac recommends (C2, C4)', async ($, on) => {
   const rig = bandRig(on)
   await startBand($)
   const ui = await mountBand($)
-  expect(await lineTexts(ui)).toEqual(['M1 · P1 verified'])
+  expect(await lineTexts(ui)).toEqual(IDLE)
   // primary = ac's `next`, then the siblings it names; by phase number
   expect(await buttonKeys(ui)).toEqual(['/astro-accept 1', '/astro-plan 3'])
   expect((await ui.findAll({ type: 'Button' })).map((b: any) => b.props.label)).toEqual(['Accept 1', 'Plan 3'])
@@ -622,8 +624,8 @@ test('phase-band: the state is coloured, progress is shown, and a next command w
   await startBand($)
   let ui = await mountBand($)
   const texts = await ui.findAll({ type: 'Text' })
-  expect(texts.find((t: any) => t.text === 'verified')!.props.color).toEqual('claude')
-  expect(texts.some((t: any) => /^ \d+\/\d+$/.test(t.text))).toBe(true) // the milestone meter, beside the line
+  expect(texts.find((t: any) => t.text === '◉1')!.props.color).toEqual('claude')
+  expect(texts.some((t: any) => /^ \d+\/\d+$/.test(t.text))).toBe(true) // the milestone meter, in the title rule
   expect(texts.some((t: any) => t.text === 'next › ')).toBe(false) // next is a button here
   await ui.unmount()
   rig.out['ac status --json'] = statusWith({ phase: null, next: '/astro-milestone', siblings: [] })
@@ -631,23 +633,95 @@ test('phase-band: the state is coloured, progress is shown, and a next command w
   await $.turn.complete(TURN_DONE)
   await settle()
   ui = await mountBand($)
-  expect(await lineTexts(ui)).toEqual(['M1 · no current phase'])
+  expect(await lineTexts(ui)).toEqual(IDLE)
   expect(await buttonKeys(ui)).toEqual([])
   expect((await ui.findAll({ type: 'Text' })).some((t: any) => t.text === '/astro-milestone')).toBe(true)
   expect(rig.fills).toEqual([]) // a hint is text: it fills nothing
   await ui.unmount()
 })
 
-test('phase-band: a full-width rule in the phase colour opens the band, with a blank row above it', async ($, on) => {
+test('phase-band: a full-width astro-code banner opens the band, with a blank row above it', async ($, on) => {
   bandRig(on)
   await startBand($)
   const ui = await mountBand($)
-  const rule = (await ui.findAll({ type: 'Text' })).find((t: any) => /^─+$/.test(t.text))!
-  expect(rule.text.length).toEqual(BAND_PROPS.bodyColumns)
-  expect(rule.props.color).toEqual('claude') // P1 is verified
+  const banner = (await ui.findAll({ type: 'Text' })).find((t: any) => /^── ✦ astro-code ─+ M1 ▱+ 0\/4 ──$/.test(t.text))!
+  expect(banner.text.length).toEqual(BAND_PROPS.bodyColumns)
   const outer = (await ui.findAll({ type: 'Box' }))[0]!
   expect(outer.props.marginTop).toEqual(1)
   expect(outer.props.marginBottom).toBeUndefined()
+  await ui.unmount()
+})
+
+// The RUNNING row: an astro Workflow call starts a run (its result names it), each agent the run
+// starts joins its crew (agent.spawn carries the runId), an agent's turn.complete leaves it, and the
+// run's task notification ends it. Two runs at once: execute 2, plan 3.
+test('phase-band: concurrent astro runs show in RUNNING with their live crews, and leave when they end', async ($, on) => {
+  const rig = bandRig(on)
+  const runs: Record<string, any> = {
+    '02-bravo-planned': { status: 'async_launched', taskId: 'task-exec', runId: 'wf_exec', workflowName: 'astro-execute-phase' },
+    '03-charlie-discussed': { status: 'async_launched', taskId: 'task-plan', runId: 'wf_plan', workflowName: 'astro-plan-phase' },
+  }
+  on('tool.call', (_$: unknown, e: any) => ({ result: runs[e.args.phase] }))
+  let n = 0
+  on('agent.spawn', () => ({ model: 'sonnet', agentId: `agent-${++n}` }))
+  await startBand($)
+  await $.tool.call({ tool: 'Workflow', scriptPath: '/x/execute-phase.mjs', args: { phase: '02-bravo-planned' } })
+  await $.tool.call({ tool: 'Workflow', scriptPath: '/x/plan-phase.mjs', args: { phase: '03-charlie-discussed' } })
+  const spawn = (type: string, runId: string) => $.agent.spawn({ ...SPAWN, subagentType: type, workflow: { runId, agentIndex: 1 } })
+  await spawn('astro-executor', 'wf_exec')
+  await spawn('astro-researcher', 'wf_plan')
+  await spawn('astro-researcher', 'wf_plan')
+  await settle()
+  let ui = await mountBand($)
+  expect(await lineTexts(ui)).toEqual([
+    'ROADMAP  ◉1  ⚙2  ✎3  ○4',
+    'RUNNING  ⚙ execute 2 · 1 executor   ✎ plan 3 · 2 researchers',
+  ])
+  // a phase already being executed or planned is not offered again
+  expect(await buttonKeys(ui)).toEqual(['/astro-accept 1'])
+  await ui.unmount()
+  // one researcher finishes; then the plan run's notification arrives
+  await $.turn.complete({ ...TURN_DONE, agentId: 'agent-2' })
+  await settle()
+  ui = await mountBand($)
+  expect((await lineTexts(ui))[1]).toEqual('RUNNING  ⚙ execute 2 · 1 executor   ✎ plan 3 · 1 researcher')
+  await ui.unmount()
+  await $.prompt.submit({ text: '<task-notification><task-id>task-plan</task-id><status>completed</status></task-notification>', origin: { kind: 'task-notification' } })
+  await settle()
+  ui = await mountBand($)
+  expect(await lineTexts(ui)).toEqual(['ROADMAP  ◉1  ⚙2  ◌3  ○4', 'RUNNING  ⚙ execute 2 · 1 executor'])
+  await ui.unmount()
+  await $.prompt.submit({ text: '<task-notification><task-id>task-exec</task-id><status>completed</status></task-notification>', origin: { kind: 'task-notification' } })
+  await settle()
+  ui = await mountBand($)
+  expect(await lineTexts(ui)).toEqual(IDLE)
+  expect(rig.toasts).toEqual([])
+  // the only submits are the two notifications this test raised itself; the band submits nothing
+  expect(rig.forbidden.every((f: string) => f.startsWith('prompt.submit <task-notification>'))).toBe(true)
+  await ui.unmount()
+})
+
+test('phase-band: a run first met through its agents is still shown, named from who it runs', async ($, on) => {
+  bandRig(on)
+  on('agent.spawn', () => ({ model: 'sonnet', agentId: 'agent-x' }))
+  await startBand($)
+  await $.agent.spawn({ ...SPAWN, subagentType: 'astro-planner', workflow: { runId: 'wf_unseen', agentIndex: 3 } })
+  await settle()
+  const ui = await mountBand($)
+  expect((await lineTexts(ui))[1]).toEqual('RUNNING  ✎ plan · 1 planner')
+  await ui.unmount()
+})
+
+test('phase-band: a non-astro workflow or an agent outside any run adds no RUNNING row', async ($, on) => {
+  bandRig(on)
+  on('tool.call', () => ({ result: { status: 'async_launched', taskId: 't', runId: 'wf_other', workflowName: 'review-changes' } }))
+  on('agent.spawn', () => ({ model: 'sonnet', agentId: 'agent-y' }))
+  await startBand($)
+  await $.tool.call({ tool: 'Workflow', scriptPath: '/x/review.mjs', args: {} })
+  await $.agent.spawn({ ...SPAWN, subagentType: 'astro-executor' })
+  await settle()
+  const ui = await mountBand($)
+  expect(await lineTexts(ui)).toEqual(IDLE)
   await ui.unmount()
 })
 
@@ -749,7 +823,7 @@ test('phase-band: a real .astrocode change at the next turn is drawn, and offere
   await settle()
   ui = await mountBand($)
   expect(await buttonKeys(ui)).toEqual(['/astro-execute 2', '/astro-plan 3'])
-  expect(await lineTexts(ui)).toEqual(['M1 · P2 pending'])
+  expect(await lineTexts(ui)).toEqual(['ROADMAP  ✓1  ▸2  ◌3  ○4'])
   expect((await rowsFor($, '/astro-accept 1'))[0]!.description).toEqual('complete')
   expect(rig.asked.length).toEqual(8)
   await ui.unmount()
@@ -840,8 +914,7 @@ test('phase-band: a live run expands the band with the activity text and says wo
   ui = await mountBand($)
   const live = await lineTexts(ui)
   expect(live.length).toBeGreaterThan(1)
-  expect(live.some(l => /workflow agents are not individually visible/.test(l))).toBe(true)
-  expect(live.some(l => l.includes('⚙ executing 38'))).toBe(true)
+  expect(live).toEqual([IDLE[0], 'RUNNING  ⚙ executing 38'])
   expect(live.some(l => /astro-executor — /.test(l))).toBe(false) // no invented per-agent rows
   await ui.unmount()
   // the run ends: activity cleared, the band collapses to one line
@@ -865,7 +938,7 @@ test('phase-band: a run that ends collapses the band, even after an executor spa
   await $.agent.spawn({ ...SPAWN, subagentType: 'astro-executor' })
   await settle()
   let ui = await mountBand($)
-  expect((await lineTexts(ui)).some(l => /workflow agents are not individually visible/.test(l))).toBe(true)
+  expect(await lineTexts(ui)).toEqual([IDLE[0], 'RUNNING  ⚙ executing'])
   await ui.unmount()
   // `ac activity clear`: the verb goes and state.json changes
   rig.out['ac status --json'] = statusWith({ activity: null, activityUntil: null })
@@ -873,13 +946,13 @@ test('phase-band: a run that ends collapses the band, even after an executor spa
   await $.turn.complete(TURN_DONE)
   await settle()
   ui = await mountBand($)
-  expect(await lineTexts(ui)).toEqual(['M1 · P1 verified'])
+  expect(await lineTexts(ui)).toEqual(IDLE)
   await ui.unmount()
   await $.turn.start(TURN_START)
   await $.turn.complete(TURN_DONE)
   await settle()
   ui = await mountBand($)
-  expect(await lineTexts(ui)).toEqual(['M1 · P1 verified'])
+  expect(await lineTexts(ui)).toEqual(IDLE)
   expect(rig.toasts).toEqual([])
   await ui.unmount()
 })
@@ -889,7 +962,7 @@ test('phase-band: a verb past its activityUntil collapses the band with no file 
   rig.out['ac status --json'] = statusWith({ activity: '⚙ executing 38', activityUntil: inSeconds(-1) })
   await startBand($)
   const ui = await mountBand($)
-  expect(await lineTexts(ui)).toEqual(['M1 · P1 verified']) // aged out locally, drawn from memory
+  expect(await lineTexts(ui)).toEqual(IDLE) // aged out locally, drawn from memory
   await ui.unmount()
   const before = rig.asked.length
   await $.turn.complete(TURN_DONE)
@@ -926,7 +999,7 @@ test('phase-band: a listed Agent-tool executor shows its observed state, and the
   await settle()
   let ui = await mountBand($)
   const live = await lineTexts(ui)
-  expect(live).toContain('astro-executor — running')
+  expect(live).toEqual([IDLE[0], 'RUNNING  astro-executor — running'])
   await ui.unmount()
   rig.agents = []
   await $.turn.complete(TURN_DONE)
@@ -1033,12 +1106,12 @@ test('phase-band: it draws the live-capture count on its idle line and claims it
   on('ui.log', (_$: unknown, e: { text: string }) => { logs.push(e.text); return { value: undefined } })
   await startBand($)
   const ui = await mountBand($)
-  expect(await lineTexts(ui)).toEqual(['M1 · P1 verified'])
+  expect(await lineTexts(ui)).toEqual(IDLE)
   await prompt($, 'never mock the database in tests')
   await settle()
   await $.turn.complete(TURN_DONE)
   await settle()
-  expect(await lineTexts(ui)).toEqual(['M1 · P1 verified · 1 proposed — /astro-principles-review'])
+  expect(await lineTexts(ui)).toEqual([`${IDLE[0]}   1 proposed — /astro-principles-review`])
   expect(logs).toEqual([])
   expect(rig.toasts).toEqual([])
   await ui.unmount()

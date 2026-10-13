@@ -89,12 +89,14 @@ test('live-capture registers session.start (matched), command.run, prompt.submit
   const count = (n) => eng.hooks.filter((h) => h.name === n).length;
   assert.equal(count('session.start'), 3, 'the switch reader, phase-band, live-capture');
   assert.equal(count('command.run'), 2, 'witness, live-capture');
-  assert.equal(count('prompt.submit'), 2, 'witness, live-capture');
+  assert.equal(count('prompt.submit'), 3, 'witness, live-capture, phase-band (task notifications)');
   assert.equal(count('turn.complete'), 2, 'phase-band, live-capture');
   for (const n of ['session.start', 'command.run', 'prompt.submit', 'turn.complete']) {
     assert.equal(eng.hooks.filter((h) => h.name === n && !h.matcher).length, 1, `${n}: one unmatched hook only (F22)`);
   }
-  assert.deepEqual(eng.hooks.filter((h) => h.name === 'prompt.submit').at(-1).matcher, { origin: { kind: 'composer' } });
+  const submits = eng.hooks.filter((h) => h.name === 'prompt.submit').map((h) => h.matcher);
+  assert.ok(submits.some((m) => m && m.origin && m.origin.kind === 'composer'), 'live-capture sees composer prompts only');
+  assert.ok(submits.some((m) => m && m.origin && m.origin.kind === 'task-notification'), 'phase-band sees task notifications only');
 });
 
 test('with every switch off, live-capture touches no $ and toasts nothing', async () => {
