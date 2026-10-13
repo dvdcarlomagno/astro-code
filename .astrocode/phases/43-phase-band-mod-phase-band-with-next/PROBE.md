@@ -78,3 +78,11 @@ observed a typed prompt's `prompt.submit` origin; a fill-then-Enter was not part
 
 - `host true` (bridge check), `host 'which claude ac node tmux; claude --version; echo $HOME'`
   (read-only; `claude` is not on the host). No other `host` command.
+
+## Event fields the shipped band reads
+
+| event | field | status |
+|---|---|---|
+| `prompt.autocomplete` | `text`, `start`, `token` | observed (R3 table above) |
+| `session.start` | `cwd`, `isInteractive` | observed (phase 36 PROBE) |
+| `ui.render` (AbovePrompt) | `props` (`props.hasSurvey`) | documented only (typings); not observed live, because the probe has no `ui.render` hook. It is exercised through the engine's own `$.ui.mount` in `register.test.tsx` (t7), not on a live session |

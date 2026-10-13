@@ -23,12 +23,17 @@ const PROBE_MDS = [
   join(ROOT, '.astrocode', 'phases', '39-blindfold-mod-plan-blind-verifier-and', 'PROBE.md'),
   join(ROOT, '.astrocode', 'phases', '41-witness-mod-detect-human-vs-agent', 'PROBE.md'),
   join(ROOT, '.astrocode', 'phases', '42-brief-section-mod-principles-brief-as', 'PROBE.md'),
+ join(ROOT, '.astrocode', 'phases', '43-phase-band-mod-phase-band-with-next', 'PROBE.md'),
 ];
 const ARGV = ['ac', 'mods', 'status', '--json', '--switches-only'];
 // brief-section's hooks, in register.js order (phase 42 PROBE.md: F1 classic.SessionStart drops the
 // SessionStart parts, F9-F11 session.append rewrites the PreCompact row, F14 prompt.compose adds the
 // section; F22 allows ONE session.start handler, so that one stays the existing registration).
 const BRIEF_HOOKS = ['classic.SessionStart', 'prompt.compose', 'session.append'];
+// phase 43: phase-band's hooks. session.start and agent.spawn already have an UNMATCHED hook in this
+// plugin (a second one is refused by the validator, phase 42 F22), so these two carry a matcher.
+const BAND_HOOKS = ['session.start', 'turn.start', 'turn.complete', 'agent.spawn', 'ui.render', 'prompt.autocomplete'];
+const READ_ONLY_BAND_ARGV = ['status --json', 'debt list --json', 'backlog list --json', 'fix list --json'];
 
 // ── switches all off ────────────────────────────────────────────────────────
 
@@ -38,7 +43,13 @@ test('with every switch off, every registered handler passes the event through u
   assert.ok(names.includes('session.start') && names.includes('tool.check'), `registered: ${names}`);
   assert.ok(['command.run', 'prompt.submit', 'tool.call'].every((n) => names.includes(n)), `witness registers command.run, prompt.submit and tool.call (phase 41): ${names}`);
   assert.deepEqual(names.slice(0, 1 + BRIEF_HOOKS.length), ['session.start', ...BRIEF_HOOKS], `brief-section registers its hooks right after session.start (phase 42): ${names}`);
-  assert.ok(names.every((n) => ['session.start', ...BRIEF_HOOKS, 'tool.check', 'agent.spawn', 'command.run', 'prompt.submit', 'tool.call'].includes(n)), `an unexpected hook: ${names}`);
+  assert.ok(names.every((n) => ['session.start', ...BRIEF_HOOKS, 'tool.check', 'agent.spawn', 'command.run', 'prompt.submit', 'tool.call', ...BAND_HOOKS].includes(n)), `an unexpected hook: ${names}`);
+ assert.ok(BAND_HOOKS.every((n) => names.includes(n)), `phase-band registers ${BAND_HOOKS} (phase 43): ${names}`);
+ for (const n of ['session.start', 'agent.spawn']) {
+  const mine = eng.hooks.filter((h) => h.name === n);
+  assert.equal(mine.filter((h) => !h.matcher).length, 1, `${n}: exactly one unmatched hook (a second is refused by the validator)`);
+}
+ assert.deepEqual(eng.hooks.find((h) => h.name === 'ui.render').matcher, { component: 'AbovePrompt' });
   assert.ok(eng.hooks.every((h) => typeof h.catchHandler === 'function'), 'every hook has a fail-open .catch');
   const EVENTS = {
     'session.start': { ...SESSION_START },
@@ -144,6 +155,17 @@ test('no module reads an event field the PROBE.md files do not record as observe
 
 // ── Claude Code's own checks, when a qualifying claude is on PATH ───────────
 
+test('phase-band source: no submit, run, tool or state write; every ac argv is a read-only query (C3)', () => {
+ const raw = readFileSync(join(HOOKS, 'features', 'phase-band.js'), 'utf8');
+ for (const forbidden of ['prompt.submit', 'command.run', '$.tool', '$.state.set', '$.state.']) {
+  assert.ok(!raw.includes(forbidden), `phase-band.js mentions ${forbidden}`);
+}
+ const argvs = [...raw.matchAll(/\[\s*'ac'\s*,([^\]]*)\]/g)].map((m) => [...m[1].matchAll(/'([^']*)'/g)].map((x) => x[1]).join(' '));
+ assert.ok(argvs.length >= READ_ONLY_BAND_ARGV.length, `found ${argvs.length} ac argv literals`);
+ for (const a of argvs) assert.ok(READ_ONLY_BAND_ARGV.includes(a), `ac ${a} is not a read-only band query`);
+ for (const a of READ_ONLY_BAND_ARGV) assert.ok(argvs.includes(a), `missing ac ${a}`);
+ assert.ok(!/\.fs\.write|\$\.env\.set|ui\.toast/.test(raw), 'the band writes no file and raises no toast');
+});
 function claudeAtFloor() {
   const r = spawnSync('claude', ['--version'], { encoding: 'utf8' });
   if (r.error || r.status !== 0) return 'no claude on PATH';

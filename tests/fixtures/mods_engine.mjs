@@ -30,57 +30,85 @@ const plugin = () => import('../../mods/astro-mods/hooks/register.js');
 const defaultBeneath = (name) => (name === 'tool.check' ? BENEATH : (x) => x);
 const asNext = (impl) => (typeof impl === 'function' ? impl : () => impl);
 
+// the engine provides `h` (the render factory) to a hooks module as a global; a plain tree is enough here
+globalThis.h = (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat() });
+
+// a matcher is a partial of the event: a scalar is `===`, a RegExp tests the value as a string
+const matches = (matcher, e) =>
+  !matcher || Object.entries(matcher).every(([k, want]) => (want instanceof RegExp ? want.test(String(e?.[k])) : e?.[k] === want));
+
 export async function boot(runImpl, { toastThrows = false } = {}) {
   const { register } = await plugin();
   const hooks = [];
-  const on = (name, hook) => {
-    const rec = { name, hook, catchHandler: null };
+  // `on(name, hook)` or `on(name, matcher, hook)`: a plugin may register one UNMATCHED hook per event
+  const on = (name, a, b) => {
+    const rec = { name, matcher: b ? a : null, hook: b ?? a, catchHandler: null };
     hooks.push(rec);
     return { catch(h) { rec.catchHandler = h; return this; } };
   };
   const runs = [];
   const toasts = [];
   const listCalls = [];
+  const invalidations = [];
+  const fills = [];
   let listImpl = async () => [];
   let cwdImpl = async () => '/work/proj';
   let existsImpl = async () => false;
   let readImpl = async () => { throw new Error('no such file'); };
+  let statImpl = async () => { throw new Error('ENOENT'); };
+  let fillImpl = async () => ({ isFilled: true });
   const $ = {
     process: { run: (argv, init) => { runs.push({ argv, init }); return runImpl(argv, init); } },
-    ui: { toast: (text) => { toasts.push(text); if (toastThrows) throw new Error('no UI under -p'); } },
+    ui: {
+      toast: (text) => { toasts.push(text); if (toastThrows) throw new Error('no UI under -p'); },
+      invalidate: (event) => { invalidations.push(event); },
+      resolve: () => ({ Box: 'Box', Text: 'Text', Button: 'Button' }),
+    },
     agent: { list: (...a) => { listCalls.push(a); return listImpl(...a); } },
     session: { cwd: (...a) => cwdImpl(...a) },
-    fs: { exists: (p) => existsImpl(p), read: (p) => readImpl(p) },
+    fs: { exists: (p) => existsImpl(p), read: (p) => readImpl(p), stat: (p) => statImpl(p) },
+    prompt: { fill: (input) => { fills.push(input); return fillImpl(input); } },
   };
   register(on, {});
 
   /**
-   * Fire one hook the way the engine does. A hook name that is not registered resolves to
-   * `undefined`, so a RED run fails on the assertion and not with a TypeError.
-   * `beneath` is what `next` resolves to (a value, or a function of the event); `replay` is what
-   * the `.catch` handler's `next` answers (defaults to the event's own default).
+   * Fire one event the way the engine does: through every hook registered for `name` whose
+   * matcher fits, in registration order, each one's `next` being the following hook and the last
+   * one's being what sits beneath. A name nothing registered resolves to `undefined`, so a RED
+   * run fails on the assertion and not with a TypeError.
+   * `beneath` is what the bottom `next` resolves to (a value, or a function of the event);
+   * `replay` is what a `.catch` handler's `next` answers (defaults to the event's own default).
    */
   async function invoke(name, e, { beneath, replay, budgetMs = 10000 } = {}) {
-    const rec = hooks.find((h) => h.name === name);
-    if (!rec) return undefined;
-    const next = Object.assign(asNext(beneath === undefined ? defaultBeneath(name) : beneath), { called: false });
-    let timer;
-    try {
-      const overrun = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('hook overran its budget')), budgetMs); });
-      return await Promise.race([Promise.resolve().then(() => rec.hook($, e, next)), overrun]);
-    } catch (error) {
-      if (!rec.catchHandler) throw error;
-      const back = asNext(replay === undefined ? defaultBeneath(name) : replay);
-      return await rec.catchHandler($, e, Object.assign(back, { called: false, error }));
-    } finally {
-      clearTimeout(timer);
-    }
+    const named = hooks.filter((h) => h.name === name);
+    if (!named.length) return undefined;
+    const chain = named.filter((h) => matches(h.matcher, e));
+    const bottom = asNext(beneath === undefined ? defaultBeneath(name) : beneath);
+    const step = async (i, ev) => {
+      if (i === chain.length) return bottom(ev);
+      const rec = chain[i];
+      const next = Object.assign((x) => step(i + 1, x), { called: false });
+      let timer;
+      try {
+        const overrun = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('hook overran its budget')), budgetMs); });
+        return await Promise.race([Promise.resolve().then(() => rec.hook($, ev, next)), overrun]);
+      } catch (error) {
+        if (!rec.catchHandler) throw error;
+        const back = asNext(replay === undefined ? defaultBeneath(name) : replay);
+        return await rec.catchHandler($, ev, Object.assign(back, { called: false, error }));
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+    return step(0, e);
   }
   return {
-    hooks, invoke, runs, toasts, listCalls,
+    hooks, invoke, runs, toasts, listCalls, invalidations, fills,
     setAgents: (impl) => { listImpl = typeof impl === 'function' ? impl : async () => impl; },
     setCwd: (dir) => { cwdImpl = typeof dir === 'function' ? dir : async () => dir; },
     setExists: (fn) => { existsImpl = async (p) => fn(p); },
     setRead: (fn) => { readImpl = async (p) => fn(p); },
+    setStat: (fn) => { statImpl = async (p) => fn(p); },
+    setFill: (fn) => { fillImpl = fn; },
   };
 }
