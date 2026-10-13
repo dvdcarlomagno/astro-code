@@ -425,3 +425,426 @@ for (const [order, startup] of [ORDERS[1], ORDERS[0]]) {
     })
   }
 }
+
+// ---------------------------------------------------------------------------------------------------
+// phase-band (phase 43) through the real engine.
+//
+// Fixtures: the stdout of the four read-only `ac` queries the band issues, captured byte for byte from
+// a scratch project built the tests/flags.test.mjs way (git, `ac init`, `ac registry init` against a
+// bare remote), four phases (1 verified, 2 pending and planned, 3 pending and discussed, 4 pending and
+// undiscussed), two debt items, two backlog ideas and one fix. Commands, in that project:
+//   ac status --json    ac debt list --json    ac backlog list --json    ac fix list --json
+// Only the project root path in `status.root` was rewritten to the test's cwd (/work/proj).
+// ---------------------------------------------------------------------------------------------------
+const FX_STATUS = `{
+  "root": "/work/proj",
+  "project": "fxproj",
+  "milestone": 1,
+  "phase": {
+    "number": 1,
+    "slug": "01-alpha-verified",
+    "name": "Alpha verified",
+    "status": "verified"
+  },
+  "next": "/astro-accept 1",
+  "siblings": [
+    "/astro-plan 3"
+  ],
+  "phases": [
+    {
+      "number": 1,
+      "name": "Alpha verified",
+      "slug": "01-alpha-verified",
+      "status": "verified",
+      "planned": false,
+      "discussed": false
+    },
+    {
+      "number": 2,
+      "name": "Bravo planned",
+      "slug": "02-bravo-planned",
+      "status": "pending",
+      "planned": true,
+      "discussed": false
+    },
+    {
+      "number": 3,
+      "name": "Charlie discussed",
+      "slug": "03-charlie-discussed",
+      "status": "pending",
+      "planned": false,
+      "discussed": true
+    },
+    {
+      "number": 4,
+      "name": "Delta fresh",
+      "slug": "04-delta-fresh",
+      "status": "pending",
+      "planned": false,
+      "discussed": false
+    }
+  ],
+  "activity": null
+}
+`
+const FX_DEBT = `[
+  {
+    "id": "2026-10-13-second-debt-item-with-a-rather-long",
+    "title": "Second debt item with a rather long descriptive title that keeps going and going",
+    "status": "open",
+    "cost": "large",
+    "found_at": "2026-10-13T08:00:33.503Z"
+  },
+  {
+    "id": "2026-10-13-statusline-hook-crashes-on-epipe",
+    "title": "Statusline hook crashes on EPIPE",
+    "status": "open",
+    "cost": "small",
+    "found_at": "2026-10-13T08:00:33.333Z"
+  }
+]
+`
+const FX_BACKLOG = `[
+  {
+    "id": "2026-10-13-idea-one",
+    "title": "Idea one",
+    "status": "open",
+    "captured_at": "2026-10-13T08:00:33.643Z"
+  },
+  {
+    "id": "2026-10-13-idea-two",
+    "title": "Idea two",
+    "status": "open",
+    "captured_at": "2026-10-13T08:00:33.769Z"
+  }
+]
+`
+const FX_FIX = `[
+  {
+    "id": "2026-10-13-login-button-broken",
+    "title": "Login button broken",
+    "status": "open",
+    "opened_at": "2026-10-13T08:00:33.909Z"
+  }
+]
+`
+
+const BAND_OUT: Record<string, string> = {
+  'ac status --json': FX_STATUS,
+  'ac debt list --json': FX_DEBT,
+  'ac backlog list --json': FX_BACKLOG,
+  'ac fix list --json': FX_FIX,
+}
+const SWITCHES_LINE = 'ac mods status --json --switches-only'
+const BAND_START = { cwd: '/work/proj', surface: 'terminal', isInteractive: true }
+const BAND_PROPS = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 100, scroll: { bodyRows: 10 } } as any
+const settle = () => new Promise<void>(r => setTimeout(r, 30))
+type AcMode = 'ok' | 'exit1' | 'junk' | 'truncated' | 'reject'
+
+// Everything beneath the plugin: `ac` (by argv), the file system (mtimes under .astrocode/), the agent
+// list, and a recorder for everything the band must NEVER do (a toast, a submit, a command run).
+const bandRig = (on: (...a: any[]) => void, over: { band?: boolean, projectRoot?: string } = {}) => {
+  const rig = {
+    mode: 'ok' as AcMode,
+    asked: [] as string[], // every ac argv except the switches read
+    fills: [] as any[],
+    toasts: [] as string[],
+    forbidden: [] as string[], // prompt.submit, command.run, tool.call, any other ac verb
+    version: 1, // state.json's mtime: bump it to model a real `.astrocode/` change
+    out: { ...BAND_OUT },
+    agents: [] as any[],
+    projectRoot: over.projectRoot ?? '/work/proj',
+    fillRefuses: false,
+  }
+  on('process.run', (_$: unknown, e: { argv: string[] }) => {
+    const line = [...e.argv].join(' ')
+    if (line === SWITCHES_LINE) return { value: ran(JSON.stringify({ switches: { 'phase-band': over.band ?? true }, warnings: [] })) }
+    rig.asked.push(line)
+    if (!(line in BAND_OUT)) rig.forbidden.push(line)
+    if (rig.mode === 'reject') throw new Error('timed out')
+    if (rig.mode === 'exit1') return { value: ran('', 1) }
+    if (rig.mode === 'junk') return { value: ran('not json') }
+    if (rig.mode === 'truncated') return { value: ran((rig.out[line] ?? '[]').slice(0, 25)) }
+    return { value: ran(rig.out[line] ?? '[]') }
+  })
+  on('fs.stat', (_$: unknown, e: { path: string }) => {
+    const root = `${rig.projectRoot}/.astrocode`
+    if (e.path !== root && !e.path.startsWith(`${root}/`)) throw new Error('ENOENT')
+    const isDir = e.path === root || !/\.json$/.test(e.path)
+    return { value: { kind: isDir ? 'dir' : 'file', size: 0, mtimeMs: e.path.endsWith('/state.json') ? rig.version : 1, isLink: false } }
+  })
+  on('agent.list', () => ({ value: rig.agents }))
+  on('prompt.fill', (_$: unknown, e: any) => { rig.fills.push(e); return { isFilled: !rig.fillRefuses } })
+  on('prompt.submit', (_$: unknown, e: any) => { rig.forbidden.push(`prompt.submit ${e.text}`); return { text: '' } })
+  on('command.run', (_$: unknown, e: any) => { rig.forbidden.push(`command.run ${e.command}`); return { text: '' } })
+  on('ui.toast', (_$: unknown, e: unknown) => { rig.toasts.push(JSON.stringify(e)); return { value: undefined } })
+  on('session.start', (_$: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  on('prompt.autocomplete', () => ({ suggestions: [] }))
+  on('turn.start', (_$: unknown, e: { turnId: string }) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('ui.render', () => ({ type: 'Box', props: {}, children: [] })) // core draws nothing of its own in the band
+  return rig
+}
+const TURN_START = { text: 'go', turnId: 't1' } as any
+const TURN_DONE = { turnId: 't1', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as any
+const mountBand = ($: any, props: any = BAND_PROPS) => $.ui.mount({ plugin: 'astro-mods', surface: 'terminal', component: 'AbovePrompt', props })
+const startBand = async ($: any, start: object = BAND_START) => { await $.session.start(start); await settle() }
+const statusWith = (patch: Record<string, unknown>) => JSON.stringify({ ...JSON.parse(FX_STATUS), ...patch }, null, 2)
+const buttonKeys = async (ui: any) => (await ui.findAll({ type: 'Button' })).map((b: any) => b.key)
+const lineTexts = async (ui: any) => (await ui.findAll({ type: 'Text' })).map((t: any) => t.text)
+const rowsFor = async ($: any, text: string) => {
+  const start = text.lastIndexOf(' ') + 1
+  const r = await $.prompt.autocomplete({ text, cursor: text.length, token: text.slice(start), start })
+  return (r?.suggestions ?? []) as Array<{ text: string, label?: string, description?: string }>
+}
+const BAND_QUERIES = ['ac status --json', 'ac debt list --json', 'ac backlog list --json', 'ac fix list --json']
+
+test('phase-band: switch on in a project, the band draws one idle line and the buttons ac recommends (C2, C4)', async ($, on) => {
+  const rig = bandRig(on)
+  await startBand($)
+  const ui = await mountBand($)
+  expect(await lineTexts(ui)).toEqual(['M1 · P1 verified'])
+  // primary = ac's `next`, then the siblings it names; by phase number
+  expect(await buttonKeys(ui)).toEqual(['/astro-accept 1', '/astro-plan 3'])
+  expect((await ui.findAll({ type: 'Button' })).map((b: any) => b.props.label)).toEqual(['Accept 1', 'Plan 3'])
+  expect(rig.asked.slice().sort()).toEqual(BAND_QUERIES.slice().sort())
+  expect(rig.toasts).toEqual([])
+  await ui.unmount()
+})
+
+test('phase-band: pressing a button only fills the composer with the shown command (C3)', async ($, on) => {
+  const rig = bandRig(on)
+  await startBand($)
+  const ui = await mountBand($)
+  for (const key of await buttonKeys(ui)) {
+    const before = rig.fills.length
+    await ui.press({ key })
+    expect(rig.fills.length).toEqual(before + 1)
+    // the engine stamps the plugin as origin; the band adds nothing else
+    expect(rig.fills[before]).toEqual({ text: key, mode: 'replace', origin: { kind: 'plugin', name: 'astro-mods' } })
+  }
+  // a sign-off placed by the band is plain composer text: no provenance flag in it
+  expect(rig.fills.map(f => f.text)).toEqual(['/astro-accept 1', '/astro-plan 3'])
+  expect(rig.fills.every(f => !/--/.test(f.text))).toBe(true)
+  expect(rig.forbidden).toEqual([])
+  expect(rig.asked.every(a => BAND_QUERIES.includes(a))).toBe(true)
+  expect(rig.toasts).toEqual([])
+  await ui.unmount()
+})
+
+test('phase-band: a refused fill does nothing further (C3)', async ($, on) => {
+  const rig = bandRig(on)
+  rig.fillRefuses = true
+  await startBand($)
+  const ui = await mountBand($)
+  await ui.press({ key: '/astro-accept 1' })
+  expect(rig.fills.length).toEqual(1)
+  expect(rig.forbidden).toEqual([])
+  expect(rig.toasts).toEqual([])
+  await ui.unmount()
+})
+
+test('phase-band: autocomplete offers ids and labels from ac after each listed command and nowhere else (C5)', async ($, on) => {
+  const rig = bandRig(on)
+  await startBand($)
+  const status = JSON.parse(FX_STATUS)
+  const debt = JSON.parse(FX_DEBT)
+  const backlog = JSON.parse(FX_BACKLOG)
+  const fix = JSON.parse(FX_FIX)
+  for (const verb of ['discuss', 'plan', 'execute', 'verify', 'accept']) {
+    const all = await rowsFor($, `/astro-${verb} 1`)
+    expect(all.map(r => r.text)).toEqual(['1'])
+    expect(all[0]!.description).toEqual('verified')
+  }
+  const phases = [1, 2, 3, 4]
+  expect((await rowsFor($, '/astro-plan 3')).map(r => r.text)).toEqual(['3'])
+  expect((await rowsFor($, '/astro-plan 3'))[0]!.description).toEqual('pending · discussed')
+  expect((await rowsFor($, '/astro-plan 2'))[0]!.description).toEqual('pending · planned')
+  expect(phases.map(String)).toEqual(status.phases.map((p: any) => String(p.number)))
+  const debtRows = await rowsFor($, '/astro-debt-pay 2')
+  expect(debtRows.map(r => r.text)).toEqual(debt.map((d: any) => d.id))
+  expect(debtRows.map(r => r.label)).toEqual(debt.map((d: any) => d.title.slice(0, 48)))
+  expect((await rowsFor($, '/astro-backlog-promote 2')).map(r => [r.text, r.label])).toEqual(backlog.map((b: any) => [b.id, b.title]))
+  expect((await rowsFor($, '/astro-fix-accept 2')).map(r => [r.text, r.label])).toEqual(fix.map((f: any) => [f.id, f.title]))
+  // a partial id narrows; an id that matches nothing gives nothing
+  expect((await rowsFor($, '/astro-debt-pay 2026-10-13-st')).map(r => r.text)).toEqual(['2026-10-13-statusline-hook-crashes-on-epipe'])
+  expect(await rowsFor($, '/astro-plan 9')).toEqual([])
+  // not one of the listed commands: no band rows
+  for (const text of ['/astro-status 1', '/other 4', 'plain text 1', '/astro-fix 2026', '/astro-debt 2026', '/astro-plan 1 2']) {
+    expect(await rowsFor($, text)).toEqual([])
+  }
+  expect(rig.toasts).toEqual([])
+})
+
+test('phase-band: 20 autocomplete keystrokes cost no ac call; an unrelated change does not either (C6)', async ($, on) => {
+  const rig = bandRig(on)
+  await startBand($)
+  const before = rig.asked.length
+  expect(before).toEqual(4)
+  for (let i = 0; i < 20; i++) await rowsFor($, `/astro-plan ${i % 5}`)
+  const ui = await mountBand($)
+  for (let i = 0; i < 5; i++) await ui.redraw()
+  expect(rig.asked.length).toEqual(before)
+  // a project file outside .astrocode/ changed: nothing under .astrocode/ moved, so no new query
+  await $.turn.start(TURN_START)
+  await settle()
+  expect(rig.asked.length).toEqual(before)
+  await ui.unmount()
+})
+
+test('phase-band: a real .astrocode change at the next turn is drawn, and offered by autocomplete (C2, C6)', async ($, on) => {
+  const rig = bandRig(on)
+  await startBand($)
+  let ui = await mountBand($)
+  expect(await buttonKeys(ui)).toEqual(['/astro-accept 1', '/astro-plan 3'])
+  await ui.unmount()
+  // ac moved on: phase 1 accepted, phase 2 planned phase is now the recommendation
+  const next = JSON.parse(FX_STATUS)
+  next.phases[0].status = 'complete'
+  next.phase = { number: 2, slug: '02-bravo-planned', name: 'Bravo planned', status: 'pending' }
+  next.next = '/astro-execute 2'
+  next.siblings = ['/astro-plan 3']
+  rig.out['ac status --json'] = JSON.stringify(next, null, 2)
+  rig.version++
+  await $.turn.start(TURN_START)
+  await settle()
+  ui = await mountBand($)
+  expect(await buttonKeys(ui)).toEqual(['/astro-execute 2', '/astro-plan 3'])
+  expect(await lineTexts(ui)).toEqual(['M1 · P2 pending'])
+  expect((await rowsFor($, '/astro-accept 1'))[0]!.description).toEqual('complete')
+  expect(rig.asked.length).toEqual(8)
+  await ui.unmount()
+})
+
+for (const mode of ['exit1', 'junk', 'truncated', 'reject'] as const) {
+  test(`phase-band: ac ${mode} draws one dim line, no buttons, no rows, no notice, and recovers (C7)`, async ($, on) => {
+    const rig = bandRig(on)
+    rig.mode = mode
+    await startBand($)
+    let ui = await mountBand($)
+    const lines = await lineTexts(ui)
+    expect(lines.length).toEqual(1)
+    expect(lines[0]).toMatch(/^astro-code status unavailable \(.{1,60}\)$/)
+    expect(await buttonKeys(ui)).toEqual([])
+    expect((await ui.findAll({ type: 'Text' }))[0]!.props.dimColor).toEqual(true)
+    expect(await rowsFor($, '/astro-plan 1')).toEqual([])
+    expect(await rowsFor($, '/astro-debt-pay 2')).toEqual([])
+    expect(rig.toasts).toEqual([])
+    await ui.unmount()
+    // ac is back: the next turn recovers the band
+    rig.mode = 'ok'
+    await $.turn.start(TURN_START)
+    await settle()
+    ui = await mountBand($)
+    expect(await buttonKeys(ui)).toEqual(['/astro-accept 1', '/astro-plan 3'])
+    expect((await rowsFor($, '/astro-plan 3')).length).toEqual(1)
+    expect(rig.toasts).toEqual([])
+    await ui.unmount()
+  })
+}
+
+test('phase-band: switch off draws nothing, adds no rows, and asks ac for nothing but the switches (C8b)', async ($, on) => {
+  const rig = bandRig(on, { band: false })
+  await startBand($)
+  const ui = await mountBand($)
+  expect(await ui.findAll({ type: 'Button' })).toEqual([])
+  expect(await ui.findAll({ type: 'Text' })).toEqual([])
+  expect(await rowsFor($, '/astro-plan 1')).toEqual([])
+  await $.turn.start(TURN_START)
+  await settle()
+  expect(rig.asked).toEqual([])
+  expect(rig.toasts).toEqual([])
+  await ui.unmount()
+})
+
+test('phase-band: outside an astro-code project nothing is drawn and ac is not asked (C8a)', async ($, on) => {
+  const rig = bandRig(on)
+  await startBand($, { ...BAND_START, cwd: '/elsewhere' })
+  const ui = await mountBand($)
+  expect(await ui.findAll({ type: 'Button' })).toEqual([])
+  expect(await ui.findAll({ type: 'Text' })).toEqual([])
+  expect(await rowsFor($, '/astro-plan 1')).toEqual([])
+  expect(rig.asked).toEqual([])
+  await ui.unmount()
+})
+
+test('phase-band: a non-interactive session start draws nothing (C8c)', async ($, on) => {
+  const rig = bandRig(on)
+  await startBand($, { ...BAND_START, surface: null, isInteractive: false })
+  const ui = await mountBand($)
+  expect(await ui.findAll({ type: 'Button' })).toEqual([])
+  expect(await rowsFor($, '/astro-plan 1')).toEqual([])
+  expect(rig.asked).toEqual([])
+  await ui.unmount()
+})
+
+test('phase-band: a survey holding the band is yielded to', async ($, on) => {
+  bandRig(on)
+  await startBand($)
+  const ui = await mountBand($, { ...BAND_PROPS, hasSurvey: true })
+  expect(await ui.findAll({ type: 'Button' })).toEqual([])
+  await ui.unmount()
+})
+
+// PROBE.md (phase 43): `$.agent.list()` shows no workflow agent, so while a run is live the band shows
+// ac's activity text and says that workflow agents are not individually visible. It never invents rows.
+test('phase-band: a live run expands the band with the activity text and says workflow agents are not visible; it collapses after (C1, C4)', async ($, on) => {
+  const rig = bandRig(on)
+  await startBand($)
+  let ui = await mountBand($)
+  expect((await lineTexts(ui)).length).toEqual(1)
+  await ui.unmount()
+  rig.out['ac status --json'] = statusWith({ activity: '⚙ executing 38' })
+  rig.version++
+  await $.turn.start(TURN_START)
+  await settle()
+  ui = await mountBand($)
+  const live = await lineTexts(ui)
+  expect(live.length).toBeGreaterThan(1)
+  expect(live.some(l => /workflow agents are not individually visible/.test(l))).toBe(true)
+  expect(live.some(l => l.includes('⚙ executing 38'))).toBe(true)
+  expect(live.some(l => /astro-executor — /.test(l))).toBe(false) // no invented per-agent rows
+  await ui.unmount()
+  // the run ends: activity cleared, the band collapses to one line
+  rig.out['ac status --json'] = statusWith({ activity: null })
+  rig.version++
+  await $.turn.complete(TURN_DONE)
+  await settle()
+  ui = await mountBand($)
+  expect((await lineTexts(ui)).length).toEqual(1)
+  expect(rig.toasts).toEqual([])
+  await ui.unmount()
+})
+
+test('phase-band: a listed Agent-tool executor shows its observed state, and the band collapses when it leaves (C1, C4)', async ($, on) => {
+  const rig = bandRig(on)
+  await startBand($)
+  rig.agents = [{ id: 'ad32dadfa6074a54f', type: 'astro-executor', status: 'running', description: 'Create agent.txt file' }]
+  await $.turn.complete(TURN_DONE)
+  await settle()
+  let ui = await mountBand($)
+  const live = await lineTexts(ui)
+  expect(live).toContain('astro-executor — running')
+  await ui.unmount()
+  rig.agents = []
+  await $.turn.complete(TURN_DONE)
+  await settle()
+  ui = await mountBand($)
+  expect((await lineTexts(ui)).length).toEqual(1)
+  expect(rig.toasts).toEqual([])
+  await ui.unmount()
+})
+
+test('phase-band: across all of it the band ran only read-only ac queries and nothing else (C3, C6)', async ($, on) => {
+  const rig = bandRig(on)
+  await startBand($)
+  const ui = await mountBand($)
+  await ui.press({ key: '/astro-accept 1' })
+  await $.turn.start(TURN_START)
+  await $.turn.complete(TURN_DONE)
+  await settle()
+  expect(rig.asked.every(a => BAND_QUERIES.includes(a))).toBe(true)
+  expect(rig.forbidden).toEqual([])
+  expect(rig.toasts).toEqual([])
+  await ui.unmount()
+})
