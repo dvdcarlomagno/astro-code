@@ -117,10 +117,11 @@ needs it, and on Codex, Cursor or a Claude Code without the plugin everything wo
 | `witness` | mod | phase 41 (built) | tell a human acceptance from an agent's |
 | `brief-section` | mod | phase 42 (built) | principles brief as one cached system-prompt section |
 | `phase-band` | mod | phase 43 (built) | phase band with next-command buttons and id autocomplete |
-| `live-capture` | mod | phase 44 | offer principle capture from human-typed prompts |
+| `live-capture` | mod | phase 44 (built) | offer principle capture from human-typed prompts |
 
-`canon-guard`, `git-guard`, `blindfold`, `witness`, `brief-section` and `phase-band` are built; the other two are **not built yet**: today you can switch one on and
-`ac` records it, and it takes effect when its phase lands. A `hook` is a plain settings hook
+`canon-guard`, `git-guard`, `blindfold`, `witness`, `brief-section`, `phase-band` and
+`live-capture` are built; `spawn-policy` is **not built yet** (parked): today you can switch it on and
+`ac` records it, and it takes effect when it lands. A `hook` is a plain settings hook
 (Cursor imports it too); a `mod` is part of the `astro-mods` Claude Code plugin.
 
 **canon-guard** refuses hand edits to files the `ac` CLI owns or generates, and the deny reason
@@ -253,6 +254,25 @@ directory outside an astro-code project draw nothing):
 - Reads only: `ac status --json` and the `debt`, `backlog` and `fix` `list --json` queries, re-read
   when something under `.astrocode/` changed and kept in session memory, never on disk. If `ac`
   fails it shows one dim "unavailable" line and no buttons.
+
+**live-capture** offers to capture a principle from what you type. Optionally, on Claude Code,
+`ac mods enable live-capture` (off by default, because it costs one Haiku call per typed prompt):
+
+- What it reads: only a prompt you typed at the composer. Slash commands and their expanded
+  bodies, `-p`/SDK input, notifications, assistant text and tool output are never looked at.
+- Privacy: the text you typed goes to a Haiku judge, as it already went to the main model. The
+  personal store redacts the statement, why and excerpt before anything is written.
+- Where proposals go: the personal principle store, as *proposed* only (never accepted by the
+  mod). Review them with `/astro-principles-review` or `ac principles list --proposed`.
+- Volume: at most three proposals per session; sightings of existing principles do not count and
+  reaching the cap is silent.
+- The quiet count: `N proposed — /astro-principles-review` shows once at the first turn end after
+  the count rises, or in the phase band when that is drawing; never a toast, nothing at zero. A
+  failure gives at most one `⚠ principle capture failed` line per session and never touches your
+  prompt.
+- The escape: `ac mods disable live-capture`.
+- The rules (gate, lift, kinds, `--from-ref`, reporting) live once in
+  `templates/principle-capture.md`; this section does not restate them.
 
 ```bash
 ac mods                          # every feature: on/off, kind, and whether it can take effect here (--json too)

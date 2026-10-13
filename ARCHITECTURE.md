@@ -75,6 +75,8 @@ the hook script itself never reads a switch. Phase 37's `PROBE.md` records what 
 
 `phase-band` (phase 43) is `hooks/features/phase-band.js`: it reads `ac status --json` (`lib/nextstep.mjs`: the one `nextAction` rule plus siblings) and the `debt`, `backlog` and `fix` `list --json`s, caches them in session memory keyed by the mtimes under `.astrocode/`, and fills the composer but never submits. Its `session.start` and `agent.spawn` hooks carry a matcher because the plugin already registers one unmatched hook per event. See phase 43 `PROBE.md` for the live-wave source: `$.agent.list()` shows no workflow agent, so the band falls back to `ac`'s activity text.
 
+`live-capture` (phase 44) is `hooks/features/live-capture.js`: the capture moment `templates/principle-capture.md` names as Live capture. Features live in `hooks/features/`, and `hooks/lib/badges.js` is the in-memory band contract (a feature sets a badge, `phase-band` draws the badges and claims them, otherwise live-capture prints its one dim line).
+
 ## The numbering registry (the core guarantee)
 
 The registry is a single `registry.json` on an orphan branch (`astro-registry` by

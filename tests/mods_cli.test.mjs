@@ -166,6 +166,23 @@ test('brief-section is built: a mod, switchable, and enabling or disabling leave
   assert.match(b.ac(['mods', 'status', 'spawn-policy'], env).stdout, /not built yet/, 'unbuilt rows still say so');
 });
 
+test('live-capture is a built mod, off before enable, switchable, and touches no settings file', () => {
+  const b = box();
+  seedMarketplace(b.T);
+  const sw = () => JSON.parse(b.ac(['mods', 'status', '--json', '--switches-only']).stdout).switches['live-capture'];
+  const f = b.status().features.find((x) => x.name === 'live-capture');
+  assert.equal(f.built, true);
+  assert.equal(f.kind, 'mod');
+  assert.equal(sw(), false, 'off by default');
+  const e = b.ac(['mods', 'enable', 'live-capture']);
+  assert.equal(e.status, 0, out(e));
+  assert.doesNotMatch(out(e), /not built yet/);
+  assert.equal(sw(), true);
+  b.ac(['mods', 'disable', 'live-capture']);
+  assert.equal(sw(), false);
+  assert.ok(!existsSync(join(b.T, '.claude', 'settings.json')), 'no settings hook is written');
+});
+
 // ── C3: enable / disable ────────────────────────────────────────────────────
 
 test('enable and disable flip exactly one switch and keep every sibling key; not-yet-built is said', () => {
