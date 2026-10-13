@@ -86,3 +86,21 @@ observed a typed prompt's `prompt.submit` origin; a fill-then-Enter was not part
 | `prompt.autocomplete` | `text`, `start`, `token` | observed (R3 table above) |
 | `session.start` | `cwd`, `isInteractive` | observed (phase 36 PROBE) |
 | `ui.render` (AbovePrompt) | `props` (`props.hasSurvey`) | documented only (typings); not observed live, because the probe has no `ui.render` hook. It is exercised through the engine's own `$.ui.mount` in `register.test.tsx` (t7), not on a live session |
+
+## Gates (t9)
+
+Claude Code 2.1.292, 2026-10-13. Phase base for the byte-identity check: `01a8a92` (`chore(42): accepted;
+phase 43 active`). Container `claude`; no `host` command was used for the gates.
+
+| gate | result |
+|---|---|
+| `node --test tests/` (C10) | 1926 pass, 0 fail |
+| `claude plugin test mods/astro-mods` | exit 0, 51 pass, 0 fail (run three times in a row for t7: no flake) |
+| `claude plugin validate --strict` on `mods`, `mods/astro-mods`, `scripts/mods-probe` | all three "Validation passed" |
+| statusline byte-identity (C10) | `git archive 01a8a92 \| tar -x`, same stdin JSON (a project with a verified phase and an open fix, `NO_COLOR=1`, a sandbox `HOME`): sha256 of stdout equal, `0d458588c1af5267...` for both the base hook and the current hook |
+| sandbox `ac mods status --json` (C9) | `phase-band`: `built: true`, `kind: "mod"`, `phase: 43`, description "phase band with next-command buttons and id autocomplete"; claude `version 2.1.292`, `meetsFloor: true`. `enable` then `status --switches-only` reads `true`, after `disable` `false` |
+| profile files, before enable vs after disable (C9) | sha256 of `~/.claude/settings.json` and both `hooks.json` copies equal (3 files); no Cursor `hooks.json` in the sandbox, and the mod is not a settings hook |
+| no persistence (C6) | the four band queries (`ac status --json`, `debt|backlog|fix list --json`) run against the fixture project: file list, mtimes and sizes before and after identical. After `claude plugin test` in a fresh sandbox `HOME`, only the CLI's own `cfg` dir exists; nothing named astro or phase-band. `features/phase-band.js` has no `fs.write`, `env.set` or `store.set` (also pinned by `tests/mods_plugin.test.mjs`) |
+
+Not run by this phase: Cursor and Codex (the band is Claude-only by design; `tests/mods_cli.test.mjs`
+pins that enabling it leaves Cursor's `hooks.json` byte-identical).
