@@ -260,7 +260,11 @@ export async function phaseBandRender($, e, next) {
   )
   const hint = view.hint ? [h(Text, {}, h(Text, { dimColor: true }, 'next › '), h(Text, { color: 'suggestion' }, view.hint))] : []
   const actions = buttons.length || hint.length ? [h(Box, { key: 'actions', flexDirection: 'row', gap: 1, paddingLeft: 2 }, ...buttons, ...hint)] : []
-  return h(Box, { flexDirection: 'column' }, ...lines, ...actions)
+  // a rule in the phase's colour opens the band, with a blank row above it to part it from the transcript
+  const stateTone = view.parts[0].find((t) => String(t.tone).startsWith('state:'))
+  const ruleColor = (stateTone && TONES[toneOf(stateTone.tone)].color) || 'claude'
+  const rule = h(Text, { color: ruleColor }, '─'.repeat(Math.max(1, Number(e.props.bodyColumns) || 1)))
+  return h(Box, { flexDirection: 'column', marginTop: 1 }, rule, ...lines, ...actions)
 }
 
 // How each segment of a line is drawn. Theme keys, so the band follows the user's terminal theme.

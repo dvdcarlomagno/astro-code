@@ -638,6 +638,19 @@ test('phase-band: the state is coloured, progress is shown, and a next command w
   await ui.unmount()
 })
 
+test('phase-band: a full-width rule in the phase colour opens the band, with a blank row above it', async ($, on) => {
+  bandRig(on)
+  await startBand($)
+  const ui = await mountBand($)
+  const rule = (await ui.findAll({ type: 'Text' })).find((t: any) => /^─+$/.test(t.text))!
+  expect(rule.text.length).toEqual(BAND_PROPS.bodyColumns)
+  expect(rule.props.color).toEqual('claude') // P1 is verified
+  const outer = (await ui.findAll({ type: 'Box' }))[0]!
+  expect(outer.props.marginTop).toEqual(1)
+  expect(outer.props.marginBottom).toBeUndefined()
+  await ui.unmount()
+})
+
 test('phase-band: pressing a button only fills the composer with the shown command (C3)', async ($, on) => {
   const rig = bandRig(on)
   await startBand($)
