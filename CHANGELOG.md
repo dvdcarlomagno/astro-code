@@ -4,6 +4,17 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+## v0.41.0
+
+- astro-mods: an optional enforcement layer for Claude Code 2.1.292+, off by default with one switch per feature (`ac mods`, `ac mods enable <feature>`, `ac mods disable <feature>`). It enforces only rules the canon already states, nothing in the loop depends on it, and a failing mod lets the action through and says so once. Codex, Cursor and an older Claude Code work as before. `ac install` and `ac update` install the plugin with every mod off, so switching a mod never edits `settings.json`. See MANUAL "Enforcement mods"
+- `canon-guard` refuses hand edits to the files `ac` owns or generates (`roadmap.json`, `state.json`, `ROADMAP.md`, the registry-owned files, the personal principle store) and names the `ac` verb to use instead. `git-guard` refuses unscoped destructive git (`git stash` without a pathspec, `git clean`, `git reset --hard`, a whole-tree `checkout`/`restore`). Both are plain settings hooks: enabling one writes its entry into every Claude profile, and into Cursor's own `hooks.json` when Claude Code is absent
+- `blindfold` keeps the verifier and the criteria author from reading the phase plan. `witness` records whether a phase or fix acceptance was typed by you (`accepted_evidence: "composer"`) or run by an agent, which it marks `--agent`
+- `phase-band` draws one quiet line above the prompt: milestone, phase and state, with up to three buttons for the next commands. A button only fills the composer; you press Enter. While `/astro-execute` runs, the band expands. It also offers ids as you type: phase numbers after the loop commands, and open debt, backlog and fix ids after their commands
+- `live-capture` turns a rule you type at the composer into a *proposed* principle, judged by one Haiku call per typed prompt. It never accepts one for you, proposes at most three per session, and shows the count once as `N proposed — /astro-principles-review`, or in the phase band
+- `ac status` prints a `Next:` line, and `ac status --json` gives the same recommendation plus the phase list, the activity text and when that text expires (`activityUntil`)
+- `ac` accepts `--flag=value`, and treats everything after a bare `--` as plain arguments, so a value that itself starts with `--` is no longer read as a flag
+- Haiku is allowed for any role in `ac models` (ADR-073); the integrator's git-safety rules still apply
+
 - `ac mods enable brief-section` (Claude Code 2.1.292+) gives the model the principles brief once, as one cached system-prompt section, instead of four SessionStart hook outputs plus a PreCompact note. The section holds the whole brief and a one-line position that changes only when the phase or its state does, so the prompt cache holds between turns and across `/compact`. The mod drops the hooks' brief parts and position note only when they match what the hooks print exactly; the update banner, other tools' hooks and `settings.json` are untouched, and Cursor and Codex keep the hooks' brief. If the brief cannot be built it adds nothing, drops nothing and tells you once. New: `ac mods feed brief-section` prints what those hooks print, as JSON
 
 ## v0.40.2
