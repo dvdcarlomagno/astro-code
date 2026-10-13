@@ -271,11 +271,16 @@ export function readContext(root, nowSeconds) {
   const blockers = Array.isArray(state.blockers) ? state.blockers.length : 0;
 
   // live activity: { text, at } — honored only while fresh.
+  // activityUntil: the epoch second it goes stale, so a long-lived reader can age it out itself.
   let activity = null;
+  let activityUntil = null;
   const a = state.activity;
   if (a && typeof a === 'object' && typeof a.text === 'string' && a.text) {
     const age = typeof a.at === 'number' ? (nowSeconds - a.at) : Infinity;
-    if (age <= ACTIVITY_TTL_SECONDS) activity = a.text;
+    if (age <= ACTIVITY_TTL_SECONDS) {
+      activity = a.text;
+      activityUntil = a.at + ACTIVITY_TTL_SECONDS;
+    }
   }
 
   // `done` is phases the HUMAN accepted (`complete`); `verified` is phases the
@@ -306,7 +311,7 @@ export function readContext(root, nowSeconds) {
       .sort((a, b) => a.number - b.number),
     planned: phase ? existsSync(join(root, '.astrocode', 'phases', phase.slug, 'PLAN.md')) : false,
     discussed: phase ? phaseDiscussed(root, phase.slug) : false,
-    done, verified, total: phases.length, blockers, activity,
+    done, verified, total: phases.length, blockers, activity, activityUntil,
     fix, openFixes: openFixes.length,
     // Debt pressure, for the statusline. One small file read; the band is what
     // decides whether the segment renders at all (see renderSegmentParts).

@@ -79,7 +79,8 @@ Principles brief (`--stage plan --by planner`), applied:
   "next": "/astro-execute 38",
   "siblings": ["/astro-discuss 44"],
   "phases": [{ "number": 38, "name": "…", "slug": "…", "status": "pending", "planned": true, "discussed": true }],
-  "activity": "⚙ executing"
+  "activity": "⚙ executing",
+  "activityUntil": 1792000000
 }
 ```
 

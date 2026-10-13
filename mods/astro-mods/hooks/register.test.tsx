@@ -816,22 +816,67 @@ test('phase-band: a live run expands the band with the activity text and says wo
   await ui.unmount()
 })
 
-test('phase-band: an activity verb that ages out in ac collapses the band with no file change; a spawn keeps it expanded (C1, C4)', async ($, on) => {
+const inSeconds = (n: number) => Math.floor(Date.now() / 1000) + n
+
+test('phase-band: a run that ends collapses the band, even after an executor spawn (C4)', async ($, on) => {
   const rig = bandRig(on)
   on('agent.spawn', () => ({ model: 'opus', agentId: 'a1234567890abcdef' }))
-  rig.out['ac status --json'] = statusWith({ activity: '⚙ executing 38' })
+  rig.out['ac status --json'] = statusWith({ activity: '⚙ executing', activityUntil: inSeconds(1200) })
   await startBand($)
-  rig.out['ac status --json'] = statusWith({ activity: null }) // ac's TTL passed; mtimes unchanged
-  await $.turn.complete(TURN_DONE)
+  await $.agent.spawn({ ...SPAWN, subagentType: 'astro-executor' })
   await settle()
   let ui = await mountBand($)
-  expect((await lineTexts(ui)).length).toEqual(1)
-  await ui.unmount()
-  await $.agent.spawn(SPAWN)
-  await settle()
-  ui = await mountBand($)
   expect((await lineTexts(ui)).some(l => /workflow agents are not individually visible/.test(l))).toBe(true)
   await ui.unmount()
+  // `ac activity clear`: the verb goes and state.json changes
+  rig.out['ac status --json'] = statusWith({ activity: null, activityUntil: null })
+  rig.version++
+  await $.turn.complete(TURN_DONE)
+  await settle()
+  ui = await mountBand($)
+  expect(await lineTexts(ui)).toEqual(['M1 · P1 verified'])
+  await ui.unmount()
+  await $.turn.start(TURN_START)
+  await $.turn.complete(TURN_DONE)
+  await settle()
+  ui = await mountBand($)
+  expect(await lineTexts(ui)).toEqual(['M1 · P1 verified'])
+  expect(rig.toasts).toEqual([])
+  await ui.unmount()
+})
+
+test('phase-band: a verb past its activityUntil collapses the band with no file change, re-read once (C4, C6)', async ($, on) => {
+  const rig = bandRig(on)
+  rig.out['ac status --json'] = statusWith({ activity: '⚙ executing 38', activityUntil: inSeconds(-1) })
+  await startBand($)
+  const ui = await mountBand($)
+  expect(await lineTexts(ui)).toEqual(['M1 · P1 verified']) // aged out locally, drawn from memory
+  await ui.unmount()
+  const before = rig.asked.length
+  await $.turn.complete(TURN_DONE)
+  await settle()
+  expect(rig.asked.length - before).toEqual(BAND_QUERIES.length) // one refresh for that expiry
+  await $.turn.start(TURN_START)
+  await $.turn.complete(TURN_DONE)
+  await settle()
+  expect(rig.asked.length - before).toEqual(BAND_QUERIES.length) // and no more
+})
+
+test('phase-band: a live verb triggers no ac call without a .astrocode change (C6)', async ($, on) => {
+  const rig = bandRig(on)
+  on('agent.spawn', () => ({ model: 'opus', agentId: 'a1234567890abcdef' }))
+  rig.out['ac status --json'] = statusWith({ activity: '⚙ executing', activityUntil: inSeconds(1200) })
+  await startBand($)
+  const before = rig.asked.length
+  await $.turn.start(TURN_START)
+  for (let i = 0; i < 20; i++) await rowsFor($, `/astro-plan ${'4'.repeat(i + 1)}`)
+  for (let i = 0; i < 3; i++) await $.agent.spawn({ ...SPAWN, subagentType: 'astro-executor' })
+  await $.turn.complete(TURN_DONE)
+  await settle()
+  const ui = await mountBand($)
+  expect((await lineTexts(ui)).some(l => /⚙ executing/.test(l))).toBe(true)
+  await ui.unmount()
+  expect(rig.asked.length).toEqual(before)
 })
 
 test('phase-band: a listed Agent-tool executor shows its observed state, and the band collapses when it leaves (C1, C4)', async ($, on) => {

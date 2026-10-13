@@ -14,7 +14,7 @@ import { git } from '../lib/git.mjs';
 import { initPlanning } from '../lib/planning.mjs';
 import { paths } from '../lib/paths.mjs';
 import { addPhase, findPhase, setPhaseStatus } from '../lib/roadmap.mjs';
-import { readContext, nextAction } from '../hooks/_astro-ctx.mjs';
+import { readContext, nextAction, ACTIVITY_TTL_SECONDS } from '../hooks/_astro-ctx.mjs';
 
 const AC = join(dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'ac.mjs');
 const run = (args, cwd) => spawnSync(process.execPath, [AC, ...args], { cwd, encoding: 'utf8' });
@@ -39,7 +39,7 @@ const asJson = (dir) => {
   return JSON.parse(res.stdout);
 };
 
-const KEYS = ['activity', 'milestone', 'next', 'phase', 'phases', 'project', 'root', 'siblings'];
+const KEYS = ['activity', 'activityUntil', 'milestone', 'next', 'phase', 'phases', 'project', 'root', 'siblings'];
 
 test('ac status --json prints exactly the contract keys and next is nextAction verbatim', async () => {
   const dir = mkProject();
@@ -49,6 +49,19 @@ test('ac status --json prints exactly the contract keys and next is nextAction v
   assert.equal(j.next, nextAction(readContext(dir, Math.floor(Date.now() / 1000))));
   assert.equal(j.next, '/astro-discuss 1');
   assert.equal(j.phase.number, 1);
+});
+
+test('activityUntil is when ac stops reporting the verb, so the band can age it out without polling', async () => {
+  const dir = mkProject();
+  await addPhase(dir, { number: 1, name: 'First' });
+  assert.equal(asJson(dir).activityUntil, null);
+  assert.equal(run(['activity', '⚙ executing'], dir).status, 0);
+  const at = Math.floor(Date.now() / 1000);
+  const j = asJson(dir);
+  assert.equal(j.activity, '⚙ executing');
+  assert.ok(Math.abs(j.activityUntil - (at + ACTIVITY_TTL_SECONDS)) <= 2, String(j.activityUntil));
+  assert.equal(run(['activity', 'clear'], dir).status, 0);
+  assert.equal(asJson(dir).activityUntil, null);
 });
 
 test('next follows real state: undiscussed, discussed, planned, executing, verified, complete', async () => {

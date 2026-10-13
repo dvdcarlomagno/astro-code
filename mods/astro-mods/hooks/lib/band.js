@@ -67,6 +67,15 @@ function buttonsOf(status) {
   return out
 }
 
+/**
+ * `status` with its activity verb dropped once `activityUntil` (epoch seconds) has passed: ac stops
+ * reporting a verb that old, and the band must not keep one alive with no file change to re-read on.
+ */
+export function freshStatus(status, nowMs) {
+  if (!status || !status.activity || typeof status.activityUntil !== 'number') return status
+  return nowMs < status.activityUntil * 1000 ? status : { ...status, activity: null }
+}
+
 /** The band's lines and buttons. `live` is liveFrom's result (or null). */
 export function bandView(status, live, { unavailable } = {}) {
   if (unavailable) {
@@ -95,11 +104,11 @@ function stateOf(status) {
 }
 
 /** Normalise `$.agent.list()` rows to `{live, agents, source}`; never invents rows. */
-export function liveFrom(agentRows, activity, workflowAgentsListed, spawnedRecently = false) {
+export function liveFrom(agentRows, activity, workflowAgentsListed) {
   const agents = (Array.isArray(agentRows) ? agentRows : [])
     .filter(r => r && AGENT_TYPES.has(r.type))
     .map(r => ({ name: r.name || r.type, state: stateOf(r.status) }))
-  const live = agents.some(a => a.state === 'running') || activity != null || spawnedRecently
+  const live = agents.some(a => a.state === 'running') || activity != null
   if (workflowAgentsListed) return { live, agents, source: 'agent.list' }
   return { live, agents: agents.length ? agents : null, source: 'activity' }
 }

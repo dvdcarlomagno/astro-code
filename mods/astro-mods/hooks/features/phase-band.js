@@ -19,7 +19,7 @@
 // off witness or blindfold: refreshes catch their own errors and set an `unavailable` reason.
 // The `.catch(failOpen)` in register.js stays as the backstop for a genuine hook bug.
 import { isOn } from '../lib/switches.js'
-import { readJsonResult, rootCandidates, signature, stalePaths, bandView, liveFrom } from '../lib/band.js'
+import { readJsonResult, rootCandidates, signature, stalePaths, bandView, liveFrom, freshStatus } from '../lib/band.js'
 import { commandSource, completionRows } from '../lib/complete.js'
 
 export const FEATURE = 'phase-band'
@@ -28,9 +28,6 @@ export const FEATURE = 'phase-band'
 // activity text and says so; it never invents rows.
 export const WORKFLOW_AGENTS_LISTED = false
 export const ACTIVE_TIMEOUT_MS = 5000
-// Mirrors ACTIVITY_TTL_SECONDS in hooks/_astro-ctx.mjs (ac drops a verb that old), so a spawn keeps
-// the band expanded for a run whose activity verb has aged out of `ac status`.
-export const SPAWN_LIVE_MS = 20 * 60 * 1000
 
 let st = fresh()
 
@@ -45,7 +42,7 @@ function fresh() {
     agentRows: [], // `$.agent.list()` rows
     busy: null, // the refresh in flight
     again: false, // a change arrived while one was in flight
-    spawnedAt: null, // ms of the last astro-executor/verifier spawn: a run is live for SPAWN_LIVE_MS after
+    agedOut: null, // the activityUntil already re-read for: one refresh per expiry, not one per boundary
   }
 }
 
@@ -170,8 +167,11 @@ async function tick($, withAgents) {
   try {
     if (!active()) return
     const sig = signature(await stats($, stalePaths(st.cwd, st.status)))
-    // a live verb can age out in `ac` with no file change: while one shows, re-read at each boundary
-    if (sig !== st.sig || st.unavailable || (st.status && st.status.activity)) {
+    // a live verb ages out in `ac` with no file change: re-read once when its activityUntil passes
+    const until = st.status && st.status.activity ? st.status.activityUntil : null
+    const agedOut = typeof until === 'number' && Date.now() >= until * 1000 && st.agedOut !== until
+    if (agedOut) st.agedOut = until
+    if (sig !== st.sig || st.unavailable || agedOut) {
       void refresh($)
     } else if (withAgents) {
       await readAgents($)
@@ -214,7 +214,6 @@ export async function phaseBandDone($, e, next) {
 /** agent.spawn (astro-executor and astro-verifier only, by its matcher). */
 export async function phaseBandSpawn($, e, next) {
   if (!isOn(FEATURE)) return next(e)
-  if (active()) st.spawnedAt = Date.now()
   void tick($, true)
   return next(e)
 }
@@ -223,9 +222,9 @@ export async function phaseBandSpawn($, e, next) {
 export async function phaseBandRender($, e, next) {
   if (!isOn(FEATURE)) return next(e)
   if (e.props.hasSurvey || !active()) return next(e) // a survey holds the band: yield
-  const live = liveFrom(st.agentRows, st.status ? st.status.activity ?? null : null, WORKFLOW_AGENTS_LISTED,
-    st.spawnedAt !== null && Date.now() - st.spawnedAt <= SPAWN_LIVE_MS)
-  const view = bandView(st.status, live, { unavailable: st.unavailable })
+  const status = freshStatus(st.status, Date.now())
+  const live = liveFrom(st.agentRows, status ? status.activity ?? null : null, WORKFLOW_AGENTS_LISTED)
+  const view = bandView(status, live, { unavailable: st.unavailable })
   if (!view.lines.length && !view.buttons.length) return next(e)
   const { Box, Text, Button } = $.ui.resolve(e)
   const lines = view.lines.map((line) => h(Text, { dimColor: true }, line))
