@@ -928,7 +928,7 @@ const liveRig = (live: boolean, on: (...a: any[]) => void) => {
     if (a.includes('principles add')) return { value: ran('✓ principle p-1 (proposed)\n') }
     return { value: ran('', 1) }
   })
-  on('model.complete', (_$: unknown, e: any) => { rig.models.push(e); return { isAnswered: true, text: LIVE_RULE, usage: {} } })
+  on('model.complete', (_$: unknown, e: any) => { rig.models.push(e); return { value: { isAnswered: true, text: LIVE_RULE, usage: {} } } })
   on('session.id', () => ({ value: 'sess-1' }))
   on('ui.log', (_$: unknown, e: { text: string }) => { rig.logs.push(e.text); return { value: undefined } })
   on('ui.toast', (_$: unknown, e: unknown) => { rig.toasts.push(JSON.stringify(e)); return { value: undefined } })
