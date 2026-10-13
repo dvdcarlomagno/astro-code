@@ -66,6 +66,13 @@
 //     containing a dropLines string from a door:'command' session.append row, and logs
 //     whether any session.append / classic output carried them. Unset, it stays a pure observer.
 //
+// Phase 43 additions (phase-band: what can the band see of a live run, what does autocomplete get):
+//   - agent.spawn (kept from phase 40) and turn.complete both log a $.agent.list() snapshot
+//     ({ id, type, status, parentId, name } rows, or { listError }) beside the event's
+//     subagentType, workflow and agentId: is a workflow executor listed, and with which status?
+//   - prompt.autocomplete logs { text, cursor, token, start }: does `/astro-plan ` arrive bare or
+//     namespaced (`/astro-code:astro-plan `)? prompt.fill logs origin and mode (observer only).
+//
 // The log is appended through $.fs, which only has read/write: read the file, add the
 // line, write it back, serialised on one promise chain so concurrent events never lose a
 // line. Fine for a probe; not a pattern for the shipped plugin.
@@ -200,14 +207,17 @@ async function onToolCheck($, e, next) {
   await record($, 'tool.check', e, verdict)
   return verdict
 }
+// rows of $.agent.list() as the band would see them; a failure is data, not an error
+async function listRows($) {
+  try {
+    return (await $.agent.list()).map(a => ({ id: a.id, type: a.type, status: a.status, parentId: a.parentId, name: a.name }))
+  } catch (err) {
+    return { listError: String(err) }
+  }
+}
 async function onAgentSpawn($, e, next) {
   await record($, 'agent.spawn', e)
-  let list
-  try {
-    list = (await $.agent.list()).map(a => ({ id: a.id, type: a.type, status: a.status, parentId: a.parentId, name: a.name }))
-  } catch (err) {
-    list = { listError: String(err) }
-  }
+  const list = await listRows($)
   const idx = await $.env.get('ASTRO_MODS_PROBE_DENY_INDEX')
   if (idx && e.workflow && String(e.workflow.agentIndex) === String(idx)) {
     const answer = { deny: 'astro-mods probe: refused on purpose' }
@@ -221,8 +231,17 @@ async function onAgentSpawn($, e, next) {
 }
 async function onTurnComplete($, e, next) {
   const r = await next(e)
-  await record($, 'turn.complete', { agentId: e?.agentId }, { agentId: e?.agentId, keys: Object.keys(e ?? {}), answer: shape(r) }, true)
+  const list = await listRows($)
+  await record($, 'turn.complete', { agentId: e?.agentId }, { agentId: e?.agentId, subagentType: e?.subagentType, workflow: clean('workflow', e?.workflow, 0), keys: Object.keys(e ?? {}), answer: shape(r), list }, true)
   return r
+}
+async function onAutocomplete($, e, next) {
+  await record($, 'prompt.autocomplete', {}, { text: e?.text, cursor: e?.cursor, token: e?.token, start: e?.start }, true)
+  return next(e)
+}
+async function onPromptFill($, e, next) {
+  await record($, 'prompt.fill', {}, { origin: next.origin, mode: e?.mode, keys: Object.keys(e ?? {}) }, true)
+  return next(e)
 }
 async function onPromptSubmit($, e, next) {
   await record($, 'prompt.submit', e)
@@ -318,6 +337,8 @@ export function register(on) {
   on('turn.complete', onTurnComplete).catch(pass)
   on('prompt.submit', onPromptSubmit).catch(pass)
   on('command.run', onCommandRun).catch(pass)
+  on('prompt.autocomplete', onAutocomplete).catch(pass)
+  on('prompt.fill', onPromptFill).catch(pass)
   on('classic.*', onClassic).catch(pass)
   on('prompt.compose', onCompose).catch(pass)
   on('prompt.attachment', onAttachment).catch(pass)
