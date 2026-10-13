@@ -76,8 +76,11 @@
       "number": 43,
       "name": "phase-band mod: phase band with next-command buttons and id autocomplete",
       "slug": "43-phase-band-mod-phase-band-with-next",
-      "status": "pending",
-      "milestone": 12
+      "status": "complete",
+      "milestone": 12,
+      "accepted_by": "matteo.alvazzi@gmail.com",
+      "accepted_kind": "human",
+      "accepted_at": "2026-10-13T09:48:41.005Z"
     },
     {
       "number": 44,

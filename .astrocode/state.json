@@ -2,13 +2,10 @@
   "version": 1,
   "project": "astro-code",
   "active_milestone": 12,
-  "active_phase": "43-phase-band-mod-phase-band-with-next",
+  "active_phase": null,
   "status": "planning",
   "decisions": [],
   "blockers": [],
-  "updated_at": "2026-10-12T16:26:48.494Z",
-  "activity": {
-    "text": "⚙ executing",
-    "at": 1791822408
-  }
+  "updated_at": "2026-10-13T09:48:41.014Z",
+  "activity": null
 }
