@@ -2,10 +2,13 @@
   "version": 1,
   "project": "astro-code",
   "active_milestone": 12,
-  "active_phase": "42-brief-section-mod-principles-brief-as",
+  "active_phase": "43-phase-band-mod-phase-band-with-next",
   "status": "planning",
   "decisions": [],
   "blockers": [],
-  "updated_at": "2026-10-12T16:12:05.837Z",
-  "activity": null
+  "updated_at": "2026-10-12T16:26:48.494Z",
+  "activity": {
+    "text": "⚙ executing",
+    "at": 1791822408
+  }
 }

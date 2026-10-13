@@ -66,8 +66,11 @@
       "number": 42,
       "name": "brief-section mod: principles brief as one cached system-prompt section",
       "slug": "42-brief-section-mod-principles-brief-as",
-      "status": "verified",
-      "milestone": 12
+      "status": "complete",
+      "milestone": 12,
+      "accepted_by": "matteo.alvazzi@gmail.com",
+      "accepted_kind": "human",
+      "accepted_at": "2026-10-12T16:18:42.760Z"
     },
     {
       "number": 43,
