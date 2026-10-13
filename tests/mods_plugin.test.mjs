@@ -7,7 +7,7 @@
 // `{ cwd, surface, isInteractive }`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,13 +18,25 @@ import { boot, answer, switches, NAMES, SESSION_START, BENEATH } from './fixture
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = join(ROOT, 'mods', 'astro-mods');
 const HOOKS = join(PLUGIN, 'hooks');
+// a phase's PROBE.md lives in .astrocode/phases while its milestone is open, and in
+// .astrocode/milestones/<n>/phases once `ac milestone complete` archives it
+const probeOf = (slug) => {
+  const live = join(ROOT, '.astrocode', 'phases', slug, 'PROBE.md');
+  if (existsSync(live)) return live;
+  const milestones = join(ROOT, '.astrocode', 'milestones');
+  for (const m of existsSync(milestones) ? readdirSync(milestones) : []) {
+    const archived = join(milestones, m, 'phases', slug, 'PROBE.md');
+    if (existsSync(archived)) return archived;
+  }
+  return live;
+};
 const PROBE_MDS = [
-  join(ROOT, '.astrocode', 'phases', '36-astro-mods-foundation-adr-api-probe', 'PROBE.md'),
-  join(ROOT, '.astrocode', 'phases', '39-blindfold-mod-plan-blind-verifier-and', 'PROBE.md'),
-  join(ROOT, '.astrocode', 'phases', '41-witness-mod-detect-human-vs-agent', 'PROBE.md'),
-  join(ROOT, '.astrocode', 'phases', '42-brief-section-mod-principles-brief-as', 'PROBE.md'),
- join(ROOT, '.astrocode', 'phases', '43-phase-band-mod-phase-band-with-next', 'PROBE.md'),
-];
+  '36-astro-mods-foundation-adr-api-probe',
+  '39-blindfold-mod-plan-blind-verifier-and',
+  '41-witness-mod-detect-human-vs-agent',
+  '42-brief-section-mod-principles-brief-as',
+  '43-phase-band-mod-phase-band-with-next',
+].map(probeOf);
 const ARGV = ['ac', 'mods', 'status', '--json', '--switches-only'];
 // brief-section's hooks, in register.js order (phase 42 PROBE.md: F1 classic.SessionStart drops the
 // SessionStart parts, F9-F11 session.append rewrites the PreCompact row, F14 prompt.compose adds the
