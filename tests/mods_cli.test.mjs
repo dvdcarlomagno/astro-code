@@ -762,3 +762,21 @@ test('after ac install the same enable prints no install-first line, and the plu
   assert.doesNotMatch(out(r), /install` first/);
   assert.equal(b.status().plugin.installed, true);
 });
+
+test('enable and disable take several features at once; one unknown name changes nothing', () => {
+  const b = box();
+  seedMarketplace(b.T);
+  const sw = () => JSON.parse(b.ac(['mods', 'status', '--json', '--switches-only']).stdout).switches;
+  const e = b.ac(['mods', 'enable', 'phase-band', 'live-capture', 'witness']);
+  assert.equal(e.status, 0, out(e));
+  for (const n of ['phase-band', 'live-capture', 'witness']) assert.match(e.stdout, new RegExp(`✓ ${n} on`), n);
+  assert.deepEqual([sw()['phase-band'], sw()['live-capture'], sw().witness], [true, true, true]);
+  const bad = b.ac(['mods', 'enable', 'blindfold', 'no-such-mod']);
+  assert.notEqual(bad.status, 0);
+  assert.match(out(bad), /unknown feature "no-such-mod"/);
+  assert.equal(sw().blindfold, false, 'nothing switched before the bad name was refused');
+  const j = b.ac(['mods', 'disable', 'phase-band', 'witness', '--json']);
+  assert.equal(j.status, 0, out(j));
+  assert.equal(JSON.parse(j.stdout).length, 2);
+  assert.deepEqual([sw()['phase-band'], sw()['live-capture'], sw().witness], [false, true, false]);
+});

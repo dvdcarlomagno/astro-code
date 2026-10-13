@@ -229,9 +229,24 @@ export async function phaseBandRender($, e, next) {
   if (!view.lines.length && !view.buttons.length) return next(e)
   const { Box, Text, Button } = $.ui.resolve(e)
   // drawing claims the in-memory badges (live-capture's count), so exactly one surface shows them
+  // `ac` failed: one dim line and nothing else (C7), so a broken read never looks like a state
+  if (st.unavailable) return h(Box, { key: 'line-0' }, h(Text, { dimColor: true }, view.lines[0]))
   claimBadges()
   const marks = badges()
-  const lines = view.lines.map((line, i) => h(Text, { dimColor: true }, i === 0 && marks.length ? `${line} · ${marks.join(' · ')}` : line))
+  const segment = (t) => h(Text, TONES[toneOf(t.tone)], t.text)
+  const lines = view.parts.map((parts, i) => {
+    const shown = i === 0 && marks.length ? [...parts, { text: ` · ${marks.join(' · ')}`, tone: 'badge' }] : parts
+    // keyed Box per line: what a reader (or a test) takes as one line of the band
+    const line = h(Box, { key: `line-${i}` }, h(Text, {}, ...shown.map(segment)))
+    if (i > 0) return h(Box, { key: `row-${i}`, paddingLeft: 2 }, line)
+    // the first row: a mark, the state line, and the milestone's progress pushed to the right
+    const meter = view.meter
+      ? [h(Text, {}, h(Text, { color: 'success' }, view.meter.bar), h(Text, { dimColor: true }, ` ${view.meter.done}/${view.meter.total}`))]
+      : []
+    return h(Box, { key: 'row-0', flexDirection: 'row', justifyContent: 'space-between' },
+      h(Box, { flexDirection: 'row', gap: 1 }, h(Text, { color: 'claude' }, '◆'), line),
+      ...meter)
+  })
   const buttons = view.buttons.map((b, i) =>
     h(Button, {
       key: b.key,
@@ -243,8 +258,29 @@ export async function phaseBandRender($, e, next) {
       },
     }),
   )
-  return h(Box, { flexDirection: 'column' }, ...lines, ...(buttons.length ? [h(Box, { flexDirection: 'row', gap: 1 }, ...buttons)] : []))
+  const hint = view.hint ? [h(Text, {}, h(Text, { dimColor: true }, 'next › '), h(Text, { color: 'suggestion' }, view.hint))] : []
+  const actions = buttons.length || hint.length ? [h(Box, { key: 'actions', flexDirection: 'row', gap: 1, paddingLeft: 2 }, ...buttons, ...hint)] : []
+  return h(Box, { flexDirection: 'column' }, ...lines, ...actions)
 }
+
+// How each segment of a line is drawn. Theme keys, so the band follows the user's terminal theme.
+const TONES = {
+  id: { bold: true },
+  sep: { dimColor: true },
+  note: { dimColor: true, italic: true },
+  activity: { color: 'warning' },
+  badge: { color: 'remember' },
+  'state:pending': { color: 'suggestion' },
+  'state:executing': { color: 'warning' },
+  'state:verified': { color: 'claude' },
+  'state:complete': { color: 'success' },
+  'state:rejected': { color: 'error' },
+  'agent:running': { color: 'warning' },
+  'agent:done': { color: 'success' },
+  'agent:failed': { color: 'error' },
+  plain: {},
+}
+const toneOf = (tone) => (tone in TONES ? tone : String(tone).startsWith('state:') ? 'sep' : 'plain')
 
 /** prompt.autocomplete: rows after the listed commands, from memory. Never calls `ac` (C6). */
 export async function phaseBandComplete($, e, next) {

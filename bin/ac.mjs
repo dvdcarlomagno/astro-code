@@ -3059,46 +3059,54 @@ async function main() {
         json(await briefSectionFeed({ cwd: process.cwd(), dir: principlesDir(), positionOnly: flags.position === true }));
         return;
       }
-      if (sub !== 'enable' && sub !== 'disable') die('usage: ac mods [status [<feature>]|enable <feature>|disable <feature>|feed brief-section [--position]] [--json]');
+      if (sub !== 'enable' && sub !== 'disable') die('usage: ac mods [status [<feature>]|enable <feature>…|disable <feature>…|feed brief-section [--position]] [--json]');
       checkFlags(`mods ${sub}`, flags);
-      if (!feature) die(`usage: ac mods ${sub} <feature>   (features: ${names.join(', ')})`);
-      if (sub === 'disable') {
-        const res = disableMod({ feature });
-        if (!res.ok) die(res.error);
-        if (flags.json) { json(res); return; }
-        if (res.hooks) {
-          const n = res.hooks.filter((r) => r.outcome === 'removed').length;
-          console.log(`✓ ${feature} off — guard removed from ${n} config dir(s)`);
-          for (const r of res.hooks.filter((x) => x.outcome === 'failed')) console.error(`⚠ ${r.dir} [${r.label}]: ${r.error}`);
+      if (!feature) die(`usage: ac mods ${sub} <feature>…   (features: ${names.join(', ')})`);
+      // several features at once; every name is checked before any switch changes
+      const wanted = [...new Set(pos.slice(1))];
+      for (const n of wanted) if (!names.includes(n)) unknownFeature(n);
+      const results = [];
+      const one = (feature) => {
+        if (sub === 'disable') {
+          const res = disableMod({ feature });
+          if (!res.ok) die(res.error);
+          if (flags.json) { results.push(res); return; }
+          if (res.hooks) {
+            const n = res.hooks.filter((r) => r.outcome === 'removed').length;
+            console.log(`✓ ${feature} off — guard removed from ${n} config dir(s)`);
+            for (const r of res.hooks.filter((x) => x.outcome === 'failed')) console.error(`⚠ ${r.dir} [${r.label}]: ${r.error}`);
+            return;
+          }
+          console.log(`✓ ${feature} off${res.kind === 'mod' ? ' — the astro-mods plugin stays installed and inert' : ''}`);
           return;
         }
-        console.log(`✓ ${feature} off${res.kind === 'mod' ? ' — the astro-mods plugin stays installed and inert' : ''}`);
-        return;
-      }
-      const res = enableMod({ feature });
-      if (!res.ok) die(res.error);
-      const failed = (res.plugin || []).some((r) => r.outcome === 'collision' || r.outcome === 'failed')
-        || (res.hooks || []).some((r) => r.host === 'claude' && r.outcome === 'failed');
-      if (failed) process.exitCode = 1;
-      if (flags.json) { json(res); return; }
-      console.log(`✓ ${feature} on — saved to ~/.astro/config.json`);
-      if (!res.built) console.log(res.parked ? `• parked — ${res.parked}; the switch is recorded but does nothing yet` : `• not built yet — takes effect when phase ${res.phase} lands`);
-      for (const r of res.hooks || []) {
-        if (r.host === 'claude') {
-          if (r.outcome === 'added') console.log(`✓ guard → ${r.dir} [${r.label}]`);
-          else if (r.outcome === 'failed') console.error(`⚠ ${r.dir} [${r.label}]: ${r.error}`);
-        } else if (r.outcome === 'native') console.log(`✓ Cursor: native preToolUse → ${r.dir}`);
-        else if (r.outcome === 'import') console.log('• Cursor: via Claude Code import');
-        else console.error(`⚠ Cursor: not enforced (${r.error || r.outcome})`);
-      }
-      if (res.claude === 'absent') console.error(`⚠ ${feature} is a Claude Code mod — no Claude Code found here, so it cannot take effect (switch recorded)`);
-      else if (res.claude === 'old' || res.claude === 'unknown') console.error(`⚠ ${feature} needs Claude Code ≥ ${MOD_FLOOR} (found ${res.version || 'an unreadable version'}) — switch recorded; plugin not installed`);
-      if (res.install === 'needed') console.error('⚠ astro-mods is not shipped yet (~/.astro/code/mods missing) — run `ac install` first, then re-run `ac mods enable ' + feature + '` (switch recorded)');
-      // enable never installs the plugin (ADR-075): a dir without it is named with `ac install`
-      for (const r of (res.plugin || []).filter((x) => x.outcome !== 'already')) {
-        console.error(`⚠ ${r.dir} [${r.label}]: ${r.message}`);
-        if (r.fix) console.error(`  fix: ${r.fix}`);
-      }
+        const res = enableMod({ feature });
+        if (!res.ok) die(res.error);
+        const failed = (res.plugin || []).some((r) => r.outcome === 'collision' || r.outcome === 'failed')
+          || (res.hooks || []).some((r) => r.host === 'claude' && r.outcome === 'failed');
+        if (failed) process.exitCode = 1;
+        if (flags.json) { results.push(res); return; }
+        console.log(`✓ ${feature} on — saved to ~/.astro/config.json`);
+        if (!res.built) console.log(res.parked ? `• parked — ${res.parked}; the switch is recorded but does nothing yet` : `• not built yet — takes effect when phase ${res.phase} lands`);
+        for (const r of res.hooks || []) {
+          if (r.host === 'claude') {
+            if (r.outcome === 'added') console.log(`✓ guard → ${r.dir} [${r.label}]`);
+            else if (r.outcome === 'failed') console.error(`⚠ ${r.dir} [${r.label}]: ${r.error}`);
+          } else if (r.outcome === 'native') console.log(`✓ Cursor: native preToolUse → ${r.dir}`);
+          else if (r.outcome === 'import') console.log('• Cursor: via Claude Code import');
+          else console.error(`⚠ Cursor: not enforced (${r.error || r.outcome})`);
+        }
+        if (res.claude === 'absent') console.error(`⚠ ${feature} is a Claude Code mod — no Claude Code found here, so it cannot take effect (switch recorded)`);
+        else if (res.claude === 'old' || res.claude === 'unknown') console.error(`⚠ ${feature} needs Claude Code ≥ ${MOD_FLOOR} (found ${res.version || 'an unreadable version'}) — switch recorded; plugin not installed`);
+        if (res.install === 'needed') console.error('⚠ astro-mods is not shipped yet (~/.astro/code/mods missing) — run `ac install` first, then re-run `ac mods enable ' + feature + '` (switch recorded)');
+        // enable never installs the plugin (ADR-075): a dir without it is named with `ac install`
+        for (const r of (res.plugin || []).filter((x) => x.outcome !== 'already')) {
+          console.error(`⚠ ${r.dir} [${r.label}]: ${r.message}`);
+          if (r.fix) console.error(`  fix: ${r.fix}`);
+        }
+      };
+      for (const f of wanted) one(f);
+      if (flags.json) json(results.length === 1 ? results[0] : results);
       return;
     }
 

@@ -111,8 +111,9 @@ test('bandView: unavailable is one dim line, reason capped, no buttons', async (
 
 test('bandView: null status and not unavailable draws nothing', async () => {
   const { bandView } = await band();
-  assert.deepEqual(bandView(null, null, {}), { lines: [], buttons: [] });
-  assert.deepEqual(bandView(undefined, null), { lines: [], buttons: [] });
+  for (const v of [bandView(null, null, {}), bandView(undefined, null)]) {
+    assert.deepEqual([v.lines, v.buttons, v.meter, v.hint], [[], [], null, null]);
+  }
 });
 
 test('liveFrom: only executor/verifier, status mapped, unknown reads running', async () => {
@@ -148,4 +149,32 @@ test('liveFrom: workflow agents not listed gives activity source, null agents, n
   assert.deepEqual(liveFrom([], '⚙ executing', false), { live: true, agents: null, source: 'activity' });
   const kept = liveFrom([{ type: 'astro-executor', status: 'running', name: 'e' }], null, false);
   assert.deepEqual(kept, { live: true, agents: [{ name: 'e', state: 'running' }], source: 'activity' });
+});
+
+test('bandView: each line comes as coloured parts that join to exactly that line', async () => {
+  const { bandView } = await band();
+  const v = bandView({ ...STATUS, activity: '⚙ executing' }, { live: true, agents: [{ name: 'astro-executor', state: 'running' }], source: 'agent.list' }, {});
+  assert.deepEqual(v.parts.map(p => p.map(t => t.text).join('')), v.lines);
+  const tones = v.parts[0].map(t => t.tone);
+  assert.ok(tones.includes('state:pending'), String(tones));
+  assert.ok(tones.includes('activity'), String(tones));
+  assert.deepEqual(v.parts[1].map(t => t.tone), ['id', 'sep', 'agent:running']);
+});
+
+test('meterOf: done of total as a bar at most 10 cells wide; none without phases', async () => {
+  const { meterOf } = await band();
+  const ph = (...s) => ({ phases: s.map((status, i) => ({ number: i + 1, status })) });
+  assert.deepEqual(meterOf(ph('complete', 'complete', 'verified', 'pending')), { done: 2, total: 4, bar: '▰▰▱▱' });
+  assert.equal(meterOf(ph(...Array(20).fill('complete'))).bar, '▰'.repeat(10));
+  assert.equal(meterOf(ph(...Array(25).fill('pending'))).bar.length, 10);
+  assert.equal(meterOf({ phases: [] }), null);
+  assert.equal(meterOf(null), null);
+});
+
+test('bandView: a next command that is not a phase button becomes the hint; a button never repeats as one', async () => {
+  const { bandView } = await band();
+  const v = bandView({ ...STATUS, phase: null, next: '/astro-milestone', siblings: [] }, null, {});
+  assert.equal(v.hint, '/astro-milestone');
+  assert.deepEqual(v.buttons, []);
+  assert.equal(bandView(STATUS, null, {}).hint, null);
 });

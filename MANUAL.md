@@ -240,9 +240,10 @@ already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces i
 type. Optionally, on Claude Code, `ac mods enable phase-band` (off by default; headless `-p` and any
 directory outside an astro-code project draw nothing):
 
-- The band: one dim line (`M<n> · P<n> <status>`), plus up to three buttons, the next command that
-  `ac status` recommends first and at most two siblings (for example `Discuss 44` beside
-  `Execute 43`). Commands always name a phase by number. While an `/astro-execute` run is live
+- The band: one line (`◆ M<n> · P<n> <status>`, the state in colour) with the milestone's progress
+  on the right (`▰▰▰▱▱ 3/5`), plus up to three buttons, the next command that `ac status`
+  recommends first and at most two siblings (for example `Discuss 44` beside `Execute 43`). A next
+  command that names no phase, such as `/astro-milestone`, is shown as `next › /astro-milestone`. Commands always name a phase by number. While an `/astro-execute` run is live
   the band expands: the Workflow tool's agents are not individually visible to a plugin (phase 43
   `PROBE.md`), so it shows `ac`'s activity text and says so.
 - A button only **fills the composer**; you press Enter. It never submits or runs anything, so an
@@ -277,8 +278,8 @@ directory outside an astro-code project draw nothing):
 ```bash
 ac mods                          # every feature: on/off, kind, and whether it can take effect here (--json too)
 ac mods status blindfold         # just one
-ac mods enable blindfold         # turn one on (`ac install` already installed the plugin, every mod off)
-ac mods disable blindfold        # turn it off; the plugin stays installed and inert
+ac mods enable blindfold witness # turn one or more on (`ac install` already installed the plugin, every mod off)
+ac mods disable blindfold        # turn one or more off; the plugin stays installed and inert
 ```
 
 The switches live in **`~/.astro/config.json`** under `mods`, beside `agent_tools`, per user and

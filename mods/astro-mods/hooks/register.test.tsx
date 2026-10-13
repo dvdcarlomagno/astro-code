@@ -595,7 +595,8 @@ const mountBand = ($: any, props: any = BAND_PROPS) => $.ui.mount({ plugin: 'ast
 const startBand = async ($: any, start: object = BAND_START) => { await $.session.start(start); await settle() }
 const statusWith = (patch: Record<string, unknown>) => JSON.stringify({ ...JSON.parse(FX_STATUS), ...patch }, null, 2)
 const buttonKeys = async (ui: any) => (await ui.findAll({ type: 'Button' })).map((b: any) => b.key)
-const lineTexts = async (ui: any) => (await ui.findAll({ type: 'Text' })).map((t: any) => t.text)
+// one string per drawn line: the line's segments joined (the mark, meter and next hint are not lines)
+const lineTexts = async (ui: any) => (await ui.findAll({ type: 'Box' })).filter((b: any) => /^line-/.test(b.key ?? '')).map((b: any) => b.text)
 const rowsFor = async ($: any, text: string) => {
   const start = text.lastIndexOf(' ') + 1
   const r = await $.prompt.autocomplete({ text, cursor: text.length, token: text.slice(start), start })
@@ -613,6 +614,27 @@ test('phase-band: switch on in a project, the band draws one idle line and the b
   expect((await ui.findAll({ type: 'Button' })).map((b: any) => b.props.label)).toEqual(['Accept 1', 'Plan 3'])
   expect(rig.asked.slice().sort()).toEqual(BAND_QUERIES.slice().sort())
   expect(rig.toasts).toEqual([])
+  await ui.unmount()
+})
+
+test('phase-band: the state is coloured, progress is shown, and a next command with no button is a hint', async ($, on) => {
+  const rig = bandRig(on)
+  await startBand($)
+  let ui = await mountBand($)
+  const texts = await ui.findAll({ type: 'Text' })
+  expect(texts.find((t: any) => t.text === 'verified')!.props.color).toEqual('claude')
+  expect(texts.some((t: any) => /^ \d+\/\d+$/.test(t.text))).toBe(true) // the milestone meter, beside the line
+  expect(texts.some((t: any) => t.text === 'next › ')).toBe(false) // next is a button here
+  await ui.unmount()
+  rig.out['ac status --json'] = statusWith({ phase: null, next: '/astro-milestone', siblings: [] })
+  rig.version++
+  await $.turn.complete(TURN_DONE)
+  await settle()
+  ui = await mountBand($)
+  expect(await lineTexts(ui)).toEqual(['M1 · no current phase'])
+  expect(await buttonKeys(ui)).toEqual([])
+  expect((await ui.findAll({ type: 'Text' })).some((t: any) => t.text === '/astro-milestone')).toBe(true)
+  expect(rig.fills).toEqual([]) // a hint is text: it fills nothing
   await ui.unmount()
 })
 

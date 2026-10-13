@@ -76,24 +76,55 @@ export function freshStatus(status, nowMs) {
   return nowMs < status.activityUntil * 1000 ? status : { ...status, activity: null }
 }
 
-/** The band's lines and buttons. `live` is liveFrom's result (or null). */
+const METER_MAX = 10
+
+/** `n` of `total` phases done as a bar at most METER_MAX cells wide, or null with no phases. */
+export function meterOf(status) {
+  const phases = status && Array.isArray(status.phases) ? status.phases : []
+  if (!phases.length) return null
+  const done = phases.filter(p => p && p.status === 'complete').length
+  const cells = Math.min(phases.length, METER_MAX)
+  const filled = Math.round((done / phases.length) * cells)
+  return { done, total: phases.length, bar: '▰'.repeat(filled) + '▱'.repeat(cells - filled) }
+}
+
+/**
+ * The band's lines and buttons. `live` is liveFrom's result (or null). Each line is also given as
+ * `parts`, `[{text, tone}]` whose texts join to that line, so the drawing can colour a segment
+ * without the line's words changing. `hint` is `ac`'s next command when it is not a phase button
+ * (`/astro-milestone`, say), shown as text so the band still says what to do next.
+ */
 export function bandView(status, live, { unavailable } = {}) {
   if (unavailable) {
-    return { lines: [`astro-code status unavailable (${String(unavailable).slice(0, REASON_MAX)})`], buttons: [] }
+    const text = `astro-code status unavailable (${String(unavailable).slice(0, REASON_MAX)})`
+    return view([[{ text, tone: 'unavailable' }]], [], null, null)
   }
-  if (status == null) return { lines: [], buttons: [] }
-  let first = `M${status.milestone} · ${status.phase ? `P${status.phase.number} ${status.phase.status}` : 'no current phase'}`
-  if (status.activity) first += ` · ${status.activity}`
-  const lines = [first]
+  if (status == null) return view([], [], null, null)
+  const first = [{ text: `M${status.milestone}`, tone: 'id' }, SEP]
+  if (status.phase) {
+    first.push({ text: `P${status.phase.number}`, tone: 'id' }, { text: ' ', tone: 'sep' }, { text: String(status.phase.status), tone: `state:${status.phase.status}` })
+  } else {
+    first.push({ text: 'no current phase', tone: 'note' })
+  }
+  if (status.activity) first.push(SEP, { text: status.activity, tone: 'activity' })
+  const parts = [first]
   if (live && live.live) {
     if (live.agents === null) {
-      lines.push('workflow agents are not individually visible')
-      if (status.activity) lines.push(`${status.activity} (source: ${live.source})`)
+      parts.push([{ text: 'workflow agents are not individually visible', tone: 'note' }])
+      if (status.activity) parts.push([{ text: `${status.activity} (source: ${live.source})`, tone: 'activity' }])
     } else {
-      for (const a of live.agents) lines.push(`${a.name} — ${a.state}`)
+      for (const a of live.agents) parts.push([{ text: a.name, tone: 'id' }, { text: ' — ', tone: 'sep' }, { text: a.state, tone: `agent:${a.state}` }])
     }
   }
-  return { lines, buttons: buttonsOf(status) }
+  const buttons = buttonsOf(status)
+  const hint = typeof status.next === 'string' && status.next && !buttons.some(b => b.command === status.next) ? status.next : null
+  return view(parts, buttons, meterOf(status), hint)
+}
+
+const SEP = { text: ' · ', tone: 'sep' }
+
+function view(parts, buttons, meter, hint) {
+  return { lines: parts.map(p => p.map(t => t.text).join('')), parts, buttons, meter, hint }
 }
 
 function stateOf(status) {
