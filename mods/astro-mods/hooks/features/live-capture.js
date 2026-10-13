@@ -9,8 +9,9 @@
 // The gate (F1, D3). Only `prompt.submit` with origin `composer` is the human's own Enter. A typed
 // slash command arrives as `command.run` and then as a composer `prompt.submit` of its expanded
 // text, so `command.run` arms a one-shot skip of the next prompt; text that still starts with `/`
-// or `<`, empty text and text over MAX_PROMPT_CHARS are skipped too. Those are structural filters
-// only. There is no word list: a Haiku judge decides whether a prompt is a standing rule, in one
+// and empty text are skipped too. The spec's gate is the composer origin alone, so a prompt is never
+// dropped for its length or for starting with `<`. There is no word list: a Haiku judge decides
+// whether a prompt is a standing rule, in one
 // `$.model.complete` call that also lifts it, picks its kind and gives its why (D1).
 //
 // After the primary effect (spec §6). livePromptSubmit awaits `next(e)` first, so the prompt enters
@@ -39,7 +40,6 @@ export const FEATURE = 'live-capture'
 export const LIVE_KINDS = Object.freeze(['principle', 'pattern', 'preference', 'antipattern'])
 export const LIVE_CAP = 3
 export const LIVE_REF_PREFIX = 'live '
-export const MAX_PROMPT_CHARS = 4000
 export const COMMAND_WINDOW_MS = 5000
 export const AC_TIMEOUT_MS = 10000
 const MODEL = 'haiku'
@@ -143,12 +143,13 @@ export async function liveTurnComplete($, e, next) {
 function qualifies(e) {
   if (kindOf(e) !== 'composer' || typeof e.text !== 'string') return false
   const t = e.text.trim()
-  if (t === '' || t.length > MAX_PROMPT_CHARS) return false
-  return !t.startsWith('/') && !t.startsWith('<')
+  return t !== '' && !t.startsWith('/')
 }
 
 async function capture($, s, text) {
   try {
+    // read before the slow model call: a new session must not rename this prompt's ref
+    if (s.sessionId === undefined) s.sessionId = await $.session.id()
     const verdict = await judge($, text)
     if (verdict) await offer($, s, verdict, text)
   } catch (err) {
@@ -268,7 +269,7 @@ async function add($, s, v, text, reserved) {
   if (minted) {
     s.proposed++
     if (!reserved) s.reserved++
-    setBadge(FEATURE, noticeText(s.proposed))
+    if (s === st) setBadge(FEATURE, noticeText(s.proposed)) // a reset session shows nothing of the old one
   } else if (reserved) {
     s.reserved--
   }

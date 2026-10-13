@@ -172,9 +172,8 @@ test('C3: only composer-typed text is judged: other origins, commands and their 
   // a typed slash command, then its expanded body (composer origin both times)
   await m.liveCommandRun(w.$, { command: 'astro-plan', args: '4', origin: { kind: 'composer' } }, next)
   await submit(m, w, typed('Plan phase 4. Always write tests first and never skip the gate.'))
-  // shapes of a command or a notification, typed as text
+  // a shape of a command, typed as text
   await submit(m, w, typed('/astro-plan 4'))
-  await submit(m, w, typed('<task-notification>never do this</task-notification>'))
   await submit(m, w, typed('   '))
   assert.equal(w.models.length, 0, 'zero model calls')
   assert.equal(w.principlesArgv().length, 0, 'zero ac principles argv')
@@ -511,3 +510,28 @@ test('the plugin never calls a lifecycle verb (ADR-058)', () => {
 })
 
 after(() => resetSwitches())
+
+// ── remediation c0: gate is the composer origin alone; a new session never inherits a capture ──
+
+test('C2/C11: composer prompts starting with < or over 4000 chars are still judged', async () => {
+  const w = world()
+  const m = await boot(w)
+  await submit(m, w, typed('<b>always</b> use semantic tags, never divs'))
+  await submit(m, w, typed(`From now on never mock the db. ${'context '.repeat(600)}`))
+  assert.equal(w.models.length, 2)
+})
+
+test('C1/C8: a capture in flight across session.start keeps its own session ref and shows no badge in the new one', async () => {
+  const w = world()
+  const m = await boot(w)
+  w.reply = async () => { await sleep(80); return answered(rule('Never mock the database in integration tests')) }
+  const job = m.livePromptSubmit(w.$, typed('never mock the db'), next)
+  await job
+  await sleep(10)
+  await m.liveSessionStart(w.$, { cwd: w.cwd, surface: null, isInteractive: true }, next)
+  w.sessionId = 'sess-NEW'
+  await m.liveSettled().catch(() => {})
+  await sleep(150)
+  assert.equal(badges().length, 0, 'no badge for the old session in the new one')
+  for (const p of w.list('--proposed')) assert.equal(p.source.ref, 'live sess-1')
+})
