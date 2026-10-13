@@ -1,0 +1,1 @@
+{"at":"2026-10-13T10:59:38.861Z","phase":"44-live-capture-mod-offer-principle","signals":["remediation","max-cycles"],"note":"a badge claim set by phase-band never clears on session start, so disabling the band mid-plugin-life hides live-capture proposals; '--'-prefixed prompts silently dropped by ac parseArgs"}
