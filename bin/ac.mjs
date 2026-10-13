@@ -129,7 +129,7 @@ import { milestoneHarvest } from '../lib/harvest.mjs';
 import { flowInit, flowBranch, flowPR, flowRelease, flowTag, flowHotfixStart, flowHotfixFinish } from '../lib/flow.mjs';
 import { installClaude, uninstallClaude, installStatusline, baseConfigDir, ASTRO_HOME, refreshAgents, agentNames } from '../lib/install.mjs';
 import { readAgentTools, updateAgentTools } from '../lib/agenttools.mjs';
-import { GAUGES, GAUGE_MODES, readGaugeModes, setGaugeMode } from '../lib/statuslinegauges.mjs';
+import { GAUGES, GAUGE_MODES, readGaugeModes, setGaugeMode, statuslineDedupe, setStatuslineDedupe } from '../lib/statuslinegauges.mjs';
 import { applyTune, undoTune, tuneTarget, UNTUNABLE } from '../lib/tune.mjs';
 import { collectStats } from '../lib/stats.mjs';
 import { writeAgentsMd } from '../lib/agentsmd.mjs';
@@ -2857,7 +2857,17 @@ async function main() {
         for (const g of GAUGES) console.log(`  ${g.padEnd(4)} ${modes[g]}`);
         return;
       }
-      if (sub !== 'preview') die(`unknown statusline subcommand "${sub}" — use install | preview | gauges`);
+      if (sub === 'dedupe') {
+        // Per user: with the phase-band mod drawing, drop from the line what the band shows.
+        if (pos.length > 1) {
+          if (pos.length !== 2 || !['on', 'off'].includes(pos[1])) die('usage: ac statusline dedupe [on|off]');
+          const res = setStatuslineDedupe({ on: pos[1] === 'on' });
+          if (!res.ok) die(res.error);
+        }
+        console.log(`  dedupe ${statuslineDedupe() ? 'on' : 'off'}  — with the phase-band mod drawing, the statusline ${statuslineDedupe() ? 'drops' : 'keeps'} the milestone, phase track, state and live verb`);
+        return;
+      }
+      if (sub !== 'preview') die(`unknown statusline subcommand "${sub}" — use install | preview | gauges | dedupe`);
       // Render the real hook against a representative Claude stdin blob so the
       // preview is WYSIWYG (dot + bar included). A tiny synthetic transcript drives
       // the recap + context-fill; --tokens/--model/--recap override the samples.

@@ -412,7 +412,7 @@ export function phaseTrack(ctx, lookahead = 2) {
  * identity half — the version/milestone/phase you navigate by — survives
  * intact instead of being sliced.
  */
-export function renderSegmentParts(ctx, { lookahead = 2 } = {}) {
+export function renderSegmentParts(ctx, { lookahead = 2, band = false } = {}) {
   if (!ctx || (ctx.milestone == null && !ctx.phase)) return { identity: '', state: '' };
   const col = ctx.phase ? statusColor(ctx.phase.status) : ANSI.dim;
   // D7: the `⊡` glyph already carries the identity — the word "astro" was ~6
@@ -422,9 +422,11 @@ export function renderSegmentParts(ctx, { lookahead = 2 } = {}) {
   const hasVersion = Boolean(ctx.version);
   const head = hasVersion ? `${glyph} ${paint(`v${ctx.version}`, ANSI.dim)}` : glyph;
 
+  // `band`: the phase-band mod draws the milestone, every phase, the live run and the progress
+  // above the prompt, so the line keeps only what the band does not show (phaseBandDrawn).
   const rest = [];
-  if (ctx.milestone != null) rest.push(`M${ctx.milestone}`);
-  const track = phaseTrack(ctx, lookahead);
+  if (!band && ctx.milestone != null) rest.push(`M${ctx.milestone}`);
+  const track = band ? '' : phaseTrack(ctx, lookahead);
   if (track) rest.push(track);
 
   // No version → the head is a bare glyph, and the usual " · " joiner would
@@ -444,12 +446,13 @@ export function renderSegmentParts(ctx, { lookahead = 2 } = {}) {
     state.push(paint(`⚑ ${label}`, ANSI.red));
     state.push(paint(ctx.fix.status, ANSI.yellow));
   }
-  if (ctx.activity) state.push(paint(ctx.activity, ANSI.yellow));     // live verb wins
+  if (band) { /* the band's RUNNING row and phase chips carry the verb and the state */ }
+  else if (ctx.activity) state.push(paint(ctx.activity, ANSI.yellow));     // live verb wins
   else if (ctx.phase) state.push(`▸ ${ctx.phase.status}`);
   // Verified (AI-checked) vs accepted (human-signed-off) are different facts and
   // a single done/total hid the gap — five phases awaiting /astro-accept read as
   // "0 done" before this.
-  if (ctx.total) {
+  if (ctx.total && !band) {
     state.push(`${paint(`${ctx.verified ?? 0}▸`, ANSI.dim)} ${paint(`${ctx.done ?? 0}✓`, ANSI.dim)}`);
   }
   if (ctx.blockers) state.push(paint(`⚠${ctx.blockers}`, ANSI.red));
@@ -635,6 +638,30 @@ export function renderClaudeSegment({ model, tokens, limit, bar = true, mode = '
 // bar the luxury. Absent, unknown or malformed values read as `both`, the old behaviour.
 export const GAUGES = ['ctx', '5h', '7d', 'cap'];
 export const GAUGE_MODES = ['both', 'bar', 'percent'];
+
+/**
+ * Is the phase-band mod drawing this project's position above the prompt? Then the statusline
+ * drops the same facts (milestone, phase track, state, live verb, progress) rather than show
+ * them twice. True only when all three hold, each a cheap file read:
+ *   - the `phase-band` switch is on (`mods` in ~/.astro/config.json, written by `ac mods`);
+ *   - the astro-mods plugin is installed in THIS Claude profile (`ac install` installs it only
+ *     where Claude Code meets the mods floor, ADR-075), so the band can really draw here;
+ *   - the user has not set `statusline.dedupe: false` (`ac statusline dedupe off`).
+ */
+export function phaseBandDrawn({ home = homedir(), configDir = process.env.CLAUDE_CONFIG_DIR || join(home, '.claude') } = {}) {
+  const cfg = readJson(join(home, '.astro', 'config.json'));
+  if (!cfg || !cfg.mods || cfg.mods['phase-band'] !== true) return false;
+  if (cfg.statusline && cfg.statusline.dedupe === false) return false;
+  const inst = readJson(join(configDir, 'plugins', 'installed_plugins.json'));
+  const plugins = inst && typeof inst === 'object' ? (inst.plugins && typeof inst.plugins === 'object' ? inst.plugins : inst) : null;
+  return Boolean(plugins && plugins['astro-mods@astro-code']);
+}
+
+/** `statusline.dedupe` as stored: on unless set to false. */
+export function statuslineDedupe(home = homedir()) {
+  const cfg = readJson(join(home, '.astro', 'config.json'));
+  return !(cfg && cfg.statusline && cfg.statusline.dedupe === false);
+}
 
 export function readGaugeModes(home = homedir()) {
   const modes = Object.fromEntries(GAUGES.map((g) => [g, 'both']));

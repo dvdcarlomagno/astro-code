@@ -322,6 +322,12 @@ Width still wins: on a line too narrow for bars every gauge shows its percent, s
 to `bar` falls back to its number instead of disappearing. Like `agent_tools`, it is per user
 and lives in **`~/.astro/config.json`** (`{ "statusline": { "gauges": { "5h": "percent" } } }`).
 
+With the **phase-band** mod drawing above the prompt, the statusline drops what the band shows
+(the milestone, the phase track, the phase state, the live verb and the done/verified counts) and
+keeps the rest. It does so only when the `phase-band` switch is on *and* the astro-mods plugin is
+installed in that Claude profile, so a band that cannot draw never takes the facts with it.
+`ac statusline dedupe off` keeps everything on the line; `ac statusline dedupe on` is the default.
+
 ### Windows / PowerShell
 
 `ac` is shadowed by PowerShell's built-in `Add-Content` alias (aliases beat external
