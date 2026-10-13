@@ -116,10 +116,10 @@ needs it, and on Codex, Cursor or a Claude Code without the plugin everything wo
 | `spawn-policy` | mod | phase 40 | refuse a parallel executor spawned without worktree isolation (ADR-008) |
 | `witness` | mod | phase 41 (built) | tell a human acceptance from an agent's |
 | `brief-section` | mod | phase 42 (built) | principles brief as one cached system-prompt section |
-| `phase-band` | mod | phase 43 | phase band with next-command buttons |
+| `phase-band` | mod | phase 43 (built) | phase band with next-command buttons and id autocomplete |
 | `live-capture` | mod | phase 44 | offer principle capture from human-typed prompts |
 
-`canon-guard`, `git-guard`, `blindfold`, `witness` and `brief-section` are built; the other three are **not built yet**: today you can switch one on and
+`canon-guard`, `git-guard`, `blindfold`, `witness`, `brief-section` and `phase-band` are built; the other two are **not built yet**: today you can switch one on and
 `ac` records it, and it takes effect when its phase lands. A `hook` is a plain settings hook
 (Cursor imports it too); a `mod` is part of the `astro-mods` Claude Code plugin.
 
@@ -234,6 +234,25 @@ already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces i
   witnessed; use the slash command), MCP shell tools (`ctx_shell`), an `ac` alias or script, a subagent's call (never
   witnessed), Remote Control (`bridge`, counts as no signal so it is recorded as agent), and a prompt
   queued mid-turn. The UAT question's answer is not attestable (phase 41 `PROBE.md`).
+
+**phase-band** draws a quiet band above the prompt in an astro-code project, and offers ids as you
+type. Optionally, on Claude Code, `ac mods enable phase-band` (off by default; headless `-p` and any
+directory outside an astro-code project draw nothing):
+
+- The band: one dim line (`M<n> · P<n> <status>`), plus up to three buttons, the next command that
+  `ac status` recommends first and at most two siblings (for example `Discuss 44` beside
+  `Execute 43`). Commands always name a phase by number. While an `/astro-execute` run is live
+  the band expands: the Workflow tool's agents are not individually visible to a plugin (phase 43
+  `PROBE.md`), so it shows `ac`'s activity text and says so.
+- A button only **fills the composer**; you press Enter. It never submits or runs anything, so an
+  accept started from a button is still typed by you.
+- Autocomplete: after `/astro-discuss`, `/astro-plan`, `/astro-execute`, `/astro-verify` and
+  `/astro-accept` it offers phase numbers with their state; after `/astro-debt-pay`,
+  `/astro-backlog-promote` and `/astro-fix-accept` it offers the open ids with short titles.
+  Rows appear once you type the first character of the id.
+- Reads only: `ac status --json` and the `debt`, `backlog` and `fix` `list --json` queries, re-read
+  when something under `.astrocode/` changed and kept in session memory, never on disk. If `ac`
+  fails it shows one dim "unavailable" line and no buttons.
 
 ```bash
 ac mods                          # every feature: on/off, kind, and whether it can take effect here (--json too)

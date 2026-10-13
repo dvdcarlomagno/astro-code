@@ -73,6 +73,8 @@ the hook script itself never reads a switch. Phase 37's `PROBE.md` records what 
 
 `brief-section` (phase 42) is `hooks/features/brief-section.js`: one `astro-mods:brief` section appended through `prompt.compose`. The settings hooks stay registered (Cursor and Codex run them), so inside Claude it drops their output by exact content: the engine exposes no hook name, only the entry text (phase 42 `PROBE.md`). `ac mods feed brief-section` (`lib/modfeed.mjs`, `sessionParts` in `lib/retrieval.mjs`) is the one place that says what the hooks print, sharing `shortlist`'s selection and logging no usage, so the plugin reimplements nothing. A SessionStart entry goes only if it is byte-equal to a part, and the PreCompact segment only if it equals the position re-read just before. The invariant: output is dropped only while the section is served, and once something was dropped the section stays even if `failOpen` switches the mods off, so the model never holds zero copies; before any drop a failure removes the section and the hooks deliver as today.
 
+`phase-band` (phase 43) is `hooks/features/phase-band.js`: it reads `ac status --json` (`lib/nextstep.mjs`: the one `nextAction` rule plus siblings) and the `debt`, `backlog` and `fix` `list --json`s, caches them in session memory keyed by the mtimes under `.astrocode/`, and fills the composer but never submits. Its `session.start` and `agent.spawn` hooks carry a matcher because the plugin already registers one unmatched hook per event. See phase 43 `PROBE.md` for the live-wave source: `$.agent.list()` shows no workflow agent, so the band falls back to `ac`'s activity text.
+
 ## The numbering registry (the core guarantee)
 
 The registry is a single `registry.json` on an orphan branch (`astro-registry` by

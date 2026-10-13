@@ -87,13 +87,14 @@ function baseOnly(h) {
 
 // ── registry ────────────────────────────────────────────────────────────────
 
-test('the registry lists the eight features in order with their kinds, canon-guard, git-guard, blindfold, witness and brief-section built, floor 2.1.292', async () => {
+test('the registry lists the eight features in order with their kinds, canon-guard, git-guard, blindfold, witness, brief-section and phase-band built, floor 2.1.292', async () => {
   const { FEATURES, MOD_FLOOR } = await mods();
   assert.equal(MOD_FLOOR, '2.1.292');
   assert.deepEqual(FEATURES.map((f) => f.name), NAMES);
   assert.deepEqual(FEATURES.map((f) => f.kind), KINDS);
   assert.deepEqual(FEATURES.map((f) => f.phase), [37, 38, 39, 40, 41, 42, 43, 44]);
-  assert.deepEqual(FEATURES.filter((f) => f.built).map((f) => f.name), ['canon-guard', 'git-guard', 'blindfold', 'witness', 'brief-section']);
+  assert.deepEqual(FEATURES.filter((f) => f.built).map((f) => f.name), ['canon-guard', 'git-guard', 'blindfold', 'witness', 'brief-section', 'phase-band']);
+  assert.match(FEATURES.find((f) => f.name === 'phase-band').description, /autocomplete/);
   assert.ok(FEATURES.every((f) => f.description.length > 10));
   assert.ok(Object.isFrozen(FEATURES));
 });

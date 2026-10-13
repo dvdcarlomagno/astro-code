@@ -113,6 +113,30 @@ test('witness is built: enable and status say so, it is a mod with no settings h
   assert.ok(!existsSync(join(b.T, '.cursor', 'hooks.json')), 'no Cursor hooks.json change');
 });
 
+test('phase-band is built: a mod, switchable, and enabling or disabling leaves every settings file and Cursor hooks.json byte-identical (C9)', () => {
+  const b = box();
+  seedMarketplace(b.T);
+  const CURSOR_CONFIG_DIR = join(b.T, 'cursor');
+  mkdirSync(CURSOR_CONFIG_DIR);
+  writeFileSync(join(CURSOR_CONFIG_DIR, 'hooks.json'), JSON.stringify({ version: 1, hooks: { sessionStart: [{ command: 'echo mine' }] } }));
+  const env = { CURSOR_CONFIG_DIR };
+  assert.equal(b.ac(['install'], env).status, 0);
+  const files = [join(b.T, '.claude', 'settings.json'), join(CURSOR_CONFIG_DIR, 'hooks.json')].filter((f) => existsSync(f));
+  assert.ok(files.length >= 1);
+  const before = files.map(sha);
+  const e = b.ac(['mods', 'enable', 'phase-band'], env);
+  assert.equal(e.status, 0, out(e));
+  assert.doesNotMatch(out(b.ac(['mods', 'status', 'phase-band'], env)), /not built yet/);
+  const f = b.status(env).features.find((x) => x.name === 'phase-band');
+  assert.equal(f.built, true);
+  assert.equal(f.kind, 'mod');
+  const sw = () => JSON.parse(b.ac(['mods', 'status', '--json', '--switches-only'], env).stdout).switches['phase-band'];
+  assert.equal(sw(), true);
+  b.ac(['mods', 'disable', 'phase-band'], env);
+  assert.equal(sw(), false);
+  assert.deepEqual(files.map(sha), before, 'no settings file or hooks.json changed');
+});
+
 test('brief-section is built: a mod, switchable, and enabling or disabling leaves every settings file and Cursor hooks.json byte-identical', () => {
   const b = box();
   seedMarketplace(b.T);
