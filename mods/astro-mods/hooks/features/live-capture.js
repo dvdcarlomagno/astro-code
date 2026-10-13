@@ -34,7 +34,7 @@
 // The validator follows `$` only through functions declared in the same file (F6), so every
 // `$.*` call is spelled here and `$` is never handed to an import.
 import { isOn } from '../lib/switches.js'
-import { setBadge, badgesClaimed } from '../lib/badges.js'
+import { setBadge, badgesClaimed, releaseBadges } from '../lib/badges.js'
 
 export const FEATURE = 'live-capture'
 export const LIVE_KINDS = Object.freeze(['principle', 'pattern', 'preference', 'antipattern'])
@@ -102,6 +102,7 @@ export async function liveSessionStart($, e, next) {
   st = fresh()
   pending.clear()
   setBadge(FEATURE, undefined)
+  releaseBadges() // a band switched off since its last draw must not keep the count hidden (C8)
   return next(e)
 }
 
@@ -183,8 +184,6 @@ async function judge($, text) {
   const lifted = typeof v.lifted === 'string' ? v.lifted.trim() : ''
   const why = typeof v.why === 'string' ? v.why.trim() : ''
   if (lifted === '' || why === '' || !LIVE_KINDS.includes(v.kind)) return null
-  // parseArgs takes any argv value starting with `--` for a flag, so such a candidate is dropped
-  if ([lifted, why, text].some((x) => x.startsWith('--'))) return null
   return { lifted, why, kind: v.kind }
 }
 
@@ -205,7 +204,7 @@ function parseJson(text) {
 }
 
 async function offer($, s, v, text) {
-  const matched = await acJson($, ['ac', 'principles', 'match', v.lifted, '--json'])
+  const matched = await acJson($, ['ac', 'principles', 'match', '--json', '--', v.lifted])
   const exact = Array.isArray(matched.exact) ? matched.exact : []
   const overlap = Array.isArray(matched.overlap) ? matched.overlap : []
   if (exact.length > 0) {
@@ -264,7 +263,7 @@ async function sameAs($, v, candidates) {
 
 // `add --propose`; counted only when ac says a NEW entry was proposed
 async function add($, s, v, text, reserved) {
-  const out = await evidence($, s, ['ac', 'principles', 'add', v.lifted, '--kind', v.kind, '--why', v.why, '--propose'], text)
+  const out = await evidence($, s, ['ac', 'principles', 'add', '--kind', v.kind, `--why=${v.why}`, '--propose'], text, v.lifted)
   const minted = out.includes('✓ principle') && out.includes('(proposed)')
   if (minted) {
     s.proposed++
@@ -275,13 +274,16 @@ async function add($, s, v, text, reserved) {
   }
 }
 
-// appends --from-project, --from-ref and --excerpt (never --from-session), runs, returns stdout
-async function evidence($, s, head, text) {
+// appends --from-project, --from-ref and --excerpt (never --from-session), then the statement after
+// `--`, runs, returns stdout. Text the user typed travels as `--excerpt=` / after `--`: one that starts
+// with `--` must not be read as a flag.
+async function evidence($, s, head, text, statement) {
   if (s.sessionId === undefined) s.sessionId = await $.session.id()
   if (s.project === undefined) s.project = await projectOf($)
   const argv = [...head]
   if (s.project) argv.push('--from-project', s.project)
-  argv.push('--from-ref', `${LIVE_REF_PREFIX}${s.sessionId}`, '--excerpt', text)
+  argv.push('--from-ref', `${LIVE_REF_PREFIX}${s.sessionId}`, `--excerpt=${text}`)
+  if (statement !== undefined) argv.push('--', statement)
   return acText($, argv)
 }
 

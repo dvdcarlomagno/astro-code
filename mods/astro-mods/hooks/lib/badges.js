@@ -22,6 +22,11 @@ export function claimBadges() {
   claimed = true
 }
 
+/** A new session starts unclaimed: the band claims again only if it draws in this one. */
+export function releaseBadges() {
+  claimed = false
+}
+
 export function badgesClaimed() {
   return claimed
 }

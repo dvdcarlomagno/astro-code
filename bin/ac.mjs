@@ -162,7 +162,16 @@ function parseArgs(args) {
   const pos = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a.startsWith('--')) {
+    // Phase 44 — a value that itself starts with `--` (a typed prompt, say) is passed as
+    // `--key=value`, and a positional as one after a bare `--`, so neither is read as a flag.
+    if (a === '--') {
+      pos.push(...args.slice(i + 1));
+      break;
+    }
+    const eq = a.indexOf('=');
+    if (a.startsWith('--') && eq > 2) {
+      flags[a.slice(2, eq)] = a.slice(eq + 1);
+    } else if (a.startsWith('--')) {
       const key = a.slice(2);
       const val = args[i + 1] != null && !args[i + 1].startsWith('--') ? args[++i] : true;
       flags[key] = val;

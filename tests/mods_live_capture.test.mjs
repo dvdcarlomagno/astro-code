@@ -211,15 +211,13 @@ test('C4: when the pipeline drops the prompt, nothing is judged', async () => {
 
 // ── C5 ─────────────────────────────────────────────────────────────────────────
 
-test('C5: no why, no lifted, a bad kind or a flag-shaped value proposes nothing', async () => {
+test('C5: no why, no lifted or a bad kind proposes nothing', async () => {
   const w = world()
   const m = await boot(w)
   const bad = [
     rule('Never mock the database in integration tests', 'antipattern', '   '),
     rule('', 'antipattern', 'a why'),
     rule('Never mock the database in integration tests', 'rule', 'a why'),
-    rule('--propose', 'antipattern', 'a why'),
-    rule('A fine statement about caching', 'antipattern', '--why'),
   ]
   for (const b of bad) {
     w.replies(b)
@@ -228,6 +226,19 @@ test('C5: no why, no lifted, a bad kind or a flag-shaped value proposes nothing'
   assert.equal(w.models.length, bad.length)
   assert.equal(w.adds().length, 0, 'no add argv')
   assert.deepEqual(w.list(), [])
+})
+
+test('C2/C11: a typed prompt, statement or why starting with -- is still proposed, verbatim', async () => {
+  const w = world()
+  const m = await boot(w)
+  const text = '--no-verify commits are never ok here, always run the hooks'
+  w.replies(rule('--no-verify is never ok: always run the commit hooks', 'antipattern', '--no-verify skipped the lint that would have caught it'))
+  await submit(m, w, typed(text))
+  const got = w.list('--proposed')
+  assert.equal(got.length, 1, `proposed: ${JSON.stringify(w.argv)}`)
+  assert.equal(got[0].statement, '--no-verify is never ok: always run the commit hooks')
+  assert.equal(got[0].why, '--no-verify skipped the lint that would have caught it')
+  assert.equal(got[0].source.excerpt, text)
 })
 
 const walk = (dir) =>
@@ -412,6 +423,17 @@ test('C8: when the band drew the count it is the band that shows it, not a secon
   assert.deepEqual(w.logs, [])
   assert.deepEqual(badges(), ['2 proposed — /astro-principles-review'])
   assert.deepEqual(w.toasts, [])
+})
+
+test('C8: a band claim from an earlier session does not hide the line once the band no longer draws', async () => {
+  const w = world()
+  const m = await boot(w)
+  claimBadges() // the band drew in the previous session, then was switched off
+  await m.liveSessionStart(w.$, { cwd: w.cwd, surface: null, isInteractive: true }, next)
+  w.replies(rule('Never mock the database in integration tests'))
+  await submit(m, w, typed('never mock the database'))
+  await m.liveTurnComplete(w.$, turnDone(), next)
+  assert.deepEqual(w.logs, ['1 proposed — /astro-principles-review'])
 })
 
 // ── C9 ─────────────────────────────────────────────────────────────────────────
