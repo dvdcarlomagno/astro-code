@@ -58,6 +58,7 @@ test('with every switch off, every registered handler passes the event through u
     'command.run': { command: 'astro-accept', args: '41', origin: { kind: 'composer' } },
     'prompt.submit': { text: '/astro-accept 41', origin: { kind: 'composer' } },
     'tool.call': { tool: 'Bash', command: 'ac phase accept 41', tool_use_id: 'toolu_3' },
+    'turn.complete': { answer: 'a', reason: 'answer' },
     'classic.SessionStart': { source: 'startup', cwd: '/work/proj' },
     'prompt.compose': {},
     'session.append': { door: 'command', message: { content: [{ type: 'text', text: 'x' }] } },
@@ -68,6 +69,36 @@ test('with every switch off, every registered handler passes the event through u
   }
   assert.equal(await eng.invoke('tool.check', EVENTS['tool.check']), BENEATH);
   assert.deepEqual(eng.toasts, []);
+});
+
+// phase 44: live-capture's four hooks. session.start carries a matcher (one unmatched per plugin, F22).
+test('live-capture registers session.start (matched), command.run, prompt.submit and turn.complete', async () => {
+  const eng = await boot(answer(switches()));
+  const count = (n) => eng.hooks.filter((h) => h.name === n).length;
+  assert.equal(count('session.start'), 3, 'the switch reader, phase-band, live-capture');
+  assert.equal(count('command.run'), 2, 'witness, live-capture');
+  assert.equal(count('prompt.submit'), 2, 'witness, live-capture');
+  assert.equal(count('turn.complete'), 2, 'phase-band, live-capture');
+  for (const n of ['session.start', 'command.run', 'prompt.submit', 'turn.complete']) {
+    assert.equal(eng.hooks.filter((h) => h.name === n && !h.matcher).length, 1, `${n}: one unmatched hook only (F22)`);
+  }
+  assert.deepEqual(eng.hooks.filter((h) => h.name === 'prompt.submit').at(-1).matcher, { origin: { kind: 'composer' } });
+});
+
+test('with every switch off, live-capture touches no $ and toasts nothing', async () => {
+  const live = await import('../mods/astro-mods/hooks/features/live-capture.js');
+  const { resetSwitches } = await import('../mods/astro-mods/hooks/lib/switches.js');
+  resetSwitches();
+  const untouchable = new Proxy({}, { get() { throw new Error('$ was touched'); } });
+  const next = (x) => x;
+  const events = [
+    [live.liveSessionStart, { ...SESSION_START, isInteractive: true }],
+    [live.liveCommandRun, { command: 'astro-status', args: '', origin: { kind: 'composer' } }],
+    [live.livePromptSubmit, { text: 'x', wait: false, origin: { kind: 'composer' } }],
+    [live.liveTurnComplete, { answer: 'a', reason: 'answer' }],
+  ];
+  for (const [hook, e] of events) assert.equal(await hook(untouchable, e, next), e);
+  await live.liveSettled();
 });
 
 test('session.start reads the switches through ac, with argv exactly and a timeout under the hook budget', async () => {

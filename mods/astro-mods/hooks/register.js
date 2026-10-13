@@ -2,7 +2,8 @@
 // blindfold (phase 39: tool.check + agent.spawn), witness (phase 41: command.run, prompt.submit,
 // tool.call), brief-section (phase 42: classic.SessionStart, prompt.compose, session.append),
 // phase-band (phase 43: session.start and agent.spawn under a matcher, turn.start, turn.complete,
-// ui.render, prompt.autocomplete).
+// ui.render, prompt.autocomplete), live-capture (phase 44: session.start under a matcher,
+// command.run, prompt.submit, turn.complete).
 // session.start (brief-section.js: the validator follows `$` only within one file, and a plugin may
 // register ONE session.start, PROBE phase 42 F22) reads the switches from `ac`, runs brief-section's
 // one fetch, and passes the event through.
@@ -28,6 +29,8 @@ import { failOpen, resetNotice } from './lib/failopen.js'
 import { toolCheck, agentSpawn, resetBlindfold } from './features/blindfold.js'
 import { sessionStart, briefSessionStart, briefCompose, briefAppend, resetBriefSection } from './features/brief-section.js'
 import { phaseBandStart, phaseBandTurn, phaseBandDone, phaseBandSpawn, phaseBandRender, phaseBandComplete, resetPhaseBand } from './features/phase-band.js'
+import { liveSessionStart, liveCommandRun, livePromptSubmit, liveTurnComplete } from './features/live-capture.js'
+import { resetBadges } from './lib/badges.js'
 import { witnessCommand, witnessPrompt, witnessTool, resetWitness } from './features/witness.js'
 
 export function register(on, options) {
@@ -37,6 +40,7 @@ export function register(on, options) {
   resetWitness()
   resetBriefSection()
   resetPhaseBand()
+  resetBadges()
   on('session.start', sessionStart).catch(failOpen)
   on('classic.SessionStart', briefSessionStart).catch(failOpen)
   on('prompt.compose', briefCompose).catch(failOpen)
@@ -54,4 +58,12 @@ export function register(on, options) {
   on('agent.spawn', { subagentType: /^astro-(executor|verifier)$/ }, phaseBandSpawn).catch(failOpen)
   on('ui.render', { component: 'AbovePrompt' }, phaseBandRender).catch(failOpen)
   on('prompt.autocomplete', phaseBandComplete).catch(failOpen)
+  // live-capture (phase 44). A plugin may register only ONE unmatched hook per event (F22), and the
+  // earlier features hold those, so each of these carries a matcher. Its session.start only forgets
+  // the session and reads no switch; command.run and prompt.submit see composer origins only (the
+  // gate is also checked in the hook); turn.complete is the end of an answered turn.
+  on('session.start', { isInteractive: true }, liveSessionStart).catch(failOpen)
+  on('command.run', { origin: { kind: 'composer' } }, liveCommandRun).catch(failOpen)
+  on('prompt.submit', { origin: { kind: 'composer' } }, livePromptSubmit).catch(failOpen)
+  on('turn.complete', { reason: 'answer' }, liveTurnComplete).catch(failOpen)
 }

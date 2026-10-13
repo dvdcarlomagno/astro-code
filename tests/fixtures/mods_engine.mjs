@@ -34,8 +34,13 @@ const asNext = (impl) => (typeof impl === 'function' ? impl : () => impl);
 globalThis.h = (type, props, ...children) => ({ type, props: props ?? {}, children: children.flat() });
 
 // a matcher is a partial of the event: a scalar is `===`, a RegExp tests the value as a string
+// (a plain-object value matches the nested object the same way: `{ origin: { kind: 'composer' } }`)
 const matches = (matcher, e) =>
-  !matcher || Object.entries(matcher).every(([k, want]) => (want instanceof RegExp ? want.test(String(e?.[k])) : e?.[k] === want));
+  !matcher || Object.entries(matcher).every(([k, want]) => {
+    if (want instanceof RegExp) return want.test(String(e?.[k]));
+    if (want && typeof want === 'object') return e?.[k] !== null && typeof e?.[k] === 'object' && matches(want, e[k]);
+    return e?.[k] === want;
+  });
 
 export async function boot(runImpl, { toastThrows = false } = {}) {
   const { register } = await plugin();
