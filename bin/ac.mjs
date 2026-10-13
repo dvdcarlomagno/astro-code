@@ -147,6 +147,7 @@ import { STAGE_WORK } from '../lib/principlebrief.mjs';
 import { shortlist, askStore, cite, usageReview, clashesFor, projectContext } from '../lib/retrieval.mjs';
 import { sweep, advanceSweep } from '../lib/mine.mjs';
 import { findAstroRoot } from '../hooks/_astro-ctx.mjs';
+import { statusJson } from '../lib/nextstep.mjs';
 import {
   connect as fleetConnect, disconnect as fleetDisconnect, setPaused as fleetSetPaused,
   setColor as fleetSetColor, status as fleetStatus,
@@ -1738,6 +1739,10 @@ async function main() {
 
     case 'status': {
       const r = root();
+      const now = Math.floor(Date.now() / 1000);
+      // phase 43 — machine-readable "where am I, what next", read-only and offline: it returns
+      // BEFORE readRegistry (a git fetch, ~3 s) so a UI polling it stays fast.
+      if (flags.json) { json(statusJson(r, now)); return; }
       const st = loadState(r) || {};
       const rm = loadRoadmap(r);
       const reg = readRegistry(r);
@@ -1787,6 +1792,11 @@ async function main() {
       for (const d of reg.available ? claimDrift(rm, reg.registry) : []) {
         console.log(`  ⚠ phase ${d.number} is milestone ${d.roadmap} in the roadmap but ${d.registry} on the registry — ` +
           `\`ac phase milestone ${d.number} ${d.roadmap}\` realigns them`);
+      }
+      {
+        // the same rule the banner prints (nextAction), plus siblings; never re-derived here
+        const ns = statusJson(r, now);
+        console.log(`Next:      ${ns.next}${ns.siblings.length ? `  (also ${ns.siblings.join(', ')})` : ''}`);
       }
       console.log('Phases:');
       if (!rm.phases.length) console.log('  (none)');
