@@ -95,11 +95,11 @@ function stateOf(status) {
 }
 
 /** Normalise `$.agent.list()` rows to `{live, agents, source}`; never invents rows. */
-export function liveFrom(agentRows, activity, workflowAgentsListed) {
+export function liveFrom(agentRows, activity, workflowAgentsListed, spawnedRecently = false) {
   const agents = (Array.isArray(agentRows) ? agentRows : [])
     .filter(r => r && AGENT_TYPES.has(r.type))
     .map(r => ({ name: r.name || r.type, state: stateOf(r.status) }))
-  const live = agents.some(a => a.state === 'running') || activity != null
+  const live = agents.some(a => a.state === 'running') || activity != null || spawnedRecently
   if (workflowAgentsListed) return { live, agents, source: 'agent.list' }
   return { live, agents: agents.length ? agents : null, source: 'activity' }
 }

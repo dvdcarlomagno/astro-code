@@ -816,6 +816,24 @@ test('phase-band: a live run expands the band with the activity text and says wo
   await ui.unmount()
 })
 
+test('phase-band: an activity verb that ages out in ac collapses the band with no file change; a spawn keeps it expanded (C1, C4)', async ($, on) => {
+  const rig = bandRig(on)
+  on('agent.spawn', () => ({ model: 'opus', agentId: 'a1234567890abcdef' }))
+  rig.out['ac status --json'] = statusWith({ activity: '⚙ executing 38' })
+  await startBand($)
+  rig.out['ac status --json'] = statusWith({ activity: null }) // ac's TTL passed; mtimes unchanged
+  await $.turn.complete(TURN_DONE)
+  await settle()
+  let ui = await mountBand($)
+  expect((await lineTexts(ui)).length).toEqual(1)
+  await ui.unmount()
+  await $.agent.spawn(SPAWN)
+  await settle()
+  ui = await mountBand($)
+  expect((await lineTexts(ui)).some(l => /workflow agents are not individually visible/.test(l))).toBe(true)
+  await ui.unmount()
+})
+
 test('phase-band: a listed Agent-tool executor shows its observed state, and the band collapses when it leaves (C1, C4)', async ($, on) => {
   const rig = bandRig(on)
   await startBand($)

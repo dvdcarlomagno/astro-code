@@ -28,6 +28,9 @@ export const FEATURE = 'phase-band'
 // activity text and says so; it never invents rows.
 export const WORKFLOW_AGENTS_LISTED = false
 export const ACTIVE_TIMEOUT_MS = 5000
+// Mirrors ACTIVITY_TTL_SECONDS in hooks/_astro-ctx.mjs (ac drops a verb that old), so a spawn keeps
+// the band expanded for a run whose activity verb has aged out of `ac status`.
+export const SPAWN_LIVE_MS = 20 * 60 * 1000
 
 let st = fresh()
 
@@ -42,6 +45,7 @@ function fresh() {
     agentRows: [], // `$.agent.list()` rows
     busy: null, // the refresh in flight
     again: false, // a change arrived while one was in flight
+    spawnedAt: null, // ms of the last astro-executor/verifier spawn: a run is live for SPAWN_LIVE_MS after
   }
 }
 
@@ -166,7 +170,8 @@ async function tick($, withAgents) {
   try {
     if (!active()) return
     const sig = signature(await stats($, stalePaths(st.cwd, st.status)))
-    if (sig !== st.sig || st.unavailable) {
+    // a live verb can age out in `ac` with no file change: while one shows, re-read at each boundary
+    if (sig !== st.sig || st.unavailable || (st.status && st.status.activity)) {
       void refresh($)
     } else if (withAgents) {
       await readAgents($)
@@ -209,6 +214,7 @@ export async function phaseBandDone($, e, next) {
 /** agent.spawn (astro-executor and astro-verifier only, by its matcher). */
 export async function phaseBandSpawn($, e, next) {
   if (!isOn(FEATURE)) return next(e)
+  if (active()) st.spawnedAt = Date.now()
   void tick($, true)
   return next(e)
 }
@@ -217,7 +223,8 @@ export async function phaseBandSpawn($, e, next) {
 export async function phaseBandRender($, e, next) {
   if (!isOn(FEATURE)) return next(e)
   if (e.props.hasSurvey || !active()) return next(e) // a survey holds the band: yield
-  const live = liveFrom(st.agentRows, st.status ? st.status.activity ?? null : null, WORKFLOW_AGENTS_LISTED)
+  const live = liveFrom(st.agentRows, st.status ? st.status.activity ?? null : null, WORKFLOW_AGENTS_LISTED,
+    st.spawnedAt !== null && Date.now() - st.spawnedAt <= SPAWN_LIVE_MS)
   const view = bandView(st.status, live, { unavailable: st.unavailable })
   if (!view.lines.length && !view.buttons.length) return next(e)
   const { Box, Text, Button } = $.ui.resolve(e)
