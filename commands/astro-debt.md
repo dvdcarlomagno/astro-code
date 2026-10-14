@@ -56,3 +56,5 @@ register nobody reviews becomes the thing it replaced.
    Filing is the verifier's job (it has just driven the real code); closing needs either
    the work to be accepted or a human's explicit reason. Both bypasses are how a register
    turns back into a diary.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

@@ -65,6 +65,43 @@ test('ASTRO_HOOKS names exactly the events claude.registerHooks actually writes,
   });
 });
 
+// --- drift guard, conditional guard hooks (phase 37 t4) -------------------------
+// The always-on test above stays unchanged. Guards are conditional (switch-driven), so
+// they are accounted for separately: every event Claude gets is ASTRO_HOOKS ∪ guard events.
+
+test('guard hooks stay in the drift guard: written events = ASTRO_HOOKS plus each guard event, and each maps through EVENT_MAP', async () => {
+  const fakeHome = mkdtempSync(join(tmpdir(), 'ac-cursor-drift-guard-'));
+  await withEnv(fakeHome, async () => {
+    const claude = (await import('../lib/hosts/claude.mjs')).default;
+    const { ASTRO_HOOKS, EVENT_MAP } = await import('../lib/hosts/cursor.mjs');
+    const { GUARD_HOOKS, GUARD_SCRIPTS } = await import('../lib/hosts/guards.mjs');
+
+    const claudeDir = join(fakeHome, '.claude');
+    mkdirSync(claudeDir, { recursive: true });
+    const home = join(fakeHome, '.astro', 'code');
+    mkdirSync(join(home, 'hooks'), { recursive: true });
+    claude.registerHooks(claudeDir, home);
+    for (const spec of Object.values(GUARD_HOOKS)) claude.registerGuard(claudeDir, home, spec);
+
+    const settings = JSON.parse(readFileSync(join(claudeDir, 'settings.json'), 'utf8'));
+    const eventsFor = (scripts) => Object.keys(settings.hooks || {}).filter((evt) =>
+      (settings.hooks[evt] || []).some((e) =>
+        (e.hooks || []).some((h) => typeof h.command === 'string' && scripts.some((s) => h.command.includes(s)))));
+
+    const four = ['astro-update.mjs', 'astro-principles.mjs', 'astro-precompact.mjs', 'astro-session-state.mjs'];
+    const astroEvents = ASTRO_HOOKS.map((h) => h.event);
+    const guardEvents = Object.values(GUARD_HOOKS).map((g) => g.claude.event);
+    assert.deepEqual(new Set(eventsFor([...four, ...GUARD_SCRIPTS])), new Set([...astroEvents, ...guardEvents]),
+      'every written event is an always-on ASTRO_HOOKS event or a declared guard event');
+    assert.deepEqual(new Set(eventsFor(four)), new Set(astroEvents),
+      'the original four-script filter still yields exactly ASTRO_HOOKS events');
+
+    for (const [name, g] of Object.entries(GUARD_HOOKS)) {
+      assert.equal(EVENT_MAP[g.claude.event], g.cursor.event, `${name}: claude.event must map to its declared cursor.event`);
+    }
+  });
+});
+
 // --- native branch, merge-safe, idempotent, then flip to import (C5, C5f, C6, C10b) ---
 
 test('registerHooks: native merge with Claude absent, idempotent re-run, then flips to import once Claude appears', async () => {

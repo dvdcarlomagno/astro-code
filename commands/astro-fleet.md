@@ -59,3 +59,5 @@ Keyed on the first word of `$ARGUMENTS`:
   drops the title too.
 - `ac fleet status --json` is the machine-readable form, if you need a field the human
   view omits.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

@@ -1,0 +1,1 @@
+{"at":"2026-10-13T08:39:18.845Z","phase":"43-phase-band-mod-phase-band-with-next","signals":["remediation","no-progress"],"note":"remediation for an earlier verify fail introduced C4/C6 regressions: a 20-min spawn timer keeps the band live after run end, and polling ac while activity is set"}

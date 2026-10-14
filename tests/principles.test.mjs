@@ -142,6 +142,9 @@ test('resolvePrinciple: exact id wins, unique prefix resolves, ambiguous and unk
   }
 
   assert.throws(() => resolvePrinciple(dir, 'nonexistent-id-xyz'), /no principle found/i);
+  // #130 — the hash suffix resolves too
+  const suffix = a.id.split('-').pop();
+  if (!b.id.endsWith(`-${suffix}`)) assert.equal(resolvePrinciple(dir, suffix).id, a.id);
 });
 
 // --- lifecycle: legal and illegal moves -----------------------------------------------
@@ -428,4 +431,19 @@ test('recordPromotion appends a promotion, keeps status accepted, dedupes identi
     project: 'astro-code', path: '/abs/root', as: 'decision', ref: 'ADR-059', now,
   });
   assert.equal(dedup.promotions.length, 2);
+});
+
+test('resolvePrinciple: a hash suffix shared by two ids is refused as ambiguous', async () => {
+  const { resolvePrinciple } = await import('../lib/principles.mjs');
+  const { mkdirSync, writeFileSync, readdirSync, readFileSync } = await import('node:fs');
+  const { addPrinciple } = await import('../lib/principles.mjs');
+  const dir = mkStoreDir();
+  const now = new Date('2026-09-24T08:00:00.000Z');
+  const a = await addPrinciple(dir, { statement: 'Gamma principle', kind: 'principle', now });
+  const suffix = a.id.split('-').pop();
+  // a second entry whose id ends in the same suffix: copy the file under a new id
+  const file = readdirSync(dir).find((f) => f.startsWith(a.id));
+  const twin = `2026-09-25-twin-${suffix}`;
+  writeFileSync(join(dir, file.replace(a.id, twin)), readFileSync(join(dir, file), 'utf8').replaceAll(a.id, twin));
+  assert.throws(() => resolvePrinciple(dir, suffix), /ambiguous/i);
 });

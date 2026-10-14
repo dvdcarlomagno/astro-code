@@ -1,6 +1,6 @@
 {
   "name": "astro-code",
-  "version": "0.40.2",
+  "version": "0.42.0",
   "description": "Lean, multi-developer planning and execution for coding agents — milestones, phases, and a discuss → plan → execute → verify loop in plain files.",
   "type": "module",
   "bin": {
@@ -11,7 +11,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "test": "node --test",
+    "test": "node scripts/test.mjs",
     "ac": "node bin/ac.mjs"
   },
   "files": [
@@ -21,7 +21,8 @@
     "agents",
     "workflows",
     "hooks",
-    "templates"
+    "templates",
+    "mods"
   ],
   "license": "MIT"
 }

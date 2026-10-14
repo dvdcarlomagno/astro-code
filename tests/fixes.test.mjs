@@ -116,6 +116,15 @@ test('a fix is findable by id, by bare slug, or by fragment', async () => {
   assert.equal(findFix(root, 'nothing-like-this'), null);
 });
 
+test('a slug or fragment that names more than one fix resolves to nothing, never the first hit (phase 41)', async () => {
+  const root = project();
+  const mine = await addFix(root, { title: 'sample bug', now: NOW });
+  const other = await addFix(root, { title: 'other sample bug', now: NOW });
+  assert.equal(findFix(root, 'sample-bug'), null, 'ends both ids: ambiguous');
+  assert.equal(findFix(root, mine.id)?.id, mine.id, 'the full id still works');
+  assert.equal(findFix(root, 'other-sample-bug')?.id, other.id, 'a slug unique to one fix still works');
+});
+
 // --- the status line ------------------------------------------------------------
 
 test('an open fix surfaces in the context WITHOUT hiding the phase', async () => {
@@ -192,4 +201,26 @@ test('an agent accepting on the operator\'s behalf must say so', async () => {
 
   const stored = loadFixes(root).fixes.find((f) => f.id === fix.id);
   assert.equal(stored.accepted_kind, 'agent', 'and it survives to the durable record');
+});
+
+// --- ADR-074: witnessed evidence on the accept record ----------------------------
+
+test('ADR-074: acceptFix stores accepted_evidence only when given, and it survives a reload', async () => {
+  const root = project();
+  const a = await addFix(root, { title: 'seen at the composer', now: NOW });
+  await acceptFix(root, a.id, { by: 'dev', evidence: 'composer' });
+  const kept = loadFixes(root).fixes.find((f) => f.id === a.id);
+  assert.equal(kept.accepted_evidence, 'composer');
+  assert.equal(kept.accepted_kind, 'human');
+
+  const b = await addFix(root, { title: 'declared only', now: NOW });
+  await acceptFix(root, b.id, { by: 'dev' });
+  assert.equal('accepted_evidence' in loadFixes(root).fixes.find((f) => f.id === b.id), false);
+});
+
+test('ADR-074: acceptFix refuses evidence together with a declared agent', async () => {
+  const root = project();
+  const a = await addFix(root, { title: 'contradiction', now: NOW });
+  await assert.rejects(() => acceptFix(root, a.id, { agent: 'x', evidence: 'composer' }));
+  assert.notEqual(loadFixes(root).fixes.find((f) => f.id === a.id).status, 'accepted');
 });

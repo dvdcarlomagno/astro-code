@@ -21,7 +21,7 @@ import { spawnSync } from 'node:child_process';
 import {
   findAstroRoot, readContext, renderSegment,
   readContextTokens, renderClaudeSegment, modelLimit,
-  isBusy, renderStatus, termWidth, visibleWidth, truncateVisible, packStatus, renderSegmentParts, STATUS_SEP,
+  isBusy, renderStatus, termWidth, visibleWidth, truncateVisible, packStatus, renderSegmentParts, STATUS_SEP, phaseBandDrawn,
   renderRateLimits, renderPromptCache, readGaugeModes,
 } from './_astro-ctx.mjs';
 
@@ -155,8 +155,10 @@ try {
 
 // The phase track shrinks by dropping look-ahead entries, so a narrow screen
 // loses "what's queued after next" before it loses where you actually are.
+// With the phase-band mod drawing above the prompt, the line drops what the band already shows.
+const band = projCtx ? phaseBandDrawn(configDir ? { configDir } : {}) : false;
 const projectAt = (lookahead) => (projCtx
-  ? renderSegmentParts(projCtx, { lookahead })
+  ? renderSegmentParts(projCtx, { lookahead, band })
   : { identity: '', state: '' });
 
 // (6) git branch — cheap, always-useful context.

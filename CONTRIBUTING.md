@@ -24,7 +24,7 @@ The `ac flow` commands drive this for milestone work (`ac flow`, `ac flow pr`,
 
 ## Before you open a PR
 
-- `npm test` passes (it is `node --test`; no install step, no services needed).
+- `npm test` passes (it is `node --test` in a temp folder it removes afterwards; no install step, no services needed).
 - A bug fix comes with a test that fails without the fix.
 - Commits follow Conventional Commits: `fix(statusline): …`, `feat(config): …`,
   `docs: …`, `chore(release): …`. One logical change per commit.

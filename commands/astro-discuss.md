@@ -117,3 +117,5 @@ about — and to capture the answers so planning is grounded, not guessed.
 
 Keep it conversational and high-signal. A trivial phase may need no questions at all —
 say so, **in one line**, and skip rather than manufacturing them.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

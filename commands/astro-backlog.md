@@ -75,3 +75,5 @@ Do steps 1 and 2 above first, then:
   without one, and inventing a reason defeats the entire point of the register (C4).
 - Never mark an item `absorbed` by hand. That status is set only when the phase it was
   linked to is accepted (`ac phase accept`) — this command's job stops at linking.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

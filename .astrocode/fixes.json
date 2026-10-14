@@ -42,6 +42,24 @@
       "title": "codex-astro-config-offers-claude-models",
       "status": "verified",
       "opened_at": "2026-10-02T13:33:37.143Z"
+    },
+    {
+      "id": "2026-10-12-astro-execute-clears-the-live-activity",
+      "title": "/astro-execute clears the live activity on an early stop even when it stopped because a workflow is already running, and a resumed workflow never sets the activity again",
+      "status": "open",
+      "opened_at": "2026-10-12T06:48:45.088Z"
+    },
+    {
+      "id": "2026-10-12-hook-registrations-can-point-at-scripts",
+      "title": "Hook registrations can point at scripts the installed copy doesn't have: settings.json lists astro-principles.mjs 2/4..4/4 while ~/.astro/code is still 0.38.0, so every session start logs 3 'SessionStart:startup hook error' (MODULE_NOT_FOUND)",
+      "status": "open",
+      "opened_at": "2026-10-12T07:38:15.693Z"
+    },
+    {
+      "id": "2026-10-12-questions-put-to-the-user-discuss",
+      "title": "Questions put to the user (discuss, accept, challenge…) start from a low-level detail with no context, so the user can't tell what part of the system they're about or why the choice matters",
+      "status": "open",
+      "opened_at": "2026-10-12T09:51:14.944Z"
     }
   ]
 }

@@ -108,3 +108,5 @@ already there — then plan only what's *next*, not what already exists.
 This is the one place a codebase *map* is worth it (onboarding existing code). It's a
 one-time bootstrap — the always-on consistency comes from the canon it produces, not
 from a map kept in sync.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

@@ -133,3 +133,5 @@ Keep PROJECT.md tight. The kit is DONE when the "Build & definition of done" lis
 `KIT-CONTRACT.md` fully holds. Once it's green, `/astro-kit-publish` packages it
 (src/ + `kit.json` inside the zip) and uploads it to a running Astro instance's
 hosted kit registry.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

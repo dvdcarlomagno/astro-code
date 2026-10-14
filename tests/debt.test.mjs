@@ -15,8 +15,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import {
-  addDebt, openDebt, findDebt, payDebt, dropDebt, dismissDebt, closeDebtFor, fileFindings,
+  addDebt, openDebt, findDebt, payDebt, dropDebt, dismissDebt, closeDebtFor, fileFindings, setDebtNote,
   loadDebt, debtId, debtAgeDays, staleDebt, debtScore, debtPressure,
   validateDebtCost, validateDebtStatus, DEBT_STATUSES, DEBT_COSTS, STALE_DAYS,
 } from '../lib/debt.mjs';
@@ -524,4 +525,31 @@ test('the error names the file and how to get it back', async () => {
     assert.match(e.message, /git checkout/);
     return true;
   });
+});
+
+// #127 — a debt learns more after filing; `ac debt note` keeps it on the same id and age.
+test('setDebtNote and ac debt note: read, write, append, refuse a silent overwrite, clear; id, title and found_at stay', async () => {
+  const root = project();
+  const { entry } = await addDebt(root, { title: 'example debt', why: 'w', now: NOW });
+  await setDebtNote(root, entry.id, 'first evidence');
+  await assert.rejects(() => setDebtNote(root, entry.id, 'short'), /append|replace/i);
+  const appended = await setDebtNote(root, entry.id, 'second occurrence', { append: true });
+  assert.match(appended.note, /first evidence[\s\S]*second occurrence/);
+  assert.equal(appended.id, entry.id);
+  assert.equal(appended.title, 'example debt');
+  assert.equal(appended.found_at, entry.found_at);
+
+  const ac = (...args) => spawnSync(process.execPath, [join(import.meta.dirname, '..', 'bin', 'ac.mjs'), ...args], { cwd: root, encoding: 'utf8' });
+  assert.match(ac('debt', 'note', entry.id).stdout, /second occurrence/);
+  const rep = ac('debt', 'note', entry.id, 'measured: 40 ms', '--replace');
+  assert.equal(rep.status, 0, rep.stderr);
+  assert.equal(ac('debt', 'note', entry.id).stdout.trim(), 'measured: 40 ms');
+  assert.match(ac('debt', 'show', entry.id).stdout, /"note": "measured: 40 ms"/);
+  assert.equal(ac('debt', 'note', entry.id, '').status, 0);
+  assert.equal(ac('debt', 'note', entry.id).stdout.trim(), '');
+
+  await dropDebt(root, entry.id, { reason: 'the module was deleted' });
+  const closed = ac('debt', 'note', entry.id, 'too late');
+  assert.notEqual(closed.status, 0);
+  assert.match(closed.stderr, /closed/);
 });

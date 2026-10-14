@@ -93,6 +93,33 @@ so it works standalone (and open source), after which forge's version is retired
 Phases 22–27: the store and CLI → capture at the moments of intent → the review workflow
 → retrieval into prompts → the transcript miner → forge import and handover.
 
+## Milestone 12 — astro-mods: optional Claude Code enforcement layer
+
+The loop's most important rules exist only as prose: never hand-edit `roadmap.json` /
+`state.json` / the registry / `debt.json`, `ROADMAP.md` is generated, the verifier and
+criteria-author are plan-blind (ADR-021), no unscoped destructive git (ADR-035/038), no
+role runs haiku. astro-code installs no hook that can refuse anything, and two of those
+rules have already been broken in real runs. Claude Code ≥ 2.1.287 ships *mods* — plugins
+whose JS hooks can deny a tool call, refuse or re-model a subagent spawn, see who typed a
+prompt, and draw UI — so on Claude Code those rules can become enforced.
+
+- **Optional by construction.** Codex has no hooks and Cursor has no mods, so the canon
+  stays the source of truth: a mod only enforces a rule the canon already states and
+  quotes it in its deny message; no command or agent body may depend on a mod (a test
+  checks); the mod holds no state and reads/writes only through `ac`; a failing mod lets
+  the action through and says so once.
+- **Off by default, one switch per feature** — `ac mods enable|disable|status <feature>`,
+  whatever each feature is built as. `ac install` only *offers* mods, and only on Claude
+  Code ≥ 2.1.287.
+- **Settings hook where that is the better fit.** canon-guard and git-guard need no
+  knowledge of which subagent is acting, so they ship as `PreToolUse` settings hooks —
+  which Cursor imports too — rather than inside the mods plugin. The other six are mods.
+
+Phases: foundation (ADR, probe of the live `agent.spawn` / `tool.check` fields, plugin
+skeleton, `ac mods` toggles) → canon-guard → git-guard → blindfold → spawn-policy →
+witness (amends ADR-033) → brief-section → phase-band → live-capture. Research:
+https://claude.ai/artifact/7BSBvicXocd4gfuUkUBkq5
+
 ## Requirements
 
 <!-- One line per requirement. Use stable IDs (REQ-001) so phases can map to them. -->

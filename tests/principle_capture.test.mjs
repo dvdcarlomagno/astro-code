@@ -113,6 +113,19 @@ test('templates/principle-capture.md names "N more turns — run again" in §7',
   );
 });
 
+// Live capture (phase 44): the spec names it as a §1 moment, so the astro-mods feature points here.
+test('templates/principle-capture.md names Live capture in §1 with the composer gate', () => {
+  const s1 = specSrc.slice(specSrc.indexOf('## 1.'), specSrc.indexOf('## 2.'));
+  assert.ok(/Live capture/.test(s1), 'the spec must name Live capture in §1');
+  assert.ok(/composer/.test(s1), 'the live-capture bullet must state the composer gate');
+});
+
+test('templates/principle-capture.md gives the live evidence row, cap and notice', () => {
+  assert.ok(specSrc.includes('"live <session-id>"'), 'the spec must state the live --from-ref shape');
+  assert.ok(specSrc.includes('at most **3** proposals per session'), 'the spec must state the live per-session cap');
+  assert.ok(specSrc.includes('N proposed — /astro-principles-review'), 'the spec must state the live notice');
+});
+
 // ── 2. Single source: every caller points at the spec, none restates the lift rule ──
 
 test('each of the four capture commands points at the spec by its `ac path templates` form', () => {

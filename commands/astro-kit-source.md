@@ -71,3 +71,5 @@ one.**
 Report exactly what the tool reported — added/flagged/type-changed counts and
 whether SOURCE.md was created or left untouched — and never invent success: if the
 tool exits non-zero, surface its message and stop.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

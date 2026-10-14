@@ -14,6 +14,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { git } from '../lib/git.mjs';
 
+// #130 — the brief prints an id's hash suffix when it is unique in the store, else the full id.
+const shows = (out, id) => out.includes(id) || new RegExp(`^- ${id.split('-').pop()} `, 'm').test(out);
 const FRAMEWORK = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AC = join(FRAMEWORK, 'bin', 'ac.mjs');
 
@@ -70,14 +72,14 @@ test('C1: brief --work code --files lib/x.mjs vs --work review, scope matrix', a
 
   const r1 = run(['principles', 'brief', '--work', 'code', '--files', 'lib/x.mjs'], proj, home, store);
   assert.strictEqual(r1.status, 0, r1.stderr);
-  assert.ok(r1.stdout.includes(a));
-  assert.ok(!r1.stdout.includes(b));
-  assert.ok(r1.stdout.includes(rule));
+  assert.ok(shows(r1.stdout, a));
+  assert.ok(!shows(r1.stdout, b));
+  assert.ok(shows(r1.stdout, rule));
 
   const r2 = run(['principles', 'brief', '--work', 'review'], proj, home, store);
   assert.strictEqual(r2.status, 0, r2.stderr);
-  assert.ok(r2.stdout.includes(d));
-  assert.ok(!r2.stdout.includes(a));
+  assert.ok(shows(r2.stdout, d));
+  assert.ok(!shows(r2.stdout, a));
 });
 
 test('C8: brief --files accepts a single value with space/semicolon-separated paths (workflow claimedFiles shape)', async () => {
@@ -90,13 +92,13 @@ test('C8: brief --files accepts a single value with space/semicolon-separated pa
 
   const r = run(['principles', 'brief', '--stage', 'execute', '--files', 'lib/x.mjs tests/x.test.mjs', '--by', 'executor'], proj, home, store);
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.ok(r.stdout.includes(c), 'a space-separated --files value must still scope in lib/**');
-  assert.ok(r.stdout.includes(t), 'a space-separated --files value must still scope in tests/**');
+  assert.ok(shows(r.stdout, c), 'a space-separated --files value must still scope in lib/**');
+  assert.ok(shows(r.stdout, t), 'a space-separated --files value must still scope in tests/**');
 
   const r2 = run(['principles', 'brief', '--stage', 'execute', '--files', 'lib/x.mjs;tests/x.test.mjs', '--by', 'executor'], proj, home, store);
   assert.strictEqual(r2.status, 0, r2.stderr);
-  assert.ok(r2.stdout.includes(c), 'a semicolon-separated --files value must still scope in lib/**');
-  assert.ok(r2.stdout.includes(t), 'a semicolon-separated --files value must still scope in tests/**');
+  assert.ok(shows(r2.stdout, c), 'a semicolon-separated --files value must still scope in lib/**');
+  assert.ok(shows(r2.stdout, t), 'a semicolon-separated --files value must still scope in tests/**');
 });
 
 test('C4: stack tags line names node from package.json; go.mod-only dir without ac init', async () => {
@@ -113,15 +115,15 @@ test('C4: stack tags line names node from package.json; go.mod-only dir without 
   const rGo = run(['principles', 'brief', '--stage', 'session'], goDir, home, store);
   assert.strictEqual(rGo.status, 0, rGo.stderr);
   assert.ok(rGo.stdout.includes('go'));
-  assert.ok(rGo.stdout.includes(goEntry));
+  assert.ok(shows(rGo.stdout, goEntry));
 
   mkdirSync(join(goDir, '.astrocode'));
   writeFileSync(join(goDir, '.astrocode', 'config.json'), JSON.stringify({ stack: ['rust'] }));
   const rustEntry = addAccepted(home, store, 'ZEBRA1 rust stack default', ['--stack', 'rust']);
   const rRust = run(['principles', 'brief', '--stage', 'session'], goDir, home, store);
   assert.ok(rRust.stdout.includes('rust'));
-  assert.ok(rRust.stdout.includes(rustEntry));
-  assert.ok(!rRust.stdout.includes(goEntry));
+  assert.ok(shows(rRust.stdout, rustEntry));
+  assert.ok(!shows(rRust.stdout, goEntry));
 });
 
 test('C5: ask ranks a keyword match, no network', async () => {
@@ -133,7 +135,7 @@ test('C5: ask ranks a keyword match, no network', async () => {
     { HTTPS_PROXY: 'http://127.0.0.1:9' },
   );
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.ok(r.stdout.includes(id));
+  assert.ok(shows(r.stdout, id));
 });
 
 test('C6: brief served, cite, list --usage shows served-never-cited and never-served', async () => {

@@ -142,3 +142,5 @@ You are starting a new astro-code project in the current repository.
    always reference a phase by its **number** (e.g. `/astro-discuss 1`), never its name.
 
 Keep PROJECT.md tight — vision + requirements + constraints, no fluff.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

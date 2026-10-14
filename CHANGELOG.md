@@ -2,6 +2,44 @@
 
 Release notes in full live on the [GitHub releases page](https://github.com/uublive/astro-code/releases).
 
+## Unreleased
+
+## v0.42.0
+
+- `witness` keeps a typed `/astro-discuss <n>` or `/astro-accept <n>` witnessed when a background workflow's notification arrives during that turn; it used to record your own discussion as written by the agent. It also stops rewriting commands that only mention an acceptance inside quotes (an `echo`, a `grep` pattern, a commit message), which used to get `--agent claude` appended (ADR-077, #132)
+
+- `/astro-config` offers `haiku` per role under Custom, as ADR-073 already allowed; it had kept saying "never offer haiku". The Balanced, Fast and Max profiles are unchanged (sonnet floor) (#125, in part)
+
+- The principles brief is about a quarter shorter, so more rules fit before it is cut: each `⚠ canon may override` reference is printed once at the end, naming the rules it applies to, and ids are printed as their 4-character suffix (`e618`) where that is unique. Every `ac principles` command (`show`, `cite`, …) accepts the suffix; an ambiguous one is refused (#130)
+
+- `npm test` no longer leaves temp folders behind: it runs the suite with `TMPDIR` set to one fresh folder and removes it afterwards, also after a failure or Ctrl-C. A full run used to leave about 1,370 folders (42k entries), enough to fill a tmpfs `/tmp` (#131)
+
+- Hook commands now use the `node` on your `PATH` when it is the same binary (e.g. Homebrew's `/home/linuxbrew/.linuxbrew/bin/node`), not the versioned path a `brew upgrade node` deletes. `ac install` and `ac update` also repair astro's existing entries that point at a node that is gone (#126)
+
+- `ac debt note <id> ["<text>"] [--append|--replace]` adds what a debt item teaches you after it was filed (a second occurrence, a measurement), like `ac phase note` and `ac backlog note`. The id, title and age stay, so a debt no longer has to be dropped and re-filed (#127)
+
+- `git-guard` also skips asking in a throwaway copy marked with `touch .git/astrocode-scratch`, for copies that must live outside `/tmp`. The verifier marks the probe copies it makes
+
+- `git-guard` reads a path held in a variable set once in the same command (`F=src/a.js; …; git checkout -- $F`, how a verifier puts back a file it probed), and treats a glob below a named folder as scoped. A destructive git inside `<(…)` is now asked about; before, such commands crashed the parser and went through unchecked
+
+- `git-guard` no longer asks when the command can lose nothing: a clean tree for `reset --hard` (bare or to `HEAD`), `stash`, a whole-tree `checkout`/`restore` or `-f`, no untracked files for `git clean`, or a scratch repo under the temp directory. It checks with read-only `git status` and still asks whenever it can't tell
+- `canon-guard`'s refusal is two lines: the `ac` command to use, then the escapes
+
+## v0.41.0
+
+- astro-mods: an optional enforcement layer for Claude Code 2.1.292+, off by default with one switch per feature (`ac mods`, `ac mods enable <feature>…`, `ac mods disable <feature>…`, several at once). It enforces only rules the canon already states, nothing in the loop depends on it, and a failing mod lets the action through and says so once. Codex, Cursor and an older Claude Code work as before. `ac install` and `ac update` install the plugin with every mod off, so switching a mod never edits `settings.json`. See MANUAL "Enforcement mods"
+- `canon-guard` refuses hand edits to the files `ac` owns or generates (`roadmap.json`, `state.json`, `ROADMAP.md`, the registry-owned files, the personal principle store) and names the `ac` verb to use instead. `git-guard` refuses unscoped destructive git (`git stash` without a pathspec, `git clean`, `git reset --hard`, a whole-tree `checkout`/`restore`). Both are plain settings hooks: enabling one writes its entry into every Claude profile, and into Cursor's own `hooks.json` when Claude Code is absent
+- `blindfold` keeps the verifier and the criteria author from reading the phase plan. `witness` records whether a phase or fix acceptance was typed by you (`accepted_evidence: "composer"`) or run by an agent, which it marks `--agent`
+- `phase-band` draws a panel above the prompt under an `✦ astro-code` banner with the milestone's progress: `ROADMAP` shows every phase of the milestone as a coloured chip, `RUNNING` shows each astro-code workflow in flight with its live agents (`⚙ execute 110 · 3 executors   ✎ plan 112 · 2 researchers`), and `NEXT` has up to three buttons for the next commands, never one for a phase already running. A button only fills the composer; you press Enter. It also offers ids as you type: phase numbers after the loop commands, and open debt, backlog and fix ids after their commands
+- `live-capture` turns a rule you type at the composer into a *proposed* principle, judged by one Haiku call per typed prompt. It never accepts one for you, proposes at most three per session, and shows the count once as `N proposed — /astro-principles-review`, or in the phase band
+- With the phase band drawing, the statusline no longer repeats it: the milestone, phase track, phase state and live verb leave the line, and everything else stays. `ac statusline dedupe off` keeps them
+- `ac status` prints a `Next:` line, and `ac status --json` gives the same recommendation plus the phase list, the activity text and when that text expires (`activityUntil`)
+- A command run while `/astro-execute` is working (say `/astro-discuss` for the next phase) no longer wipes the run's `⚙ executing` status when it finishes: `ac activity clear` puts the earlier status back. While a phase executes, `ac status` and the phase band stop recommending executing it again and offer the next phase's step instead
+- `ac` accepts `--flag=value`, and treats everything after a bare `--` as plain arguments, so a value that itself starts with `--` is no longer read as a flag
+- Haiku is allowed for any role in `ac models` (ADR-073); the integrator's git-safety rules still apply
+
+- `ac mods enable brief-section` (Claude Code 2.1.292+) gives the model the principles brief once, as one cached system-prompt section, instead of four SessionStart hook outputs plus a PreCompact note. The section holds the whole brief and a one-line position that changes only when the phase or its state does, so the prompt cache holds between turns and across `/compact`. The mod drops the hooks' brief parts and position note only when they match what the hooks print exactly; the update banner, other tools' hooks and `settings.json` are untouched, and Cursor and Codex keep the hooks' brief. If the brief cannot be built it adds nothing, drops nothing and tells you once. New: `ac mods feed brief-section` prints what those hooks print, as JSON
+
 ## v0.40.2
 
 - Cursor's slash menu shows each astro command's description again, instead of "Running on Cursor" for every command. The menu reads the first line of the command body, not the `description` frontmatter, so the description now leads the body, ahead of the Cursor host note. Claude Code and Codex commands are unchanged. Run `ac update` to rewrite `~/.cursor/commands`

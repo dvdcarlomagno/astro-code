@@ -1,0 +1,6 @@
+{
+  "name": "astro-mods-probe",
+  "version": "0.0.1",
+  "description": "Dev-only observer: logs the shape of Claude Code mod events (agent.spawn, tool.check, prompt.submit, command.run) to a JSONL file. Never shipped, never alters anything.",
+  "author": { "name": "astro-code" }
+}

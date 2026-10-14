@@ -199,3 +199,29 @@ test('#116 packBrief: too many rules for the parts ends with an explicit CUT lin
   assert.ok(cut > 0);
   assert.match(parts[1].split('\n').pop(), new RegExp(`CUT: ${cut} hard rules`));
 });
+
+// #130 — canon-override notes once at the end, one line per canon reference; short ids.
+test('renderBrief and packBrief: each canon reference once, naming the rules it may override; short ids only where they resolve back', async () => {
+  const { selectBrief, renderBrief, packBrief } = await import('../lib/principlebrief.mjs');
+  const S = { stack: [], files: [], work: [] };
+  const conv = { ref: 'CONVENTIONS §Records and review', shared: ['record'] };
+  const entries = [
+    entry('2026-09-25-one-rule-aaaa', { strength: 'rule', scopes: S, clash: [conv] }),
+    entry('2026-09-25-two-rule-bbbb', { strength: 'rule', scopes: S, clash: [conv, { ref: 'ADR-012', shared: ['x'] }] }),
+    entry('2026-09-25-a-default-cccc', { scopes: S, clash: [conv] }),
+    entry('2026-09-25-twin-dddd', { scopes: S }),
+  ];
+  const ids = [...entries.map((e) => e.id), '2026-09-26-other-twin-dddd'];
+  const brief = selectBrief(entries, S, { ids });
+  for (const text of [renderBrief(brief, S), packBrief(brief, S).parts.join('\n')]) {
+    assert.equal(text.split('CONVENTIONS §Records and review').length - 1, 1, text);
+    assert.match(text, /^⚠ canon may override: CONVENTIONS §Records and review — for aaaa, bbbb, cccc$/m);
+    assert.match(text, /^⚠ canon may override: ADR-012 — for bbbb$/m);
+    assert.match(text, /^- aaaa {2}/m);
+    assert.match(text, /^- 2026-09-25-twin-dddd {2}/m, 'a suffix shared with another id stays full');
+  }
+  const rulesOnly = packBrief(selectBrief(entries, S, { ids, rulesOnly: true }), S, { rulesOnly: true }).parts.join('\n');
+  assert.match(rulesOnly, /^⚠ canon may override: CONVENTIONS §Records and review — for aaaa, bbbb$/m, rulesOnly);
+  const noIds = renderBrief(selectBrief(entries, S), S);
+  assert.match(noIds, /^- 2026-09-25-one-rule-aaaa {2}/m, 'without the store ids the full id is printed');
+});

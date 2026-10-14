@@ -83,10 +83,10 @@ Then stop: skip the Steps and Apply below.
    `sources`: whether each role's value comes from this `project`, the `user` default in
    `~/.astro/config.json`, or — a role in neither — the built-in default).
 2. Ask the user how to set them with **AskUserQuestion** — start with a profile pick.
-   The tier ladder is **opus → sonnet** for EVERY role. haiku is excluded everywhere,
-   integrator included: ADR-035 reverted the ADR-027 carve-out after a haiku integrator
-   ran a bare `git stash -u` in the shared working tree and destroyed a completed phase
-   plan. Never offer haiku for any role.
+   The profiles use **opus → sonnet** for every role. haiku is the user's choice per role
+   (ADR-073), offered only under **Custom**, never put into a profile: the profiles keep
+   sonnet as their floor. The integrator's git-safety rules (ADR-035) apply whatever the
+   model.
    - **Balanced** (recommended): planner `opus`, researcher `sonnet`, executor
      `sonnet`, verifier `opus`, discover `sonnet`, integrator `sonnet`. The default
      daily-driver.
@@ -99,8 +99,9 @@ Then stop: skip the Steps and Apply below.
 3. If **Custom**, ask the tier for each role. There are 6 roles and AskUserQuestion
    allows ≤4 questions per call, so use **two calls**: first
    `[planner, researcher, executor, verifier]`, then `[discover, integrator]`. For
-   every role, the options are: `opus`, `sonnet`, `inherit` (use the session model) —
-   **never** offer haiku, for any role. For `integrator` do not offer `inherit` either,
+   every role, the options are: `opus`, `sonnet`, `haiku` (cheapest; best kept to the
+   mechanical roles, e.g. the integrator), `inherit` (use the session model). For
+   `integrator` do not offer `inherit`,
    because unset floors to `sonnet` there rather than inheriting the session model (the
    one way it still differs from the others).
 
@@ -203,3 +204,5 @@ its **percent**, or **both** (the default). The setting is **per user** —
    why and stop.
 4. **Finish** with `ac statusline preview`, and one line: it takes effect on the next
    statusline repaint.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

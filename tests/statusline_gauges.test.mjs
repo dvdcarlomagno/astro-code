@@ -13,8 +13,8 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
-import { renderClaudeSegment, renderRateLimits, readGaugeModes } from '../hooks/_astro-ctx.mjs';
-import { setGaugeMode } from '../lib/statuslinegauges.mjs';
+import { renderClaudeSegment, renderRateLimits, readGaugeModes, phaseBandDrawn, renderSegmentParts } from '../hooks/_astro-ctx.mjs';
+import { setGaugeMode, setStatuslineDedupe, statuslineDedupe } from '../lib/statuslinegauges.mjs';
 
 const FRAMEWORK = join(dirname(fileURLToPath(import.meta.url)), '..');
 const home = () => mkdtempSync(join(tmpdir(), 'ac-gauges-'));
@@ -89,4 +89,84 @@ test('the statusline hook draws what the user set: quota as numbers, ctx as a ba
   assert.match(out, /ctx ███░░(?! 52%)/, `ctx as a bar only:\n${out}`);
   assert.match(out, /7d 62% · 5h 48%/, `quota as numbers:\n${out}`);
   assert.doesNotMatch(out, /[57][hd] [█░▏]/, `no quota bars:\n${out}`);
+});
+
+// ── dedupe: with the phase-band mod drawing, the line drops what the band shows ──────────
+const withPlugin = (h, dir = join(h, '.claude')) => {
+  mkdirSync(join(dir, 'plugins'), { recursive: true });
+  writeFileSync(join(dir, 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: { 'astro-mods@astro-code': [{ scope: 'user' }] } }));
+  return dir;
+};
+
+test('phaseBandDrawn: the switch on, the plugin in this profile, and dedupe not off — all three', () => {
+  const h = home();
+  const configDir = join(h, '.claude');
+  assert.equal(phaseBandDrawn({ home: h, configDir }), false, 'no config at all');
+  writeConfig(h, { mods: { 'phase-band': true } });
+  assert.equal(phaseBandDrawn({ home: h, configDir }), false, 'switch on but no plugin in this profile');
+  withPlugin(h);
+  assert.equal(phaseBandDrawn({ home: h, configDir }), true);
+  assert.equal(phaseBandDrawn({ home: h, configDir: join(h, 'other-profile') }), false, 'another profile without the plugin');
+  writeConfig(h, { mods: { 'phase-band': false } });
+  assert.equal(phaseBandDrawn({ home: h, configDir }), false, 'switch off');
+  writeConfig(h, { mods: { 'phase-band': true }, statusline: { dedupe: false } });
+  assert.equal(phaseBandDrawn({ home: h, configDir }), false, 'dedupe off');
+  writeConfig(h, 'not json');
+  assert.equal(phaseBandDrawn({ home: h, configDir }), false, 'unreadable config: keep everything');
+});
+
+test('renderSegmentParts with band drops milestone, track, state, verb and counts; keeps fix, blockers, debt', () => {
+  const ctx = {
+    version: '0.41.0', milestone: 27, phase: { number: 110, status: 'pending' },
+    phases: [{ number: 110, status: 'pending' }, { number: 111, status: 'pending' }],
+    activity: '⚙ executing', total: 2, done: 0, verified: 0, blockers: 1,
+    fix: { id: '2026-10-13-some-bug', status: 'open' }, debt: { band: 'pay-now', pressure: 66 },
+  };
+  const full = renderSegmentParts(ctx);
+  assert.match(full.identity, /M27/);
+  assert.match(full.state, /⚙ executing/);
+  const lean = renderSegmentParts(ctx, { band: true });
+  assert.equal(lean.identity, '⊡ v0.41.0');
+  assert.doesNotMatch(lean.state, /executing|pending|0▸|0✓/);
+  assert.match(lean.state, /⚑ some-bug/);
+  assert.match(lean.state, /⚠1/);
+  assert.match(lean.state, /debt 66/);
+});
+
+test('ac statusline dedupe on|off writes statusline.dedupe and keeps every other key', () => {
+  const h = home();
+  writeConfig(h, { agent_tools: { x: 1 }, statusline: { gauges: { '5h': 'percent' } } });
+  assert.equal(statuslineDedupe(h), true, 'on by default');
+  assert.equal(setStatuslineDedupe({ home: h, on: false }).ok, true);
+  let cfg = JSON.parse(readFileSync(join(h, '.astro', 'config.json'), 'utf8'));
+  assert.deepEqual(cfg, { agent_tools: { x: 1 }, statusline: { gauges: { '5h': 'percent' }, dedupe: false } });
+  assert.equal(statuslineDedupe(h), false);
+  setStatuslineDedupe({ home: h, on: true });
+  cfg = JSON.parse(readFileSync(join(h, '.astro', 'config.json'), 'utf8'));
+  assert.deepEqual(cfg, { agent_tools: { x: 1 }, statusline: { gauges: { '5h': 'percent' } } }, 'on is stored as absent');
+  writeConfig(h, 'not json');
+  assert.equal(setStatuslineDedupe({ home: h, on: false }).ok, false, 'an unparseable file is refused');
+  const r = spawnSync(process.execPath, [join(FRAMEWORK, 'bin', 'ac.mjs'), 'statusline', 'dedupe', 'maybe'], { encoding: 'utf8', env: { ...process.env, HOME: home() } });
+  assert.notEqual(r.status, 0);
+});
+
+test('the statusline hook leaves the milestone and phase to a drawing band, and shows them without one', async () => {
+  const { initPlanning } = await import('../lib/planning.mjs');
+  const { addPhase } = await import('../lib/roadmap.mjs');
+  const root = mkdtempSync(join(tmpdir(), 'ac-dedupe-repo-'));
+  spawnSync('git', ['init', '-q', '-b', 'main', root], { encoding: 'utf8' });
+  initPlanning(root, { name: 'dd' });
+  await addPhase(root, { number: 1, name: 'First' });
+  const h = home();
+  mkdirSync(join(h, '.astro', 'code'), { recursive: true });
+  const blob = { session_id: 's1', workspace: { current_dir: root }, model: { id: 'claude-opus-5-5', display_name: 'Opus 5.5' } };
+  const draw = () => spawnSync(process.execPath, [join(FRAMEWORK, 'hooks', 'astro-statusline.mjs'), join(h, '.claude')], {
+    input: JSON.stringify(blob), encoding: 'utf8', env: { ...process.env, HOME: h, NO_COLOR: '1', COLUMNS: '200' },
+  }).stdout;
+  assert.match(draw(), /\(P1\)/, 'no band: the phase track shows');
+  writeConfig(h, { mods: { 'phase-band': true } });
+  withPlugin(h);
+  const lean = draw();
+  assert.doesNotMatch(lean, /\(P1\)|▸ pending/, `the band draws it:\n${lean}`);
+  assert.match(lean, /Opus 5\.5/, 'everything else stays');
 });

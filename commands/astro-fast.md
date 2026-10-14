@@ -162,3 +162,5 @@ prompt (one `AskUserQuestion` or just prompt for it) — never invent one.
 - **Verified, never complete.** The pipeline produces a **verified** phase at best; only
   human `/astro-accept` closes it.
 - Clear the live status (`ac activity clear`) on every stop — success, escalation, or failure.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

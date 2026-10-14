@@ -64,3 +64,5 @@ other half: turning proposals into a decided queue, one batch at a time.
   step 6 or step 4.
 - Never reject without a reason the user actually typed.
 - Never merge two proposals on similarity alone without the user choosing it in step 4.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

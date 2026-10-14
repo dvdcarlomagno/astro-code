@@ -100,6 +100,229 @@ the verifier can't be given `Write` this way. A bad entry is reported and skippe
 breaks an install. A config dir whose `agents/` *is* the source checkout (a self-hosted dev
 setup) reads the shipped files directly, and `ac install` says so.
 
+### Enforcement mods (optional, Claude Code)
+
+astro-mods is an optional layer that *enforces* rules the canon already states, such as keeping
+the verifier plan-blind or refusing an unscoped destructive `git` command. It is **off by
+default**, one switch per feature, and nothing in the loop depends on it: no command or agent
+needs it, and on Codex, Cursor or a Claude Code without the plugin everything works as before
+(ADR-071). If a mod fails, it lets the action through and says so once.
+
+| feature | kind | lands in | does |
+|---|---|---|---|
+| `canon-guard` | hook | phase 37 (built) | refuse hand edits to generated and registry-owned state |
+| `git-guard` | hook | phase 38 (built) | refuse unscoped destructive git in the shared tree |
+| `blindfold` | mod | phase 39 (built) | keep the verifier and criteria-author plan-blind |
+| `spawn-policy` | mod | phase 40 | refuse a parallel executor spawned without worktree isolation (ADR-008) |
+| `witness` | mod | phase 41 (built) | tell a human acceptance from an agent's |
+| `brief-section` | mod | phase 42 (built) | principles brief as one cached system-prompt section |
+| `phase-band` | mod | phase 43 (built) | phase band with next-command buttons and id autocomplete |
+| `live-capture` | mod | phase 44 (built) | offer principle capture from human-typed prompts |
+
+`canon-guard`, `git-guard`, `blindfold`, `witness`, `brief-section`, `phase-band` and
+`live-capture` are built; `spawn-policy` is **not built yet** (parked): today you can switch it on and
+`ac` records it, and it takes effect when it lands. A `hook` is a plain settings hook
+(Cursor imports it too); a `mod` is part of the `astro-mods` Claude Code plugin.
+
+**canon-guard** refuses hand edits to files the `ac` CLI owns or generates. The deny reason is two
+lines: the `ac` verb to use for that file (with the rule's source as a short tag), then the escapes:
+
+- Protected: `.astrocode/{roadmap,state,debt,backlog,fixes}.json`, `.astrocode/ROADMAP.md`,
+  `.astrocode/DECISIONS.in-force.md`, and the personal principle store (`~/.astro/principles/`).
+  `config.json`, `CONVENTIONS.md`, `DECISIONS.md`, `PROJECT.md` and phase files stay editable.
+- Tools: Write, Edit, MultiEdit and NotebookEdit always; Bash for the obvious write forms
+  (`>`, `>>`, `sed -i`, `perl -i`, `tee`, `cp`/`mv`/`rm`, `truncate`, `dd of=`), checked segment by
+  segment. It is a mistake-catcher, not a sandbox: `python -c` or `node -e` writes, globs and
+  variables are not seen, and an `ac` or `git` segment is never refused.
+- Escapes: a protected file that is mid-merge (conflict markers, or unmerged in `git status`) may be
+  edited by hand; for anything else run `ac mods disable canon-guard`, edit, then re-enable. There
+  is no environment-variable escape.
+- Where it is enforced: every Claude Code profile (a settings hook); on Cursor, a native
+  `preToolUse` hook when Claude Code is absent, or Claude's own entry through Cursor's import when
+  it is present; Codex has no hooks, so there it stays a prose rule. `ac mods status canon-guard`
+  shows each place and whether the entry is really there.
+- The switch is the registration: `ac mods enable canon-guard` writes the entry into each profile,
+  `disable` removes exactly it, and `ac install` / `ac update` re-sync the entries to the switch (a
+  profile added later gets it; a stale entry is removed).
+
+**git-guard** refuses unscoped destructive git, the rule ADR-035 and ADR-038 put in every
+executor prompt. The prompt is two plain lines: what the command would do (e.g. "throws away
+every uncommitted change in the repo"), then the scoped alternative and the off switch:
+
+- Refused: `git stash` with no `-- <path>` pathspec (bare, `-u`/`-a`/`-k`, `save`, `push` without
+  `--`), `git clean` unless `-n`/`--dry-run`, `git reset --hard`, and a whole-tree
+  `git checkout`/`git restore` (`.`, `-- .`, `HEAD -- .`, `--staged .`). The same in an agent
+  worktree: the stash stack is repository-wide.
+- Allowed: `git stash push -- <path>…`, `stash pop|apply|list|show|drop`, `git clean -n`, every other
+  `reset`, path-scoped `checkout`/`restore`, and all other git (force push, `branch -D` and
+  `worktree remove --force` are out of scope without an ADR).
+- Parsing: a mistake-catcher, not a sandbox. Compound commands, `cd`/env/`command`/`exec`/`sudo`
+  prefixes, `git -C/-c/--git-dir`, `sh -c`/`bash -c`, `<(…)` and the lean-ctx `-c` wrapper are seen;
+  aliases, `eval`, scripts, `$(…)` and lean-ctx's `ctx_shell` are not. A git command merely quoted
+  in `echo`, `grep` or a commit message never trips it. A variable set once in the same command to
+  a plain path (`F=src/a.js; …; git checkout -- $F`) is read as that path, and a glob below a named
+  folder (`git checkout src/components/*.css`) counts as scoped; any other expansion asks.
+- Not asked when nothing can be lost. A refused call goes through without a prompt when git, asked
+  read-only, shows it would destroy nothing: no uncommitted change for `reset --hard` (bare or to
+  `HEAD` only; a reset to another commit can drop commits), `stash`, a whole-tree
+  `checkout`/`restore` or `-f`; no untracked file for `git clean` (no ignored file either with
+  `-x`/`-X`). The same holds for a scratch repo whose git data lives under the temp directory
+  (`TMPDIR`, else `/tmp`), or whose `.git` holds an `astrocode-scratch` file: a throwaway copy that must
+  live where the host can see it is marked on purpose (`touch .git/astrocode-scratch`, which the
+  verifier does for its probe copies). A worktree of a real project still counts as the project.
+  Only the plain shape qualifies, `git <subcommand> …` alone or after `cd <literal path>`; with
+  prefixes, global options, other segments, unreadable words, or git not answering, it asks.
+- Verdict: Claude Code **asks**; a headless or Workflow agent cannot answer, so for it an ask is a
+  refusal. Cursor **denies**, because it cannot ask from `preToolUse`. `ac mods status` says
+  which (`asks` / `denies`) per place.
+- Escapes: approve the prompt if you meant it, or `ac mods disable git-guard`. There is no
+  environment-variable escape.
+- Where it is enforced, and the re-sync on `ac install` / `ac update`: as for canon-guard.
+- Not seen: `ac`'s and the workflow's own git calls run through `child_process`, not the Bash tool.
+  That is why `NO_BROAD_STASH` stays in the prompts.
+
+**brief-section** puts the principles brief in front of the model once, as a single cached
+system-prompt section, instead of as four SessionStart hook outputs plus a PreCompact note.
+`ac mods enable brief-section` turns it on; `ac mods disable brief-section` puts everything back.
+
+- On Claude Code: at session start the mod reads the brief (`ac principles brief`) and a one-line
+  position (milestone, phase, state, next command) through `ac`, and appends them as one section
+  that is cached with the system prompt and survives `/compact` and `/clear`. The brief is read at
+  each session start and again on a compaction or `/clear` (so it follows the store); the position line changes only when the project state really changes, so the cache is
+  not broken between turns.
+- No second copy: the mod drops the SessionStart brief parts and the PreCompact position note when
+  they are exactly what the hooks print (`ac mods feed brief-section` says what that is). The update
+  banner and any other tool's hook output are never touched, and no hook entry in `settings.json` is
+  edited. `ac install` installs the astro-mods plugin with every mod off (ADR-075), and Claude Code
+  records that in `extraKnownMarketplaces` and `enabledPlugins`; `ac mods enable` and `disable`
+  leave the file unchanged.
+- If `ac` cannot build the brief, the mod adds no section, drops nothing and tells you once, so the
+  session gets the hooks' brief as before.
+- Cursor and Codex are unchanged: they keep the four hook parts. The `principles.sessionBrief: false`
+  opt-out in `~/.astro/config.json` is honoured: with it set the mod adds nothing.
+- A section has no 10,000-character cap, so a large brief costs its full size in every session's
+  cached prompt; check it with `ac principles brief | wc -c`.
+
+**blindfold** keeps the two plan-blind agents plan-blind, the rule ADR-021 and the agents' own prose
+already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces it per agent:
+
+- Who it binds: `astro-verifier` (denied `PLAN.md`, `SPEC.md`) and `astro-criteria-author` (denied
+  `PLAN.md`, `ACCEPTANCE.md`, `SPEC.md`). Nobody else: executors, planners, researchers, workflow
+  agents, other agent types and the main session read the plan as before. An agent the plugin did not
+  see being spawned is not identified, and an unidentified agent is allowed.
+- Which files: those names, any letter case, inside any `.astrocode/phases/<dir>/`. A `PLAN.md`
+  elsewhere (say `docs/PLAN.md`) is not a phase plan and stays readable; so do `CRITERIA.md`,
+  `CONTEXT.md`, the canon, source and tests.
+- Tools: Read, Edit and anything with a `file_path` or `notebook_path`; Bash commands that name a
+  forbidden file (`cat`, `head`, `sed`, `grep`, `cp`, `git show HEAD:…`, a `cd` into the phase dir
+  then a bare name, `bash -c '…'`, the lean-ctx `-c` wrapper); Grep, Glob and recursive shell searches
+  (`grep -r`, `rg`, `ag`, `ack`, `fd`, `find`, `git grep`) whose root can reach `.astrocode/phases`.
+- Narrowing: a search is allowed when it cannot select a forbidden file, such as a `glob` of `*.mjs`,
+  a path outside the phases tree, a non-markdown `--type`, or an exclusion of `.astrocode`.
+- Verdict: **deny, not ask**. A subagent cannot answer a prompt, and a Workflow agent never could. The
+  reason quotes ADR-021 and the agent's own line, names the refused file and points at `CRITERIA.md`;
+  it does not say how to switch the guard off, which is for you (`ac mods disable blindfold`).
+- Fail open: if the plugin breaks, the action goes through, you get one notice, and every mod is off
+  until the next session.
+- Not seen (a mistake-catcher, not a sandbox): `$(…)`, backticks, `eval`, `xargs`, `python -c` or
+  `node -e` reads; symlinks; a search rooted at a worktree the plugin cannot place; MCP search tools
+  with no `path` or `command`.
+- Reload: the plugin reads the switch at session start, so run `/reload-plugins` after
+  `ac mods enable|disable blindfold`. Agents already running when it reloads are not identified.
+- Codex and Cursor keep the prose rule in the agent files; the mod is Claude Code only.
+
+**witness** records whether a gate was accepted by the human typing it. Optionally, on Claude Code,
+`ac mods enable witness`:
+
+- What counts as human: a main-loop `ac phase accept|reject` or `ac fix accept` whose ref matches the
+  gate command the human typed in the composer this turn (`/astro-accept <n>`, `/astro-fix-accept <id>`).
+  The gate table is `hooks/lib/gates.js` in the astro-mods plugin; it is not copied here.
+- Rewrite, never block: a typed gate gets `--witnessed composer`; any other gate call gets
+  `--agent claude` and any `--witnessed` the model supplied is stripped. A call that already says
+  `--agent` is left as is. A command that names a gate only inside quoted text nothing can run
+  (`echo "…"`, a `grep` pattern, a commit message) is a mention and is left exactly as written.
+- The turn: who started it. A prompt the engine delivers into the running turn (a background
+  task's notification, a peer's message, text typed mid-turn) does not start a new one, so a
+  typed `/astro-discuss <n>` or `/astro-accept <n>` stays witnessed while a workflow finishes.
+- `accepted_evidence`: `--witnessed composer` is stored as `accepted_evidence: "composer"`
+  (`ac phase show <n> --json`). `ac` never detects; it records what the caller declares.
+- Fail open: an unknown turn, an empty typed id or a command it cannot parse is left declared, with
+  one notice.
+- Known gaps: a typed `! ac phase accept <n>` line (the host shows it to no hook, so it is never
+  witnessed; use the slash command), MCP shell tools (`ctx_shell`), an `ac` alias or script, a subagent's call (never
+  witnessed), and Remote Control (`bridge`, counts as no signal so it is recorded as agent). The UAT
+  question's answer is not attestable (phase 41 `PROBE.md`).
+
+**phase-band** draws a quiet band above the prompt in an astro-code project, and offers ids as you
+type. Optionally, on Claude Code, `ac mods enable phase-band` (off by default; headless `-p` and any
+directory outside an astro-code project draw nothing):
+
+- The band, under a full-width `── ✦ astro-code ──── M<n> ▰▰▱▱▱ 3/5 ──` banner:
+  - `ROADMAP`: every phase of the milestone as a chip, `✓` done, `◉` verified (waiting for your
+    accept), `▸` planned, `◌` discussed, `○` to do, `✗` rejected, `⚙` being executed, `✎` being
+    planned; the current phase is underlined, and more than three finished phases fold into `✓ N done`.
+  - `RUNNING` (only while something runs): each astro-code workflow in flight with its live crew,
+    for example `⚙ execute 110 · 3 executors   ✎ plan 112 · 2 researchers`. A run starts at its
+    Workflow call, each agent it starts joins its crew and leaves when it finishes, and the run
+    leaves the row when its task notification arrives. An Agent-tool `astro-executor` or
+    `astro-verifier` is listed with its state; with nothing tracked, `ac`'s activity text shows.
+  - `NEXT`: up to three buttons, the next command that `ac status` recommends first and at most
+    two siblings. A phase already being executed or planned is not offered again; a next command
+    that names no phase, such as `/astro-milestone`, shows as `next › /astro-milestone`.
+- A button only **fills the composer**; you press Enter. It never submits or runs anything, so an
+  accept started from a button is still typed by you.
+- Autocomplete: after `/astro-discuss`, `/astro-plan`, `/astro-execute`, `/astro-verify` and
+  `/astro-accept` it offers phase numbers with their state; after `/astro-debt-pay`,
+  `/astro-backlog-promote` and `/astro-fix-accept` it offers the open ids with short titles.
+  Rows appear once you type the first character of the id.
+- Reads only: `ac status --json` and the `debt`, `backlog` and `fix` `list --json` queries, re-read
+  when something under `.astrocode/` changed and kept in session memory, never on disk. If `ac`
+  fails it shows one dim "unavailable" line and no buttons.
+
+**live-capture** offers to capture a principle from what you type. Optionally, on Claude Code,
+`ac mods enable live-capture` (off by default, because it costs one Haiku call per typed prompt):
+
+- What it reads: only a prompt you typed at the composer. Slash commands and their expanded
+  bodies, `-p`/SDK input, notifications, assistant text and tool output are never looked at.
+- Privacy: the text you typed goes to a Haiku judge, as it already went to the main model. The
+  personal store redacts the statement, why and excerpt before anything is written.
+- Where proposals go: the personal principle store, as *proposed* only (never accepted by the
+  mod). Review them with `/astro-principles-review` or `ac principles list --proposed`.
+- Volume: at most three proposals per session; sightings of existing principles do not count and
+  reaching the cap is silent.
+- The quiet count: `N proposed — /astro-principles-review` shows once at the first turn end after
+  the count rises, or in the phase band when that is drawing; never a toast, nothing at zero. A
+  failure gives at most one `⚠ principle capture failed` line per session and never touches your
+  prompt.
+- The escape: `ac mods disable live-capture`.
+- The rules (gate, lift, kinds, `--from-ref`, reporting) live once in
+  `templates/principle-capture.md`; this section does not restate them.
+
+```bash
+ac mods                          # every feature: on/off, kind, and whether it can take effect here (--json too)
+ac mods status blindfold         # just one
+ac mods enable blindfold witness # turn one or more on (`ac install` already installed the plugin, every mod off)
+ac mods disable blindfold        # turn one or more off; the plugin stays installed and inert
+```
+
+The switches live in **`~/.astro/config.json`** under `mods`, beside `agent_tools`, per user and
+not per project (`{ "mods": { "blindfold": true } }`; a missing key is off). `ac mods` is the only
+writer; an unparseable file is refused, never overwritten, and an unknown feature name changes
+nothing.
+
+Mods need **Claude Code 2.1.292 or newer**. On an older (or no) Claude Code, `ac mods enable`
+still records the switch and warns once, but installs nothing. The first `mod` you enable adds
+a local marketplace called `astro-code` (shipped to `~/.astro/code/mods` by `ac install`) and
+installs `astro-mods@astro-code` into **every** Claude config dir `ac install` already covers,
+jean-claude profiles included. A different marketplace already named `astro-code` is never
+replaced: `ac` reports it with a `fix:` line, namely
+`CLAUDE_CONFIG_DIR=<dir> claude plugin marketplace remove astro-code` (without the prefix for the
+default dir), and the switch stays recorded. `ac install` only prints a one-line offer, and only
+on a qualifying Claude Code. `ac update` refreshes the plugin where it is installed and never
+installs it; `ac uninstall` removes the plugin and the marketplace from every dir before it
+deletes the astro home. In a session that is already running, `/reload-plugins` picks up a
+change.
+
 ### What the statusline gauges show
 
 The statusline's four gauges — **ctx** (context fill), **5h** and **7d** (quota windows) and
@@ -115,6 +338,12 @@ ac statusline gauges all both         # every gauge back to the default
 Width still wins: on a line too narrow for bars every gauge shows its percent, so a gauge set
 to `bar` falls back to its number instead of disappearing. Like `agent_tools`, it is per user
 and lives in **`~/.astro/config.json`** (`{ "statusline": { "gauges": { "5h": "percent" } } }`).
+
+With the **phase-band** mod drawing above the prompt, the statusline drops what the band shows
+(the milestone, the phase track, the phase state, the live verb and the done/verified counts) and
+keeps the rest. It does so only when the `phase-band` switch is on *and* the astro-mods plugin is
+installed in that Claude profile, so a band that cannot draw never takes the facts with it.
+`ac statusline dedupe off` keeps everything on the line; `ac statusline dedupe on` is the default.
 
 ### Windows / PowerShell
 
@@ -803,6 +1032,8 @@ ac status                      # project / milestone / phases
 ac phase add "Foundation"      # claim + add a phase
 ac phase check "<name>"        # is someone already building this?
 ac phase accept <n>            # human gate — requires a prior `verified`
+ac phase accept <n> --witnessed composer  # evidence the witness mod adds; also on `phase reject` and `fix accept`. `ac` never detects: it records what is declared
+ac phase show <n> [--json]     # one phase's record, incl. accepted_kind / accepted_evidence
 ac phase reject <n> --reason … [--agent name]  # UAT failed → rejected + a blocker (--agent: machine-signed)
 ac phase surprise <n> [--healed n] [--remediation-cycles n] [--stopped-reason r] [--note "…"]  # execute records a run surprise
 ac phase context <n> [--author]  # discuss-gate status, or who captured it: human | agent <name> | none
@@ -824,6 +1055,7 @@ ac fix accept <id> --agent <n> # machine-signed (ADR-033): records accepted_kind
 
 ac debt list [--stale]         # open technical debt (the verifier files it automatically)
 ac debt score                  # pay-it-down-now signal, 0-100, with the evidence
+ac debt note <id> ["…"] [--append|--replace]  # add what you learn later; the id and age stay
 ac debt pay <id> [--as phase] [--milestone N]  # graduate it into a fix (default) or a roadmap phase
 ac debt drop <id> --reason "…" # it WAS true and stopped being true
 ac debt dismiss <id> --reason … # it was NEVER true — the verifier was wrong

@@ -8,7 +8,7 @@ import { basename, join, dirname, resolve } from 'node:path';
 import { tmpdir, homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { findRoot, paths } from '../lib/paths.mjs';
-import { initPlanning, phaseContextStatus, contextAuthor } from '../lib/planning.mjs';
+import { initPlanning, phaseContextStatus, classifyContext } from '../lib/planning.mjs';
 import { profileModels, PROFILE_NAMES, localModelSession, sessionModels } from '../lib/models.mjs';
 
 // A local-model session (lib/models.mjs) cannot serve the configured tiers: every role runs
@@ -20,7 +20,49 @@ function effectiveConfig(cfg) {
   const s = localModelSession();
   return s.local ? { ...cfg, models: sessionModels(), reasoning: {} } : withUserRoleDefaults(cfg).cfg;
 }
+// Phase 36 -- the `claude plugin` commands exist only from the floor up, and astro-mods can
+// only have been installed on a Claude at or above it; below it (or with none) every mods
+// step of install/update/uninstall is silent (ADR-030: an optional integration says nothing
+// when its host is absent).
+function claudeMeetsModFloor() {
+  const cv = claudeVersion();
+  return !!(cv.found && cv.version && compareVersions(cv.version, MOD_FLOOR) >= 0);
+}
+// Phase 42 (ADR-075) -- install/update put the astro-mods plugin in place with every switch off,
+// so the plugin's own settings.json keys are written here and `ac mods enable` never edits that
+// file. Only a change, a collision or a failure is worth a line; `already` is silent.
+function reportPluginEnsure(results) {
+  for (const r of results) {
+    if (r.outcome === 'installed') console.log(`✓ astro-mods installed (every mod off) → ${r.dir} [${r.label}]`);
+    else if (r.outcome === 'collision') console.error(`⚠ astro-mods not installed in ${r.dir} [${r.label}]: ${r.message}${r.fix ? `\n  fix: ${r.fix}` : ''}`);
+    else if (r.outcome === 'failed') console.error(`⚠ astro-mods install failed in ${r.dir} [${r.label}]: ${r.message}`);
+  }
+}
 // #93 — one line for what `agent_tools` in ~/.astro/config.json added, warnings on stderr.
+// Guard re-sync outcomes from install/update: only a change (or a failure) is worth a line.
+function reportGuards(res) {
+  for (const g of (res && res.guards) || []) {
+    if (g.outcome === 'added') console.log(`✓ ${g.feature} → ${g.dir} [${g.label}]`);
+    else if (g.outcome === 'removed') console.log(`✓ ${g.feature} removed → ${g.dir} [${g.label}]`);
+    else if (g.outcome === 'failed') console.error(`⚠ ${g.feature}: ${g.dir} — ${g.error}`);
+  }
+}
+
+// One `ac mods status` line for an enforcement row of a hook feature.
+function enforcementLine(r) {
+  // A row that is enforced says what it answers: `asks` (Claude Code) or `denies`.
+  const says = r.verdict ? { ask: 'asks', deny: 'denies' }[r.verdict] || r.verdict : '';
+  if (r.host === 'cursor') {
+    const word = {
+      enforced: `enforced (native preToolUse${says ? `, ${says}` : ''})`,
+      'via-claude-import': `via Claude Code import${says ? `, ${says}` : ''}`,
+    }[r.state] || 'not enforced on Cursor';
+    return `cursor ${r.dir}: ${word}`;
+  }
+  const word = { enforced: `enforced${says ? ` (${says})` : ''}`, missing: 'missing — run ac install', broken: 'broken — run ac install', unreadable: 'unreadable', 'no-dir': 'no config dir' }[r.state] || r.state;
+  return `claude ${r.dir} [${r.label}]: ${word}`;
+}
+
 function reportAgentTools(res) {
   const at = res && res.agentTools;
   if (!at) return;
@@ -64,7 +106,7 @@ import { gitIdentity, git, isRepo } from '../lib/git.mjs';
 import { claim, readRegistry, registryBranch, markComplete, findNameMatches, initRegistry, claimFix, markFixComplete, repointPhaseClaim, claimDrift, activateMilestone, milestoneClaims, waitingMilestones, renameMilestone } from '../lib/registry.mjs';
 import { addFix, acceptFix, setFixStatus, findFix, openFixes, loadFixes, FIX_STATUSES } from '../lib/fixes.mjs';
 import {
-  addDebt, openDebt, findDebt, payDebt, dropDebt, dismissDebt, closeDebtFor, staleDebt,
+  addDebt, openDebt, findDebt, payDebt, dropDebt, dismissDebt, closeDebtFor, staleDebt, setDebtNote,
   debtAgeDays, debtScore, loadDebt, DEBT_COSTS, STALE_DAYS,
 } from '../lib/debt.mjs';
 import {
@@ -87,7 +129,7 @@ import { milestoneHarvest } from '../lib/harvest.mjs';
 import { flowInit, flowBranch, flowPR, flowRelease, flowTag, flowHotfixStart, flowHotfixFinish } from '../lib/flow.mjs';
 import { installClaude, uninstallClaude, installStatusline, baseConfigDir, ASTRO_HOME, refreshAgents, agentNames } from '../lib/install.mjs';
 import { readAgentTools, updateAgentTools } from '../lib/agenttools.mjs';
-import { GAUGES, GAUGE_MODES, readGaugeModes, setGaugeMode } from '../lib/statuslinegauges.mjs';
+import { GAUGES, GAUGE_MODES, readGaugeModes, setGaugeMode, statuslineDedupe, setStatuslineDedupe } from '../lib/statuslinegauges.mjs';
 import { applyTune, undoTune, tuneTarget, UNTUNABLE } from '../lib/tune.mjs';
 import { collectStats } from '../lib/stats.mjs';
 import { writeAgentsMd } from '../lib/agentsmd.mjs';
@@ -104,20 +146,32 @@ import { syncPrinciples, openConflicts, getRemote, setRemote, resolveConflict } 
 import { STAGE_WORK } from '../lib/principlebrief.mjs';
 import { shortlist, askStore, cite, usageReview, clashesFor, projectContext } from '../lib/retrieval.mjs';
 import { sweep, advanceSweep } from '../lib/mine.mjs';
-import { findAstroRoot } from '../hooks/_astro-ctx.mjs';
+import { findAstroRoot, ACTIVITY_TTL_SECONDS } from '../hooks/_astro-ctx.mjs';
+import { statusJson } from '../lib/nextstep.mjs';
 import {
   connect as fleetConnect, disconnect as fleetDisconnect, setPaused as fleetSetPaused,
   setColor as fleetSetColor, status as fleetStatus,
 } from '../lib/fleet.mjs';
 import { reportOutcome } from '../hooks/_astro-fleet.mjs';
 import { configTargets } from '../lib/hosts/claude.mjs';
+import { briefSectionFeed } from '../lib/modfeed.mjs';
+import { FEATURES, MOD_FLOOR, readMods, modsStatus, enableMod, disableMod, claudeVersion, compareVersions, ensurePlugin, updatePlugin, removePlugin } from '../lib/mods.mjs';
 
 function parseArgs(args) {
   const flags = {};
   const pos = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (a.startsWith('--')) {
+    // Phase 44 — a value that itself starts with `--` (a typed prompt, say) is passed as
+    // `--key=value`, and a positional as one after a bare `--`, so neither is read as a flag.
+    if (a === '--') {
+      pos.push(...args.slice(i + 1));
+      break;
+    }
+    const eq = a.indexOf('=');
+    if (a.startsWith('--') && eq > 2) {
+      flags[a.slice(2, eq)] = a.slice(eq + 1);
+    } else if (a.startsWith('--')) {
       const key = a.slice(2);
       const val = args[i + 1] != null && !args[i + 1].startsWith('--') ? args[++i] : true;
       flags[key] = val;
@@ -148,6 +202,13 @@ const ALLOWED_FLAGS = {
   // publishing first (`ac canon push`); a typo'd flag must not silently degrade
   // into "took the registry's copy" (ADR-029).
   'canon pull': ['force'],
+  // Phase 36 — flipping a switch writes ~/.astro/config.json and may install a plugin into every
+  // Claude profile; `status` is read-only and stays unguarded.
+  'mods enable': ['json'],
+  'mods disable': ['json'],
+  // Phase 42 -- the read-only feed the brief-section mod consumes; `--json` is accepted because
+  // every `mods` verb takes it, the output is JSON regardless.
+  'mods feed': ['json', 'position'],
   'canon push': ['dry-run'],
   'canon dedupe': [],
   'decision add': ['why', 'rejected'],
@@ -160,17 +221,20 @@ const ALLOWED_FLAGS = {
   'canon check': [],
   'canon stats': [],
   'registry init': ['force'],
-  'phase accept': ['by', 'force', 'agent'],
+  // ADR-074 — `witnessed` is the optional witness mod TELLING ac what it saw; ac never detects.
+  'phase accept': ['by', 'force', 'agent', 'witnessed'],
+  'phase show': ['json'],
   // Phase 23 (P2) — a stand-in agent rejects on the human's behalf; `agent` is the
   // declared signer, mirroring `phase accept --agent` (ADR-033, now symmetric).
-  'phase reject': ['reason', 'agent'],
+  'phase reject': ['reason', 'agent', 'witnessed'],
   // Phase 23 (P3) — execute calls this unconditionally; a typo'd flag must not
   // silently drop the very signal the milestone sweep exists to catch.
   'phase surprise': ['healed', 'remediation-cycles', 'stopped-reason', 'note'],
-  'fix accept': ['by', 'agent'],
+  'fix accept': ['by', 'agent', 'witnessed'],
   // `drop` is the one debt verb that removes something from the list on a human's
   // say-so, so a typo'd flag must not degrade into "dropped with no reason".
   'debt drop': ['reason'],
+  'debt note': ['append', 'replace'],
   'debt dismiss': ['reason'],
   'debt pay': ['as', 'milestone'],
   // A typo'd `--phase` must not silently degrade into "checked the wrong phase".
@@ -247,6 +311,23 @@ function checkFlags(key, flags) {
   const ok = allowed.length ? `accepted: ${allowed.map((f) => `--${f}`).join(', ')}` : 'this command takes no flags';
   die(`unknown flag${unknown.length > 1 ? 's' : ''} for \`ac ${key}\`: ${got} (${ok})`);
 }
+// ADR-074 — `--witnessed <evidence>` is what the optional witness mod saw, passed on to the
+// record. ac never detects it: the allowlist is the only thing it knows, and the flag
+// contradicts `--agent` (an agent signed vs a human typed the gate command), so the pair is
+// refused BEFORE any state is read or written. Presence is `!== undefined` (the phase-23 rule),
+// so a bare `--agent` still counts as declared.
+const EVIDENCE = Object.freeze(['composer']);
+function witnessedEvidence(flags) {
+  if (flags.witnessed === undefined) return undefined;
+  if (flags.agent !== undefined) {
+    die('--witnessed and --agent contradict each other: --witnessed says a human typed the gate command, --agent says an agent signed (ADR-074)');
+  }
+  if (!EVIDENCE.includes(flags.witnessed)) {
+    die(`--witnessed takes one value, ${EVIDENCE.join(' | ')} (got ${flags.witnessed === true ? 'nothing' : flags.witnessed})`);
+  }
+  return flags.witnessed;
+}
+const WITNESSED_NOTE = ' (witnessed: typed at the composer)';
 // #106 — `ac phase note` / `ac backlog note` text and write mode. The flags are booleans,
 // but the parser hands a flag the next word as its value, so `--append "<text>"` and
 // `"<text>" --append` must both read the same.
@@ -398,6 +479,9 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac agent-tools [--json]             extra MCP tools each astro agent may use (~/.astro/config.json)
   ac agent-tools add|remove <agent|*> <MCP tool…>  change them — applied to the installed agents at once
   ac agent-tools clear [<agent|*>]    drop them (all, or one agent's)
+  ac mods [status [<feature>]] [--json]  optional Claude Code enforcement: what is on, and whether it can take effect here
+  ac mods enable|disable <feature>    one switch in ~/.astro/config.json; ac install already installed the plugin
+  ac mods feed brief-section [--position]   what the SessionStart/PreCompact hooks print, as JSON (read by the brief-section mod)
   ac milestone check "<name>"         see if a milestone with a similar name exists
   ac milestone complete [--force]     archive the current milestone + retire its claims
                                        (refuses while a phase is not complete; --force overrides)
@@ -410,12 +494,15 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac phase verify <phase>             mark a phase verified (AI gate passed)
   ac phase accept <phase> [--by N]    UAT sign-off → complete (requires verified)
   ac phase accept <p> --agent <name>  machine-signed sign-off (records accepted_kind=agent)
+  ac phase accept <p> --witnessed composer  record that a human typed the gate command (set by the witness mod, ADR-074)
+  ac phase show <phase>               print the raw roadmap entry as JSON
   ac fix add "<what is broken>"       open a bugfix (dated id, no phase number)
   ac fix list                         open fixes
   ac fix status <id> [<status>]       read or move the lifecycle
-  ac fix accept <id> [--agent <name>] human gate → accepted + archived
+  ac fix accept <id> [--agent <name> | --witnessed composer] human gate → accepted + archived
   ac debt list [--phase N|--file p|--stale]  open technical debt (the verifier files it)
   ac debt add "<what>" [--why …] [--phase N] [--file p] [--cost small|medium|large]
+  ac debt note <id> ["<text>"] [--append|--replace]  read/set/clear a debt's note (title and id stay fixed)
   ac debt score                       is it worth paying debt down right now? (0-100 + why)
   ac debt pay <id> [--as fix|phase] [--milestone N]  graduate it into a fix (default) or a roadmap phase
   ac debt drop <id> --reason "…"      it WAS true and stopped being true
@@ -455,7 +542,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac principles mine [--all|--project <path>] [--rescan] [--json]   hand over a batch of past human turns (read-only)
   ac principles mine --advance <sweep-id> [--keep <id,id,...>]   mark that sweep processed, carrying the kept turns forward
   ac principles list|show … --no-sync   read-only: skip the git sync entirely (no lock, no write) — for a read-only consumer
-  ac phase reject <phase> --reason … [--agent name]  UAT failed → rejected + record a blocker
+  ac phase reject <phase> --reason … [--agent name | --witnessed composer]  UAT failed → rejected + record a blocker
                                        (--agent: machine-signed rejection, not human UAT)
   ac phase surprise <phase> [--healed n] [--remediation-cycles n] [--stopped-reason r] [--note "…"]
                                        record what an /astro-execute run hit sideways (silent; for the milestone sweep)
@@ -607,9 +694,14 @@ async function main() {
 
       if (sub === 'accept') {
         checkFlags('fix accept', flags);
+        // A bare or empty --agent on an ACCEPT would otherwise record a human sign-off (agentSigner
+        // falsy): refuse it rather than guess. A reject keeps declaring agent on a bare flag (below).
+        if (flags.agent !== undefined && (typeof flags.agent !== 'string' || !flags.agent.trim())) die('fix accept --agent needs a name, e.g. --agent claude (ADR-033: an agent signer is declared by name)');
+        const evidence = witnessedEvidence(flags);
         const done = await acceptFix(r, fix.id, {
           by: typeof flags.by === 'string' ? flags.by : gitIdentity(r).owner,
           agent: typeof flags.agent === 'string' ? flags.agent : '',
+          evidence,
         });
         markFixComplete({ root: r, id: fix.id });
         reportFleetOutcome(r, {
@@ -617,7 +709,7 @@ async function main() {
           first_try: fix.status !== 'rejected' && !fix.rejections,
         });
         const who = done.accepted_kind === 'agent' ? `agent ${done.accepted_by}` : done.accepted_by;
-        console.log(`✓ accepted ${done.id} by ${who}${done.archived ? ' → archived' : ''}`);
+        console.log(`✓ accepted ${done.id} by ${who}${done.archived ? ' → archived' : ''}${evidence ? WITNESSED_NOTE : ''}`);
         // Draining the debt register is a SIDE EFFECT of the gate that already exists.
         // This is the anti-rot mechanism: an item closes because the work was accepted,
         // never because someone remembered to delete a line (see lib/debt.mjs).
@@ -728,6 +820,25 @@ async function main() {
 
       if (sub === 'show') { json(item); return; }
 
+      if (sub === 'note') {
+        // #127 — like `ac backlog note`: no text READS, text WRITES (refusing to overwrite a
+        // longer note without --append/--replace), "" CLEARS.
+        checkFlags('debt note', flags);
+        const nw = noteWrite(pos, flags);
+        if (!nw.write) {
+          console.log(item.note ?? '');
+        } else {
+          let updated;
+          try { updated = await setDebtNote(r, item.id, nw.text, nw.opts); } catch (e) { die(e.message); }
+          console.log(
+            updated.note
+              ? `✓ debt ${updated.id} note ${nw.opts.append ? 'appended' : 'updated'} (${updated.note.length} chars)`
+              : `✓ debt ${updated.id} note cleared`,
+          );
+        }
+        return;
+      }
+
       if (sub === 'pay') {
         checkFlags('debt pay', flags);
         const as = typeof flags.as === 'string' ? flags.as : 'fix';
@@ -789,7 +900,7 @@ async function main() {
         return;
       }
 
-      die(`unknown: ac debt ${sub} (add | list | show | score | pay | drop | dismiss)`);
+      die(`unknown: ac debt ${sub} (add | list | show | note | score | pay | drop | dismiss)`);
     }
 
     case 'backlog': {
@@ -1658,6 +1769,10 @@ async function main() {
 
     case 'status': {
       const r = root();
+      const now = Math.floor(Date.now() / 1000);
+      // phase 43 — machine-readable "where am I, what next", read-only and offline: it returns
+      // BEFORE readRegistry (a git fetch, ~3 s) so a UI polling it stays fast.
+      if (flags.json) { json(statusJson(r, now)); return; }
       const st = loadState(r) || {};
       const rm = loadRoadmap(r);
       const reg = readRegistry(r);
@@ -1707,6 +1822,11 @@ async function main() {
       for (const d of reg.available ? claimDrift(rm, reg.registry) : []) {
         console.log(`  ⚠ phase ${d.number} is milestone ${d.roadmap} in the roadmap but ${d.registry} on the registry — ` +
           `\`ac phase milestone ${d.number} ${d.roadmap}\` realigns them`);
+      }
+      {
+        // the same rule the banner prints (nextAction), plus siblings; never re-derived here
+        const ns = statusJson(r, now);
+        console.log(`Next:      ${ns.next ?? 'wait for the running /astro-execute'}${ns.siblings.length ? `  (also ${ns.siblings.join(', ')})` : ''}`);
       }
       console.log('Phases:');
       if (!rm.phases.length) console.log('  (none)');
@@ -1762,12 +1882,23 @@ async function main() {
     // crashed before clearing). Silent on success — it's called from command steps.
     case 'activity': {
       const r = root();
+      // A command run while another still holds the slot (a discuss beside an executing phase)
+      // keeps that verb as `prev`, and its clear puts it back, so the run underneath never loses
+      // its live status. A `prev` past the TTL is dropped rather than revived.
+      const now = Math.floor(Date.now() / 1000);
+      const fresh = (a) => a && typeof a === 'object' && typeof a.text === 'string' && a.text
+        && typeof a.at === 'number' && now - a.at <= ACTIVITY_TTL_SECONDS;
       if (pos[0] === 'clear' || pos[0] === 'off') {
-        await updateState(r, (s) => ({ ...s, activity: null }));
+        await updateState(r, (s) => ({ ...s, activity: fresh(s.activity?.prev) ? s.activity.prev : null }));
       } else {
         const text = pos.join(' ').trim();
         if (!text) die('usage: ac activity <text> | clear');
-        await updateState(r, (s) => ({ ...s, activity: { text, at: Math.floor(Date.now() / 1000) } }));
+        await updateState(r, (s) => {
+          const cur = fresh(s.activity) ? s.activity : null;
+          // the same verb again refreshes it; a different one stacks one level over it
+          const prev = cur && cur.text !== text ? { text: cur.text, at: cur.at } : (cur?.prev ?? undefined);
+          return { ...s, activity: { text, at: now, ...(fresh(prev) ? { prev } : {}) } };
+        });
       }
       return;
     }
@@ -2124,12 +2255,10 @@ async function main() {
           const status = phaseContextStatus(r, ph.slug);
           if (status !== 'ready') { console.log('none'); return; }
           const file = join(paths(r).phases, ph.slug, 'CONTEXT.md');
-          // `contextAuthor` returns `null` for the plain human marker and a (possibly
-          // empty) string for the agent form — an empty string still DECLARES agent
-          // provenance (`<!-- astro-discuss: captured by agent:  -->`, no name given),
-          // so a truthy check on the name wrongly reported that capture as 'human'.
-          const author = contextAuthor(readFileSync(file, 'utf8'));
-          console.log(author !== null ? `agent${author ? ` ${author}` : ''}` : 'human');
+          // classifyContext decides: an empty agent name still DECLARES agent provenance
+          // (`<!-- astro-discuss: captured by agent:  -->`), and only a line-1 human marker is human.
+          const c = classifyContext(readFileSync(file, 'utf8'));
+          console.log(c.kind === 'agent' ? `agent${c.author ? ` ${c.author}` : ''}` : c.kind === 'human' ? 'human' : 'none');
           return;
         }
         console.log(phaseContextStatus(r, ph.slug));
@@ -2139,9 +2268,16 @@ async function main() {
         // `verified` is the AI verifier's verdict by definition (REQ-006), so by: agent.
         reportFleetOutcome(r, { kind: 'phase_verified', ref: ph.number, title: ph.name, by: 'agent' });
         console.log(`✓ phase ${ph.number} "${ph.name}" → verified (run /astro-accept for UAT to close)`);
+      } else if (sub === 'show') {
+        // The raw roadmap entry, like `ac fix show` — how a reader sees accepted_kind and
+        // accepted_evidence side by side. `--json` is accepted and prints the same.
+        if (!ph) die('usage: ac phase show <phase> [--json]');
+        checkFlags('phase show', flags);
+        json(ph);
       } else if (sub === 'accept') {
-        if (!ph) die('usage: ac phase accept <phase> [--by name | --agent name] [--force]');
+        if (!ph) die('usage: ac phase accept <phase> [--by name | --agent name | --witnessed composer] [--force]');
         checkFlags('phase accept', flags);
+        const evidence = witnessedEvidence(flags);
         if (ph.status !== 'verified' && !flags.force) {
           die(`phase ${ph.number} is "${ph.status}", not verified — run /astro-verify first (or pass --force)`);
         }
@@ -2164,6 +2300,13 @@ async function main() {
         // and defaulting to "unknown" would retroactively cast doubt on records that are correct.
         // The burden sits on the agent path — /astro-accept instructs a stand-in signer to pass
         // `--agent`, and the reject path is untouched (a rejection claims no authority).
+        //
+        // ADR-074 amends the last step, not this one: ac still never sniffs. The optional
+        // witness mod can see where a turn began, and TELLS ac what it saw with
+        // `--witnessed composer`; ac records that as `accepted_evidence` and nothing else.
+        // A bare or empty --agent on an ACCEPT would otherwise record a human sign-off (agentSigner
+        // falsy): refuse it rather than guess. A reject keeps declaring agent on a bare flag (below).
+        if (flags.agent !== undefined && (typeof flags.agent !== 'string' || !flags.agent.trim())) die('phase accept --agent needs a name, e.g. --agent claude (ADR-033: an agent signer is declared by name)');
         const agentSigner = typeof flags.agent === 'string' ? flags.agent : null;
         const by = agentSigner || (typeof flags.by === 'string' ? flags.by : gitIdentity(r).owner);
         const kind = agentSigner ? 'agent' : 'human';
@@ -2171,6 +2314,7 @@ async function main() {
           accepted_by: by,
           accepted_kind: kind,
           accepted_at: new Date().toISOString(),
+          ...(evidence ? { accepted_evidence: evidence } : {}),
         });
         await updateState(r, (s) => ({ ...s, active_phase: s.active_phase === ph.slug ? null : s.active_phase }));
         reportFleetOutcome(r, {
@@ -2178,7 +2322,7 @@ async function main() {
           first_try: !(ph.rejections && ph.rejections.length) && ph.status !== 'rejected',
         });
         console.log(
-          `✓ phase ${ph.number} "${ph.name}" accepted by ${by}${agentSigner ? ' (AGENT — machine-signed, not human UAT)' : ''} → complete`,
+          `✓ phase ${ph.number} "${ph.name}" accepted by ${by}${agentSigner ? ' (AGENT — machine-signed, not human UAT)' : ''}${evidence ? WITNESSED_NOTE : ''} → complete`,
         );
         // Same drain as `ac fix accept`: debt paid by this phase closes here, on the
         // acceptance, so the register can never claim work is done on a promise.
@@ -2192,8 +2336,9 @@ async function main() {
           console.log(`✓ backlog ${b.id} absorbed`);
         }
       } else if (sub === 'reject') {
-        if (!ph) die('usage: ac phase reject <phase> --reason "…" [--agent name]');
+        if (!ph) die('usage: ac phase reject <phase> --reason "…" [--agent name | --witnessed composer]');
         checkFlags('phase reject', flags);
+        const evidence = witnessedEvidence(flags);
         const reason = typeof flags.reason === 'string' ? flags.reason : '';
         // ADR-033, now symmetric on reject (P2, phase 23) — a stand-in agent rejects
         // on the human's behalf; `kind` is DECLARED via `--agent`, never detected, for
@@ -2207,7 +2352,7 @@ async function main() {
         // stand-in agent's rejection masquerade as genuine human UAT.
         const isAgentSigner = flags.agent !== undefined;
         const agentSigner = typeof flags.agent === 'string' ? flags.agent : '';
-        await rejectPhase(r, ph.slug, { reason, agent: isAgentSigner ? agentSigner : undefined });
+        await rejectPhase(r, ph.slug, { reason, agent: isAgentSigner ? agentSigner : undefined, evidence });
         reportFleetOutcome(r, { kind: 'phase_rejected', ref: ph.number, title: ph.name, by: isAgentSigner ? 'agent' : 'human' });
         await updateState(r, (s) => ({
           ...s,
@@ -2217,7 +2362,7 @@ async function main() {
         }));
         console.log(
           `✗ phase ${ph.number} "${ph.name}" → rejected${reason ? `: ${reason}` : ''}` +
-            `${isAgentSigner ? ' (AGENT — machine-signed, not human UAT)' : ''}`,
+            `${isAgentSigner ? ' (AGENT — machine-signed, not human UAT)' : ''}${evidence ? WITNESSED_NOTE : ''}`,
         );
         // Q1: a linked item whose phase is REJECTED reverts to open rather than being
         // stranded as `linked` forever — nothing is silently lost either way.
@@ -2332,7 +2477,7 @@ async function main() {
           console.log('  the project\'s active milestone is unchanged — use `ac milestone new` to move it');
         }
       } else {
-        die('usage: ac phase <add|check|context|verify|accept|reject|surprise|effort|note|milestone> …');
+        die('usage: ac phase <add|check|context|show|verify|accept|reject|surprise|effort|note|milestone> …');
       }
       return;
     }
@@ -2422,9 +2567,8 @@ async function main() {
 
     case 'models': {
       // Speed switch: apply a whole per-role tier preset in one shot, instead of
-      // six `ac config set models.<role>` calls. The ladder is opus→sonnet only,
-      // except the mechanical wave `integrator` role, which carve-out ADR-027
-      // permitted, but ADR-035 reverted it — no role runs haiku. See lib/models.mjs for the profiles.
+      // six `ac config set models.<role>` calls. Every profile is opus→sonnet (ADR-035);
+      // haiku is a per-role user choice (ADR-073), never a profile value. See lib/models.mjs.
       //   ac models                  print the current effective tiers
       //   ac models <profile>        apply the preset (persist to config.models)
       //   ac models <profile> --preview   print the preset JSON without writing
@@ -2733,7 +2877,17 @@ async function main() {
         for (const g of GAUGES) console.log(`  ${g.padEnd(4)} ${modes[g]}`);
         return;
       }
-      if (sub !== 'preview') die(`unknown statusline subcommand "${sub}" — use install | preview | gauges`);
+      if (sub === 'dedupe') {
+        // Per user: with the phase-band mod drawing, drop from the line what the band shows.
+        if (pos.length > 1) {
+          if (pos.length !== 2 || !['on', 'off'].includes(pos[1])) die('usage: ac statusline dedupe [on|off]');
+          const res = setStatuslineDedupe({ on: pos[1] === 'on' });
+          if (!res.ok) die(res.error);
+        }
+        console.log(`  dedupe ${statuslineDedupe() ? 'on' : 'off'}  — with the phase-band mod drawing, the statusline ${statuslineDedupe() ? 'drops' : 'keeps'} the milestone, phase track, state and live verb`);
+        return;
+      }
+      if (sub !== 'preview') die(`unknown statusline subcommand "${sub}" — use install | preview | gauges | dedupe`);
       // Render the real hook against a representative Claude stdin blob so the
       // preview is WYSIWYG (dot + bar included). A tiny synthetic transcript drives
       // the recap + context-fill; --tokens/--model/--recap override the samples.
@@ -2860,6 +3014,11 @@ async function main() {
         reportHookSkips(t);
       }
       reportAgentTools(res);
+      reportGuards(res);
+      if (claudeMeetsModFloor()) {
+        reportPluginEnsure(ensurePlugin());
+        console.log('• optional on Claude Code: enforcement mods — see `ac mods status`, turn one on with `ac mods enable <feature>`');
+      }
       console.log('  after pulling updates, refresh the global CLI: npm install -g .');
       return;
     }
@@ -2903,7 +3062,105 @@ async function main() {
       return;
     }
 
+    case 'mods': {
+      // Phase 36 (ADR-071) — the optional Claude Code enforcement layer. A thin renderer: the
+      // registry, the switches and every `claude plugin` call live in lib/mods.mjs, the only
+      // writer of the `mods` key in ~/.astro/config.json.
+      for (const k of ['json', 'switches-only', 'position']) if (typeof flags[k] === 'string') { pos.push(flags[k]); flags[k] = true; }
+      const names = FEATURES.map((f) => f.name);
+      const unknownFeature = (n) => die(`unknown feature "${n}" — use one of: ${names.join(', ')}`);
+      const sub = pos[0] || 'status';
+      const feature = pos[1];
+      if (sub === 'status') {
+        if (feature !== undefined && !names.includes(feature)) unknownFeature(feature);
+        if (flags['switches-only']) {
+          // the hot path (the plugin's session.start, the settings hooks): the file and nothing else
+          const r = readMods();
+          json({ switches: r.switches, warnings: r.warnings });
+          return;
+        }
+        const st = modsStatus();
+        if (feature !== undefined) st.features = st.features.filter((f) => f.name === feature);
+        if (flags.json) { json(st); return; }
+        const cc = st.claude.found ? (st.claude.version || 'an unreadable version') : 'not found';
+        console.log(`Claude Code ${cc} · astro-mods plugin installed in ${st.plugin.dirs.filter((d) => d.installed).length}/${st.plugin.total} config dir(s)`);
+        for (const f of st.features) {
+          console.log(`  ${f.name.padEnd(14)} ${f.on ? 'on ' : 'off'}  ${f.kind.padEnd(4)}  ${f.why || 'takes effect'}`);
+          if (f.on) for (const r of f.enforcement || []) console.log(`    ${enforcementLine(r)}`);
+        }
+        for (const w of st.warnings) console.error(`⚠ ${w}`);
+        return;
+      }
+      if (sub === 'feed') {
+        // Phase 42 -- what the SessionStart / PreCompact hooks print, as JSON, for the brief-section
+        // mod (lib/modfeed.mjs). Read-only: never syncs, never logs usage.
+        checkFlags('mods feed', flags);
+        if (feature !== undefined && !names.includes(feature)) unknownFeature(feature);
+        if (feature !== 'brief-section') die(feature ? `no feed for ${feature} (the only feed is brief-section)` : `usage: ac mods feed brief-section [--position]   (features: ${names.join(', ')})`);
+        json(await briefSectionFeed({ cwd: process.cwd(), dir: principlesDir(), positionOnly: flags.position === true }));
+        return;
+      }
+      if (sub !== 'enable' && sub !== 'disable') die('usage: ac mods [status [<feature>]|enable <feature>…|disable <feature>…|feed brief-section [--position]] [--json]');
+      checkFlags(`mods ${sub}`, flags);
+      if (!feature) die(`usage: ac mods ${sub} <feature>…   (features: ${names.join(', ')})`);
+      // several features at once; every name is checked before any switch changes
+      const wanted = [...new Set(pos.slice(1))];
+      for (const n of wanted) if (!names.includes(n)) unknownFeature(n);
+      const results = [];
+      const one = (feature) => {
+        if (sub === 'disable') {
+          const res = disableMod({ feature });
+          if (!res.ok) die(res.error);
+          if (flags.json) { results.push(res); return; }
+          if (res.hooks) {
+            const n = res.hooks.filter((r) => r.outcome === 'removed').length;
+            console.log(`✓ ${feature} off — guard removed from ${n} config dir(s)`);
+            for (const r of res.hooks.filter((x) => x.outcome === 'failed')) console.error(`⚠ ${r.dir} [${r.label}]: ${r.error}`);
+            return;
+          }
+          console.log(`✓ ${feature} off${res.kind === 'mod' ? ' — the astro-mods plugin stays installed and inert' : ''}`);
+          return;
+        }
+        const res = enableMod({ feature });
+        if (!res.ok) die(res.error);
+        const failed = (res.plugin || []).some((r) => r.outcome === 'collision' || r.outcome === 'failed')
+          || (res.hooks || []).some((r) => r.host === 'claude' && r.outcome === 'failed');
+        if (failed) process.exitCode = 1;
+        if (flags.json) { results.push(res); return; }
+        console.log(`✓ ${feature} on — saved to ~/.astro/config.json`);
+        if (!res.built) console.log(res.parked ? `• parked — ${res.parked}; the switch is recorded but does nothing yet` : `• not built yet — takes effect when phase ${res.phase} lands`);
+        for (const r of res.hooks || []) {
+          if (r.host === 'claude') {
+            if (r.outcome === 'added') console.log(`✓ guard → ${r.dir} [${r.label}]`);
+            else if (r.outcome === 'failed') console.error(`⚠ ${r.dir} [${r.label}]: ${r.error}`);
+          } else if (r.outcome === 'native') console.log(`✓ Cursor: native preToolUse → ${r.dir}`);
+          else if (r.outcome === 'import') console.log('• Cursor: via Claude Code import');
+          else console.error(`⚠ Cursor: not enforced (${r.error || r.outcome})`);
+        }
+        if (res.claude === 'absent') console.error(`⚠ ${feature} is a Claude Code mod — no Claude Code found here, so it cannot take effect (switch recorded)`);
+        else if (res.claude === 'old' || res.claude === 'unknown') console.error(`⚠ ${feature} needs Claude Code ≥ ${MOD_FLOOR} (found ${res.version || 'an unreadable version'}) — switch recorded; plugin not installed`);
+        if (res.install === 'needed') console.error('⚠ astro-mods is not shipped yet (~/.astro/code/mods missing) — run `ac install` first, then re-run `ac mods enable ' + feature + '` (switch recorded)');
+        // enable never installs the plugin (ADR-075): a dir without it is named with `ac install`
+        for (const r of (res.plugin || []).filter((x) => x.outcome !== 'already')) {
+          console.error(`⚠ ${r.dir} [${r.label}]: ${r.message}`);
+          if (r.fix) console.error(`  fix: ${r.fix}`);
+        }
+      };
+      for (const f of wanted) one(f);
+      if (flags.json) json(results.length === 1 ? results[0] : results);
+      return;
+    }
+
     case 'uninstall': {
+      // astro-mods FIRST: the marketplace Claude holds points INTO the astro home that
+      // uninstallClaude() deletes, so removing the plugin afterwards would leave a dangling
+      // marketplace registered in every profile. Silent without a qualifying claude.
+      if (claudeMeetsModFloor()) {
+        for (const r of removePlugin()) {
+          if (r.outcome === 'removed') console.log(`✓ astro-mods removed → ${r.dir} [${r.label}]`);
+          else if (r.outcome === 'failed') console.error(`⚠ astro-mods removal failed in ${r.dir} [${r.label}]: ${r.message}`);
+        }
+      }
       // The fleet hook runs from ~/.astro/code/hooks, which uninstall deletes: leaving
       // its settings.json entries behind would fail on every tool call in every session.
       const fleet = fleetStatus();
@@ -2985,6 +3242,17 @@ async function main() {
         }
       }
       reportAgentTools(res);
+      reportGuards(res);
+      // install astro-mods where it is absent (every mod off, ADR-075), then refresh it
+      if (claudeMeetsModFloor()) {
+        const ensured = ensurePlugin();
+        reportPluginEnsure(ensured);
+        const fresh = new Set(ensured.filter((r) => r.outcome === 'installed').map((r) => r.dir));
+        for (const r of updatePlugin({ targets: [...configTargets()].filter(([dir]) => !fresh.has(dir)) })) {
+          if (r.outcome === 'updated') console.log(`✓ astro-mods refreshed → ${r.dir} [${r.label}]`);
+          else if (r.outcome === 'failed') console.error(`⚠ astro-mods refresh failed in ${r.dir} [${r.label}]: ${r.message}`);
+        }
+      }
       let version = '?';
       try { version = (JSON.parse(readFileSync(join(clone, 'package.json'), 'utf8')) || {}).version || '?'; } catch { /* ignore */ }
       console.log(`✓ astro-code is now at v${version} — restart Claude Code if the command list doesn't refresh`);
