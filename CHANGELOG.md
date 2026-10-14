@@ -4,6 +4,8 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+- The principles brief is about a quarter shorter, so more rules fit before it is cut: each `⚠ canon may override` reference is printed once at the end, naming the rules it applies to, and ids are printed as their 4-character suffix (`e618`) where that is unique. Every `ac principles` command (`show`, `cite`, …) accepts the suffix; an ambiguous one is refused (#130)
+
 - `npm test` no longer leaves temp folders behind: it runs the suite with `TMPDIR` set to one fresh folder and removes it afterwards, also after a failure or Ctrl-C. A full run used to leave about 1,370 folders (42k entries), enough to fill a tmpfs `/tmp` (#131)
 
 - Hook commands now use the `node` on your `PATH` when it is the same binary (e.g. Homebrew's `/home/linuxbrew/.linuxbrew/bin/node`), not the versioned path a `brew upgrade node` deletes. `ac install` and `ac update` also repair astro's existing entries that point at a node that is gone (#126)
