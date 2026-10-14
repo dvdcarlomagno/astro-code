@@ -4,6 +4,8 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+- live-capture works on a local model: when the endpoint refuses Haiku with a 4xx, the session's own model judges for the rest of the session instead of failing with `api-error` on every session. A 429 or 5xx on Haiku is an outage and never moves capture to the session model.
+
 ## v0.42.1
 
 - The verifier runs test suites, builds and type-checkers one at a time and, when the project routes them elsewhere (a `host` helper), runs them there, its own compiler scripts included. Its in-container `tsc` runs on top of a busy box were the spike before an out-of-memory restart.
