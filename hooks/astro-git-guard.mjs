@@ -538,6 +538,27 @@ export function resolveLiterals(command) {
   return out;
 }
 
+/**
+ * One command per value of each `for NAME in <plain words>; do` loop, NAME
+ * substituted, so `for f in a.md b.md; do git checkout -- $f; done` is judged
+ * as the files it names. A loop over anything but plain words (a glob, `$(…)`,
+ * a quoted value), or a variable also set elsewhere, stays unexpanded.
+ */
+export function expandLoops(command) {
+  let out = [command];
+  for (const m of command.matchAll(/\bfor\s+([A-Za-z_]\w*)\s+in\s+([^;&|\n]*?)\s*;\s*do\b/g)) {
+    const [, name, list] = m;
+    const values = list.split(/\s+/).filter(Boolean);
+    if (!values.length || !values.every((v) => /^[\w./@+:,=-]+$/.test(v))) continue;
+    if (new RegExp(`(^|[^\\w$])${name}=|\\bread\\b[^;&|\\n]*\\b${name}\\b`).test(command)) continue;
+    if ((command.match(new RegExp(`\\bfor\\s+${name}\\b`, 'g')) || []).length !== 1) continue;
+    const ref = new RegExp(`\\$\\{${name}\\}|\\$${name}(?!\\w)`, 'g');
+    if (out.length * values.length > 64) return [command];
+    out = out.flatMap((c) => values.map((v) => c.replace(ref, v)));
+  }
+  return out;
+}
+
 /** `{ reason, hit }` for a call to refuse, else null. */
 export function decide(input, { cursor = false } = {}) {
   if (!input || typeof input !== 'object') return null;
@@ -546,9 +567,14 @@ export function decide(input, { cursor = false } = {}) {
   if (typeof command !== 'string') return null;
   CWD = typeof input.cwd === 'string' && isAbsolute(input.cwd) ? input.cwd : null;
   const resolved = resolveLiterals(command);
-  TEXT = resolved;
-  const hit = judgeCommand(resolved);
-  if (!hit || nothingAtStake(hit, resolved)) return null;
+  let hit = null;
+  for (const variant of expandLoops(resolved)) {
+    TEXT = variant;
+    hit = judgeCommand(variant);
+    if (hit && !nothingAtStake(hit, variant)) break;
+    hit = null;
+  }
+  if (!hit) return null;
   const isCursor = cursor || input.hook_event_name === 'preToolUse';
   return { reason: reasonFor(hit, isCursor ? CURSOR_VERDICT : VERDICT), hit };
 }

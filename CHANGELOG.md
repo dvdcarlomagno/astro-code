@@ -4,6 +4,7 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+- `git-guard` judges a `for f in <named paths>; do … git checkout -- $f; done` loop path by path, so a probe that blanks and restores a list of files no longer stops for a prompt. A loop over a glob, `$(…)`, `.` or a reassigned variable still asks.
 - `/astro-execute` and `/astro-plan` no longer crash on their first launch in a project with no `reasoning` map: the workflows treat a `null` `models` or `reasoning` arg (what `ac config get` prints for an unset map) as empty.
 
 ## v0.42.0

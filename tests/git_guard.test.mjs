@@ -253,17 +253,20 @@ function cleanRepo(S, name) {
   return C;
 }
 
-test('a probe that puts back its own file is not asked about: a literal variable or a glob under a named folder', () => {
+test('a probe that puts back its own file is not asked about: a literal variable, a loop over named files or a glob under a named folder', () => {
   const { HOME, R } = sandbox();
   const env = ENV(HOME);
   table([
     'F=src/a.js; printf x >> $F; git checkout -- $F', 'F=src/a.js; git checkout -- "$F"', 'F=src/a.js; git checkout -q ${F}',
     'export W=src/a.js; git checkout $W notes.txt', 'FOO=1 BAR=src; git restore $BAR', 'git checkout src/*.js', 'git checkout -- src/*',
     'diff <(git show HEAD:src/a.js) src/a.js', 'diff <(cut -f2 notes.txt | sort) <(cut -f1 notes.txt)',
+    'for F in src/a.js; do git checkout -- $F; done', 'for f in src/a.js notes.txt; do for s in x y; do git checkout -- "$f"; done; done',
   ], [R], isAllowed, env);
   table([
     'F=.; git checkout -- $F', 'F=$(pwd); git checkout -- $F', 'git checkout -- $F; F=src/a.js', 'F=src/a.js; F=.; git checkout -- $F',
-    'F=src/a.js git checkout -- $F', 'for F in src/a.js; do git checkout -- $F; done', 'read F; git checkout -- $F',
+    'F=src/a.js git checkout -- $F', 'read F; git checkout -- $F', 'for F in src/a.js .; do git checkout -- $F; done',
+    'for F in *; do git checkout -- $F; done', 'for F in $(git ls-files); do git checkout -- $F; done', 'for F in src/a.js; do F=.; git checkout -- $F; done',
+    'for F in src/a.js; do :; done; for F in .; do git checkout -- $F; done',
     'git checkout -- *.js', 'git checkout -- */a.js', 'diff <(git reset --hard) notes.txt', 'cat <(git stash -u)', `D=${R}; git checkout -- $D`, 'F=src/a.js; git stash push -- $F/../..',
   ], [R], isRefused, env);
   intact(R);
