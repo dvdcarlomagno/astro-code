@@ -4,6 +4,8 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+## v0.42.0
+
 - `witness` keeps a typed `/astro-discuss <n>` or `/astro-accept <n>` witnessed when a background workflow's notification arrives during that turn; it used to record your own discussion as written by the agent. It also stops rewriting commands that only mention an acceptance inside quotes (an `echo`, a `grep` pattern, a commit message), which used to get `--agent claude` appended (ADR-077, #132)
 
 - `/astro-config` offers `haiku` per role under Custom, as ADR-073 already allowed; it had kept saying "never offer haiku". The Balanced, Fast and Max profiles are unchanged (sonnet floor) (#125, in part)
