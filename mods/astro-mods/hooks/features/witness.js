@@ -33,7 +33,7 @@
 // `$.ui.toast` is spelled here, in this file's own hooks, and `$` is never handed to an imported
 // helper (the plugin validator follows `$` only through functions declared in the file).
 import { isOn } from '../lib/switches.js'
-import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath, GATE_VERBS, shellText, signSegments, RAW_SEES } from '../lib/gates.js'
+import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath, GATE_VERBS, shellText, signSegments, RAW_SEES, onlyQuotedMention } from '../lib/gates.js'
 
 const NOTICE = {
   agent: 'witness: no typed /astro-accept|/astro-fix-accept for this id this turn — recorded as agent (--agent claude). ADR-074, ADR-033.',
@@ -78,6 +78,11 @@ export async function witnessCommand($, e, next) {
 
 export async function witnessPrompt($, e, next) {
   if (!isOn('witness')) return next(e)
+  // A prompt delivered INTO the running turn (`turnId` set: a background task's notification, a
+  // peer's message, text typed mid-turn) does not start a turn, so who started it stands. Before,
+  // a task notification arriving during a typed /astro-discuss wiped the typed signal, and the
+  // human's own CONTEXT.md was recorded as captured by agent.
+  if (typeof e.turnId === 'string' && turn !== null) return next(e)
   const kind = kindOf(e)
   if (kind === null) turn = null
   else if (kind !== 'composer') turn = { origin: kind, typed: null, expansion: false }
@@ -111,6 +116,9 @@ function decideBash(e) {
   // findGates found no gate, yet the gate verbs are there (`node --no-warnings bin/ac.mjs phase accept`,
   // `$(which ac) phase accept`): unreadable, not innocent.
   if (hit.kind === 'none' && !GATE_VERBS.test(shellText(e.command))) return { out: e, say: null }
+  // Named only inside quoted text nothing can run (`echo "… phase accept 12 --agent claude"`, a grep pattern, a
+  // commit message): a mention, left exactly as written.
+  if (hit.kind === 'none' && onlyQuotedMention(e.command)) return { out: e, say: null }
   if (hit.kind === 'ambiguous' || hit.kind === 'none') {
     // unreadable: every gate the human did not type is the agent's, and no gate keeps a --witnessed
     // it did not get from witness (phase 41 verify, C2: `ac phase accept 41 && ac phase accept 55

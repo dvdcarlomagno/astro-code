@@ -239,15 +239,19 @@ already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces i
   The gate table is `hooks/lib/gates.js` in the astro-mods plugin; it is not copied here.
 - Rewrite, never block: a typed gate gets `--witnessed composer`; any other gate call gets
   `--agent claude` and any `--witnessed` the model supplied is stripped. A call that already says
-  `--agent` is left as is.
+  `--agent` is left as is. A command that names a gate only inside quoted text nothing can run
+  (`echo "…"`, a `grep` pattern, a commit message) is a mention and is left exactly as written.
+- The turn: who started it. A prompt the engine delivers into the running turn (a background
+  task's notification, a peer's message, text typed mid-turn) does not start a new one, so a
+  typed `/astro-discuss <n>` or `/astro-accept <n>` stays witnessed while a workflow finishes.
 - `accepted_evidence`: `--witnessed composer` is stored as `accepted_evidence: "composer"`
   (`ac phase show <n> --json`). `ac` never detects; it records what the caller declares.
 - Fail open: an unknown turn, an empty typed id or a command it cannot parse is left declared, with
   one notice.
 - Known gaps: a typed `! ac phase accept <n>` line (the host shows it to no hook, so it is never
   witnessed; use the slash command), MCP shell tools (`ctx_shell`), an `ac` alias or script, a subagent's call (never
-  witnessed), Remote Control (`bridge`, counts as no signal so it is recorded as agent), and a prompt
-  queued mid-turn. The UAT question's answer is not attestable (phase 41 `PROBE.md`).
+  witnessed), and Remote Control (`bridge`, counts as no signal so it is recorded as agent). The UAT
+  question's answer is not attestable (phase 41 `PROBE.md`).
 
 **phase-band** draws a quiet band above the prompt in an astro-code project, and offers ids as you
 type. Optionally, on Claude Code, `ac mods enable phase-band` (off by default; headless `-p` and any

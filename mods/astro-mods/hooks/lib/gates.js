@@ -348,6 +348,25 @@ export const GATE_VERBS = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\b/
 // `phase \\<newline>accept` are the same gate (phase 41 verify, C2/C3).
 export const shellText = (s) => String(s).replace(/\\\r?\n/g, ' ').replace(/["'\\]/g, '')
 
+// Anything that can run text it was handed: a shell or interpreter, eval, a remote or deferred
+// runner, a substitution. With none of these in the command, quoted text is only ever data.
+const RUNS_TEXT = /(?:^|[\s;&|(])(?:sh|bash|zsh|dash|ksh|fish|eval|exec|source|\.|xargs|env|ssh|host|node|deno|bun|python3?|perl|ruby|php|osascript|watch|timeout|nohup|sudo|parallel)(?=[\s;&|)]|$)|\$\(|`|<<<|<\(/
+
+/**
+ * A command that names a gate only inside quoted text, and holds nothing that could run that
+ * text (`echo "… phase accept 12 --agent claude"`, `grep "phase accept" docs`, `git commit -m "… phase accept … --agent claude"`):
+ * a mention, not a gate call, so witness leaves it as written. A gate word outside quotes, or any
+ * runner (`bash -c "…"`, `ssh host "…"`, `$(…)`), keeps it unreadable.
+ */
+export function onlyQuotedMention(command) {
+  const s = String(command)
+  if (RUNS_TEXT.test(s)) return false
+  const unquoted = s.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, ' ')
+  // `ac "phase" "accept" 4` quotes the words of a real call: an unquoted ac is never a mention --agent claude
+  if (/(?:^|[\s;&|(])(?:\S*\/)?(?:ac|astrocode|ac\.mjs)(?=[\s;&|)]|$)/.test(unquoted)) return false
+  return !GATE_VERBS.test(shellText(unquoted))
+}
+
 /**
  * Last resort for a gate witness cannot parse even on the raw text: drop any --witnessed (quoted or
  * not) and append ` --agent <name>` to every top-level segment whose shell text names a gate and

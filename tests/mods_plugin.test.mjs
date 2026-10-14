@@ -254,6 +254,8 @@ const edit = (new_string, file_path = CTX) => ({ tool: 'Edit', file_path, old_st
 const typedAccept = (n) => [run('astro-accept', String(n)), submit(`/astro-accept ${n}`)];
 const typedFixAccept = (f) => [run('astro-fix-accept', f), submit(`/astro-fix-accept ${f}`)];
 const typedDiscuss = (n) => [run('astro-discuss', String(n)), submit(`/astro-discuss ${n}`)];
+// a prompt the engine delivers INTO the running turn carries that turn's id
+const midTurn = (text, kind = 'task-notification') => ({ name: 'prompt.submit', e: { text, origin: { kind }, turnId: 'turn-1' } });
 
 async function armed(over = { witness: true }) {
   const eng = await boot(answer(switches(over)));
@@ -278,6 +280,9 @@ const BASH = [
   ['C2a composer astro-autonomous', [run('astro-autonomous', ''), submit('/astro-autonomous')], bash('ac phase accept 41'), `ac phase accept 41${A}`, AGENT_RE],
   ['C2b sdk astro-accept', [run('astro-accept', '41', 'sdk'), submit('/astro-accept 41', 'sdk')], bash('ac phase accept 41'), `ac phase accept 41${A}`, AGENT_RE],
   ['C2c typed then task-notification', [...typedAccept(41), submit('<task-notification>done</task-notification>', 'task-notification')], bash('ac phase accept 41'), `ac phase accept 41${A}`, AGENT_RE],
+  // a notification delivered INTO the typed turn does not start a turn: the typed accept stands
+  ['C1 typed, then a task-notification delivered into the running turn', [...typedAccept(41), midTurn('<task-notification>done</task-notification>')], bash('ac phase accept 41'), `ac phase accept 41${W}`, null],
+  ['C2 sdk turn stays agent after a delivery into it', [run('astro-accept', '41', 'sdk'), submit('/astro-accept 41', 'sdk'), midTurn('hi', 'composer')], bash('ac phase accept 41'), `ac phase accept 41${A}`, AGENT_RE],
   ['C2d typed for another phase', typedAccept(40), bash('ac phase accept 41'), `ac phase accept 41${A}`, AGENT_RE],
   ['C2e plugin origin', [run('astro-accept', '41', 'plugin'), submit('/astro-accept 41', 'plugin')], bash('ac phase accept 41'), `ac phase accept 41${A}`, AGENT_RE],
   ['C2 subagent call after a typed accept', typedAccept(41), bash('ac phase accept 41', { agentId: 'a1' }), `ac phase accept 41${A}`, AGENT_RE],
@@ -297,10 +302,16 @@ const IDENTICAL = [
   ['C4 declared --agent after typed accept', typedAccept(41), bash('ac phase accept 41 --agent bot')],
   ['C5 ambiguous bash -c', typedAccept(41), bash("bash -c 'ac phase accept 41'")],
   ['C5 no gate in the command', typedAccept(41), bash('ls -la')],
+  // a gate named only inside quoted text nothing runs is a mention, left as written
+  ['mention: echo of a quoted gate, sdk turn', [run('astro-accept', '41', 'sdk'), submit('/astro-accept 41', 'sdk')], bash('echo "search for: phase accept 12"')],
+  ['mention: grep pattern', [submit('hi')], bash('grep -rn -E "phase accept|fix accept" docs | head')],
+  ['mention: commit message', [submit('hi')], bash('git commit -m "chore(41): after ac phase accept 41"')],
 ];
 const FILES = [
   ['C6a Write after typed discuss', typedDiscuss(41), write(`${HUMAN}\nbody\n`), null],
   ['C6a Edit after typed discuss', typedDiscuss(41), edit(`${HUMAN}\nbody`), null],
+  // astro-forge 223: a background run finished mid-discussion; the human's CONTEXT.md stays human
+  ['C6a Write after typed discuss and a notification delivered into the turn', [...typedDiscuss(41), midTurn('<task-notification>plan done</task-notification>')], write(`${HUMAN}\nbody\n`), null],
   ['C6b Write after discuss of another phase', typedDiscuss(40), write(`${HUMAN}\nbody\n`), 'content'],
   ['C6b Write after composer astro-autonomous', [run('astro-autonomous', ''), submit('/astro-autonomous')], write(`${HUMAN}\nbody\n`), 'content'],
   ['C6b Write in an sdk turn', [run('astro-discuss', '41', 'sdk'), submit('/astro-discuss 41', 'sdk')], write(`${HUMAN}\nbody\n`), 'content'],

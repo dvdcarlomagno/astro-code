@@ -4,6 +4,8 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+- `witness` keeps a typed `/astro-discuss <n>` or `/astro-accept <n>` witnessed when a background workflow's notification arrives during that turn; it used to record your own discussion as written by the agent. It also stops rewriting commands that only mention an acceptance inside quotes (an `echo`, a `grep` pattern, a commit message), which used to get `--agent claude` appended (ADR-077, #132)
+
 - `/astro-config` offers `haiku` per role under Custom, as ADR-073 already allowed; it had kept saying "never offer haiku". The Balanced, Fast and Max profiles are unchanged (sonnet floor) (#125, in part)
 
 - The principles brief is about a quarter shorter, so more rules fit before it is cut: each `⚠ canon may override` reference is printed once at the end, naming the rules it applies to, and ids are printed as their 4-character suffix (`e618`) where that is unique. Every `ac principles` command (`show`, `cite`, …) accepts the suffix; an ambiguous one is refused (#130)
