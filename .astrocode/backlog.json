@@ -80,6 +80,13 @@
       "note": "From #129: 117 verifier runs measured; full re-runs after 1-3 small local failures were 33% of verifier cost, and scoping them would have saved about 26% of all verifier cost. Live example 2026-10-14: astro-forge phase 222 re-verified in full four times on one criterion (C6). The verdict must record which criteria were re-checked and which carried over, so acceptance stays auditable; a full re-verify stays available and is chosen when the fix is broad. Fits milestone 5 (Lean execution path).",
       "status": "open",
       "captured_at": "2026-10-14T16:38:21.623Z"
+    },
+    {
+      "id": "2026-10-14-witness-cite-proof-of-a-human-choice",
+      "title": "witness: cite proof of a human choice made elsewhere (an --evidence id or URL stored with the acceptance), and a list of machine-typed prompt prefixes that never count as human (GitHub #132)",
+      "note": "From #132, for setups where the owner answers on a separate decision board and a tool types fixed lines into sessions through tmux. Witness already records rather than refuses (ADR-074), so the asked-for record mode exists. The spawn-policy half of #132 (Haiku refused only for astro-code roles) sits with the existing backlog item on re-probing spawn isolation.",
+      "status": "open",
+      "captured_at": "2026-10-14T16:46:01.017Z"
     }
   ]
 }
