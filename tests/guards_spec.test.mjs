@@ -1,4 +1,5 @@
 // The guard registration spec and the one ownership rule (phase 37 t3).
+import { nodeBin } from '../lib/nodebin.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { GUARD_HOOKS, GUARD_SCRIPTS, guardCommand, ownsCommand } from '../lib/hosts/guards.mjs';
@@ -21,7 +22,7 @@ test('canon-guard spec names its script, events and matchers', () => {
 test('guardCommand quotes both paths and appends the arg', () => {
   const spec = GUARD_HOOKS['canon-guard'];
   const c = guardCommand('/h/with space', spec);
-  assert.equal(c, `"${process.execPath}" "/h/with space/hooks/${S}"`);
+  assert.equal(c, `"${nodeBin()}" "/h/with space/hooks/${S}"`);
   assert.ok(guardCommand('/h', spec, 'cursor').endsWith(`${S}" cursor`));
 });
 

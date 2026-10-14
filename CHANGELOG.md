@@ -4,6 +4,8 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+- Hook commands now use the `node` on your `PATH` when it is the same binary (e.g. Homebrew's `/home/linuxbrew/.linuxbrew/bin/node`), not the versioned path a `brew upgrade node` deletes. `ac install` and `ac update` also repair astro's existing entries that point at a node that is gone (#126)
+
 - `ac debt note <id> ["<text>"] [--append|--replace]` adds what a debt item teaches you after it was filed (a second occurrence, a measurement), like `ac phase note` and `ac backlog note`. The id, title and age stay, so a debt no longer has to be dropped and re-filed (#127)
 
 - `git-guard` also skips asking in a throwaway copy marked with `touch .git/astrocode-scratch`, for copies that must live outside `/tmp`. The verifier marks the probe copies it makes
