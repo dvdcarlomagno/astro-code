@@ -160,7 +160,8 @@ every uncommitted change in the repo"), then the scoped alternative and the off 
   prefixes, `git -C/-c/--git-dir`, `sh -c`/`bash -c`, `<(…)` and the lean-ctx `-c` wrapper are seen;
   aliases, `eval`, scripts, `$(…)` and lean-ctx's `ctx_shell` are not. A git command merely quoted
   in `echo`, `grep` or a commit message never trips it. A variable set once in the same command to
-  a plain path (`F=src/a.js; …; git checkout -- $F`) is read as that path, and a glob below a named
+  a plain path (`F=src/a.js; …; git checkout -- $F`) is read as that path, a loop over plain paths
+  (`for f in a.md b.md; do …; git checkout -- $f; done`) is judged path by path, and a glob below a named
   folder (`git checkout src/components/*.css`) counts as scoped; any other expansion asks.
 - Not asked when nothing can be lost. A refused call goes through without a prompt when git, asked
   read-only, shows it would destroy nothing: no uncommitted change for `reset --hard` (bare or to
