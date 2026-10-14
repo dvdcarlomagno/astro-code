@@ -422,14 +422,34 @@ const EFFECT = {
   unsure: 'might throw away uncommitted work (git-guard cannot tell what it touches)',
 };
 
+// What the command does, read off the judged words: a reset to another commit also moves the
+// branch, and `restore --staged` without `--worktree` only unstages (the files keep their edits).
+function effectOf(hit) {
+  const w = hit.segment.split(/\s+/);
+  const args = w.slice(w.indexOf(hit.id) + 1);
+  if (hit.id === 'reset') {
+    const ref = args.find((a) => !a.startsWith('-') && a !== 'HEAD');
+    if (ref) return `${EFFECT.reset} and moves the branch to ${ref}, dropping any commits after it`;
+  }
+  if (hit.id === 'restore' && hasFlag(args, ['S'], ['--staged']) && !hasFlag(args, ['W'], ['--worktree'])) {
+    return 'unstages every staged change in the repo (the files keep their edits)';
+  }
+  return EFFECT[hit.id] ?? EFFECT.unsure;
+}
+
+const SAFER = {
+  clean: 'Safer: `git clean -n` to see what would go, or name the paths.',
+  other: 'Safer: `git stash push -- <path>` then `git stash pop`, or name the paths.',
+};
+
 /** Two plain lines: what the command does, then the safer way and the off switch. The rule's
  * history (ADR-035, ADR-038) lives in MANUAL.md, not in a prompt someone answers mid-flow. */
 export function reasonFor(hit, verdict) {
   const seg = hit.segment.length > 80 ? `${hit.segment.slice(0, 77)}...` : hit.segment;
   const ask = verdict === 'ask' ? ' Allow only if you meant that.' : ' Refused.';
   return [
-    `git-guard: \`${seg}\` ${EFFECT[hit.id] ?? EFFECT.unsure}.${ask}`,
-    'Safer: `git stash push -- <path>` then `git stash pop`, or name the paths. Off: `ac mods disable git-guard`.',
+    `git-guard: \`${seg}\` ${effectOf(hit)}.${ask}`,
+    `${SAFER[hit.id] ?? SAFER.other} Off: \`ac mods disable git-guard\`.`,
   ].join('\n');
 }
 

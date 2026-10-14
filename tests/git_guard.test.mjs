@@ -155,20 +155,28 @@ test('C5: scoped, read-only, out-of-scope git and mere mentions are never refuse
 
 // ---------------------------------------------------------------- C6 / C7
 
-test('C6: the reason says what the command does, the safer way and the off switch, in two lines', () => {
+test('C6: the reason says what the command does, the safer way for it and the off switch, in two lines', () => {
   const { HOME, R } = sandbox();
   const effects = {
     'git stash -u': /stash, which every session shares/,
     'git clean -fd': /deletes every untracked file/,
-    'git reset --hard': /throws away every uncommitted change/,
+    'git reset --hard': /throws away every uncommitted change in the repo\. /,
+    'git reset --hard HEAD~1': /moves the branch to HEAD~1, dropping any commits after it/,
     'git checkout .': /throws away every uncommitted change/,
+    'git restore --staged .': /unstages every staged change in the repo \(the files keep their edits\)/,
+    'git restore --staged --worktree .': /throws away every uncommitted change/,
   };
   for (const [cmd, effect] of Object.entries(effects)) {
     const reason = reasonOf(feed(bashEvent(cmd, R), { env: ENV(HOME) }));
     assert.match(reason, effect, cmd);
     assert.match(reason, /Allow only if you meant that\./, cmd);
-    assert.ok(reason.includes('git stash push -- <path>'), cmd);
-    assert.ok(reason.includes('git stash pop'), cmd);
+    if (cmd.startsWith('git clean')) {
+      assert.ok(reason.includes('git clean -n'), cmd);
+      assert.doesNotMatch(reason, /git stash push/, cmd);
+    } else {
+      assert.ok(reason.includes('git stash push -- <path>'), cmd);
+      assert.ok(reason.includes('git stash pop'), cmd);
+    }
     assert.ok(reason.includes('ac mods disable git-guard'), cmd);
     assert.equal(reason.split('\n').length, 2, cmd);
     assert.doesNotMatch(reason, /ADR-\d+|ASTRO_/, cmd);
