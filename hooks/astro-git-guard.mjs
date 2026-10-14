@@ -100,7 +100,14 @@ let CWD = null;
 // `:(top)`), any glob, any expansion, or a path that resolves to `cwd` or one of its ancestors
 // (`"$PWD"`, the absolute repo root, `src/..`). Conservative on purpose: unsure means ask.
 function wholeTree(w) {
-  if (w === '.' || /^(\.\/)+\.?$/.test(w) || w.startsWith(':') || /[*?[]/.test(w) || dynamic(w)) return true;
+  if (w === '.' || /^(\.\/)+\.?$/.test(w) || w.startsWith(':') || dynamic(w)) return true;
+  // A glob reaches only below its literal directory (`src/components/*.css`): judge that directory.
+  // No directory (`*.css`, `*/x`) or no cwd to resolve it against: it may be the whole tree.
+  const g = w.search(/[*?[]/);
+  if (g >= 0) {
+    const dir = w.slice(0, w.lastIndexOf('/', g) + 1).replace(/\/+$/, '');
+    return !dir || !CWD || wholeTree(dir);
+  }
   if (!CWD) return false;
   const rel = relative(resolve(CWD, w), CWD);
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
@@ -206,7 +213,8 @@ function segments(s) {
     } else toks.push(cur);
     cur = null;
   };
-  const endSeg = () => { flush(); if (toks.length) segs.push(toks); toks = []; };
+  // a redirect with no target left (`<(…)` process substitution) is dropped, never left as a word
+  const endSeg = () => { flush(); toks = toks.filter((t) => t !== REDIR); if (toks.length) segs.push(toks); toks = []; };
   const add = (ch) => { cur = (cur ?? '') + ch; };
   const redirect = () => { if (cur !== null && /^\d+$/.test(cur)) cur = null; else flush(); toks.push(REDIR); };
 
@@ -289,7 +297,7 @@ function segments(s) {
   return segs;
 }
 
-const base = (w) => w.slice(w.lastIndexOf('/') + 1);
+const base = (w) => (typeof w === 'string' ? w.slice(w.lastIndexOf('/') + 1) : ''); // a word may be a redirect marker (`<(…)`)
 const KEYWORDS = new Set(['if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{', '}']);
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash']);
 const GIT_VALUE_OPTS = new Set(['-C', '-c']);
@@ -498,6 +506,34 @@ export function nothingAtStake(hit, command) {
   } catch { return false; }
 }
 
+// ---------------------------------------------------------------- literal variables
+
+// `F=src/a.js; printf x >> $F; git checkout -- $F` is how an agent probes a file and puts it back.
+// A variable set ONCE in the same command, as a segment of its own, to one plain word (no
+// expansion, glob, quote or space) is replaced by that word after the assignment, so the
+// pathspec is judged as written. A variable also set any other way (a second assignment, an
+// env prefix `F=x cmd`, `for F in`, `read F`) stays an expansion, and an expansion asks.
+export function resolveLiterals(command) {
+  let out = command;
+  for (const seg of segments(command)) {
+    const words = seg[0] === 'export' ? seg.slice(1) : seg;
+    if (!words.length || !words.every((w) => typeof w === 'string' && /^[A-Za-z_]\w*=/.test(w))) continue;
+    for (const w of words) {
+      const name = w.slice(0, w.indexOf('='));
+      const value = w.slice(name.length + 1);
+      if (!value || /[$`*?[\s'"\\;&|<>(){}]/.test(value)) continue;
+      const set = new RegExp(`(^|[^\\w$])${name}=`, 'g');
+      const sets = [...command.matchAll(set)];
+      if (sets.length !== 1 || new RegExp(`\\b(for|read|local|declare|typeset)\\b[^;&|\\n]*\\b${name}\\b`).test(command)) continue;
+      const at = out.search(new RegExp(`(^|[^\\w$])${name}=`));
+      if (at < 0) continue;
+      const tail = out.slice(at).replace(new RegExp(`\\$\\{${name}\\}|\\$${name}(?!\\w)`, 'g'), value);
+      out = out.slice(0, at) + tail;
+    }
+  }
+  return out;
+}
+
 /** `{ reason, hit }` for a call to refuse, else null. */
 export function decide(input, { cursor = false } = {}) {
   if (!input || typeof input !== 'object') return null;
@@ -505,9 +541,10 @@ export function decide(input, { cursor = false } = {}) {
   const command = input.tool_input?.command;
   if (typeof command !== 'string') return null;
   CWD = typeof input.cwd === 'string' && isAbsolute(input.cwd) ? input.cwd : null;
-  TEXT = command;
-  const hit = judgeCommand(command);
-  if (!hit || nothingAtStake(hit, command)) return null;
+  const resolved = resolveLiterals(command);
+  TEXT = resolved;
+  const hit = judgeCommand(resolved);
+  if (!hit || nothingAtStake(hit, resolved)) return null;
   const isCursor = cursor || input.hook_event_name === 'preToolUse';
   return { reason: reasonFor(hit, isCursor ? CURSOR_VERDICT : VERDICT), hit };
 }

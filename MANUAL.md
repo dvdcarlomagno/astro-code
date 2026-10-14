@@ -157,9 +157,11 @@ every uncommitted change in the repo"), then the scoped alternative and the off 
   `reset`, path-scoped `checkout`/`restore`, and all other git (force push, `branch -D` and
   `worktree remove --force` are out of scope without an ADR).
 - Parsing: a mistake-catcher, not a sandbox. Compound commands, `cd`/env/`command`/`exec`/`sudo`
-  prefixes, `git -C/-c/--git-dir`, `sh -c`/`bash -c` and the lean-ctx `-c` wrapper are seen;
+  prefixes, `git -C/-c/--git-dir`, `sh -c`/`bash -c`, `<(…)` and the lean-ctx `-c` wrapper are seen;
   aliases, `eval`, scripts, `$(…)` and lean-ctx's `ctx_shell` are not. A git command merely quoted
-  in `echo`, `grep` or a commit message never trips it.
+  in `echo`, `grep` or a commit message never trips it. A variable set once in the same command to
+  a plain path (`F=src/a.js; …; git checkout -- $F`) is read as that path, and a glob below a named
+  folder (`git checkout src/components/*.css`) counts as scoped; any other expansion asks.
 - Not asked when nothing can be lost. A refused call goes through without a prompt when git, asked
   read-only, shows it would destroy nothing: no uncommitted change for `reset --hard` (bare or to
   `HEAD` only; a reset to another commit can drop commits), `stash`, a whole-tree

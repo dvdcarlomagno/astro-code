@@ -4,6 +4,8 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+- `git-guard` reads a path held in a variable set once in the same command (`F=src/a.js; …; git checkout -- $F`, how a verifier puts back a file it probed), and treats a glob below a named folder as scoped. A destructive git inside `<(…)` is now asked about; before, such commands crashed the parser and went through unchecked
+
 - `git-guard` no longer asks when the command can lose nothing: a clean tree for `reset --hard` (bare or to `HEAD`), `stash`, a whole-tree `checkout`/`restore` or `-f`, no untracked files for `git clean`, or a scratch repo under the temp directory. It checks with read-only `git status` and still asks whenever it can't tell
 - `canon-guard`'s refusal is two lines: the `ac` command to use, then the escapes
 
