@@ -477,6 +477,34 @@ test('C9: three failing prompts give one notice, and a new session recovers', as
   assert.equal(w.list('--proposed').length, 1)
 })
 
+const refused = (status) => ({ isAnswered: false, reason: 'api-error', status, error: 'invalid_request', usage: {} })
+
+test('C9: on a local model, a refused Haiku moves capture to the session model for the rest of the session', async () => {
+  const w = world()
+  const m = await boot(w)
+  w.$.session.model = async () => 'qwen3-coder-30b'
+  w.reply = (req) => (req.model === 'haiku' ? refused(404) : answered(rule(S)))
+  await submit(m, w, typed('never mock the database'))
+  assert.equal(w.list('--proposed').length, 1, 'the rule is proposed through the session model')
+  assert.deepEqual(w.models.map((r) => r.model), ['haiku', 'qwen3-coder-30b'])
+  await submit(m, w, typed('never mock the queue either'))
+  assert.equal(w.models.at(-1).model, 'qwen3-coder-30b', 'later prompts go straight to the session model')
+  assert.equal(w.models.filter((r) => r.model === 'haiku').length, 1, 'Haiku is tried once per session')
+  assert.equal(w.logs.filter((l) => l.startsWith('⚠')).length, 0, 'no failure line')
+})
+
+test('C9: an outage on Haiku (429, 5xx, no response) never moves capture to the session model', async () => {
+  for (const status of [429, 500, 529, null]) {
+    const w = world()
+    const m = await boot(w)
+    w.$.session.model = async () => 'claude-opus-5-5'
+    w.reply = () => refused(status)
+    await submit(m, w, typed('never mock the database'))
+    assert.deepEqual(w.models.map((r) => r.model), ['haiku'], `status ${status}: no fallback`)
+    assert.equal(w.logs.filter((l) => l.startsWith('⚠ principle capture failed:')).length, 1)
+  }
+})
+
 // ── C10 ────────────────────────────────────────────────────────────────────────
 
 test('C10: switched off, every hook passes the event and costs nothing', async () => {

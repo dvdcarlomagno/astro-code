@@ -285,8 +285,8 @@ directory outside an astro-code project draw nothing):
 
 - What it reads: only a prompt you typed at the composer. Slash commands and their expanded
   bodies, `-p`/SDK input, notifications, assistant text and tool output are never looked at.
-- Privacy: the text you typed goes to a Haiku judge, as it already went to the main model. The
-  personal store redacts the statement, why and excerpt before anything is written.
+- Privacy: the text you typed goes to a Haiku judge, as it already went to the main model. On a
+  local model, which serves no Haiku, the session's own model judges instead. The personal store redacts the statement, why and excerpt before anything is written.
 - Where proposals go: the personal principle store, as *proposed* only (never accepted by the
   mod). Review them with `/astro-principles-review` or `ac principles list --proposed`.
 - Volume: at most three proposals per session; sightings of existing principles do not count and
