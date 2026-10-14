@@ -106,7 +106,7 @@ import { gitIdentity, git, isRepo } from '../lib/git.mjs';
 import { claim, readRegistry, registryBranch, markComplete, findNameMatches, initRegistry, claimFix, markFixComplete, repointPhaseClaim, claimDrift, activateMilestone, milestoneClaims, waitingMilestones, renameMilestone } from '../lib/registry.mjs';
 import { addFix, acceptFix, setFixStatus, findFix, openFixes, loadFixes, FIX_STATUSES } from '../lib/fixes.mjs';
 import {
-  addDebt, openDebt, findDebt, payDebt, dropDebt, dismissDebt, closeDebtFor, staleDebt,
+  addDebt, openDebt, findDebt, payDebt, dropDebt, dismissDebt, closeDebtFor, staleDebt, setDebtNote,
   debtAgeDays, debtScore, loadDebt, DEBT_COSTS, STALE_DAYS,
 } from '../lib/debt.mjs';
 import {
@@ -234,6 +234,7 @@ const ALLOWED_FLAGS = {
   // `drop` is the one debt verb that removes something from the list on a human's
   // say-so, so a typo'd flag must not degrade into "dropped with no reason".
   'debt drop': ['reason'],
+  'debt note': ['append', 'replace'],
   'debt dismiss': ['reason'],
   'debt pay': ['as', 'milestone'],
   // A typo'd `--phase` must not silently degrade into "checked the wrong phase".
@@ -501,6 +502,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac fix accept <id> [--agent <name> | --witnessed composer] human gate → accepted + archived
   ac debt list [--phase N|--file p|--stale]  open technical debt (the verifier files it)
   ac debt add "<what>" [--why …] [--phase N] [--file p] [--cost small|medium|large]
+  ac debt note <id> ["<text>"] [--append|--replace]  read/set/clear a debt's note (title and id stay fixed)
   ac debt score                       is it worth paying debt down right now? (0-100 + why)
   ac debt pay <id> [--as fix|phase] [--milestone N]  graduate it into a fix (default) or a roadmap phase
   ac debt drop <id> --reason "…"      it WAS true and stopped being true
@@ -818,6 +820,25 @@ async function main() {
 
       if (sub === 'show') { json(item); return; }
 
+      if (sub === 'note') {
+        // #127 — like `ac backlog note`: no text READS, text WRITES (refusing to overwrite a
+        // longer note without --append/--replace), "" CLEARS.
+        checkFlags('debt note', flags);
+        const nw = noteWrite(pos, flags);
+        if (!nw.write) {
+          console.log(item.note ?? '');
+        } else {
+          let updated;
+          try { updated = await setDebtNote(r, item.id, nw.text, nw.opts); } catch (e) { die(e.message); }
+          console.log(
+            updated.note
+              ? `✓ debt ${updated.id} note ${nw.opts.append ? 'appended' : 'updated'} (${updated.note.length} chars)`
+              : `✓ debt ${updated.id} note cleared`,
+          );
+        }
+        return;
+      }
+
       if (sub === 'pay') {
         checkFlags('debt pay', flags);
         const as = typeof flags.as === 'string' ? flags.as : 'fix';
@@ -879,7 +900,7 @@ async function main() {
         return;
       }
 
-      die(`unknown: ac debt ${sub} (add | list | show | score | pay | drop | dismiss)`);
+      die(`unknown: ac debt ${sub} (add | list | show | note | score | pay | drop | dismiss)`);
     }
 
     case 'backlog': {

@@ -1051,6 +1051,7 @@ ac fix accept <id> --agent <n> # machine-signed (ADR-033): records accepted_kind
 
 ac debt list [--stale]         # open technical debt (the verifier files it automatically)
 ac debt score                  # pay-it-down-now signal, 0-100, with the evidence
+ac debt note <id> ["…"] [--append|--replace]  # add what you learn later; the id and age stay
 ac debt pay <id> [--as phase] [--milestone N]  # graduate it into a fix (default) or a roadmap phase
 ac debt drop <id> --reason "…" # it WAS true and stopped being true
 ac debt dismiss <id> --reason … # it was NEVER true — the verifier was wrong

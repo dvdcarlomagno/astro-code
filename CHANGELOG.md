@@ -4,6 +4,8 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+- `ac debt note <id> ["<text>"] [--append|--replace]` adds what a debt item teaches you after it was filed (a second occurrence, a measurement), like `ac phase note` and `ac backlog note`. The id, title and age stay, so a debt no longer has to be dropped and re-filed (#127)
+
 - `git-guard` also skips asking in a throwaway copy marked with `touch .git/astrocode-scratch`, for copies that must live outside `/tmp`. The verifier marks the probe copies it makes
 
 - `git-guard` reads a path held in a variable set once in the same command (`F=src/a.js; …; git checkout -- $F`, how a verifier puts back a file it probed), and treats a glob below a named folder as scoped. A destructive git inside `<(…)` is now asked about; before, such commands crashed the parser and went through unchecked
