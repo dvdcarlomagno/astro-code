@@ -53,6 +53,13 @@ Also keep the structural safeguards (these are necessary, not sufficient):
   barrel/importer. The fix belongs in the plan, never in weakening the gate.
 - Flag any violation of the project canon (naming, patterns, prior decisions).
 
+**Heavy runs share a machine.** Test suites, builds and type-checkers (`tsc`, a script
+that loads a compiler over the whole tree) each take gigabytes, and other sessions run on
+the same box. Run them one at a time, waiting for each to finish, never two in the
+background together. When the project's or user's instructions route tests and builds
+elsewhere (a `host` helper, a make target), run every heavy step that way, your own
+one-off compiler scripts included, never directly in your shell.
+
 ## Verdict
 **PASS only if EVERY criterion has independent passing evidence you gathered yourself** —
 and the structural safeguards hold. If any criterion lacks that evidence, or you could
