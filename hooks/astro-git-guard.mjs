@@ -62,17 +62,19 @@
 // A prompt the user always approves teaches them to approve without reading. So a refused call
 // is let through when it can lose nothing, which two read-only git calls settle:
 //   - the repo is scratch: its git data (the common dir, so a worktree of a real project never
-//     counts) lives under the OS temp directory (`os.tmpdir()`, i.e. TMPDIR or /tmp);
+//     counts) lives under the OS temp directory (`os.tmpdir()`, i.e. TMPDIR or /tmp), or holds an
+//     `astrocode-scratch` file, which an agent creates on purpose in a throwaway copy it made where
+//     /tmp won't do (a path the host must also see);
 //   - the tree holds nothing the command would destroy: no uncommitted change for reset --hard
 //     (bare or to HEAD only, since a reset to another commit can drop commits) and for stash,
 //     checkout, restore and -f; no untracked file for clean (no ignored file either with -x/-X).
 // Only the plainest shape qualifies: one segment starting with the word `git` and its subcommand
 // (no prefixes, global options or wrappers), optionally after a `cd <literal path>` segment.
 // Anything else, an `unsure` hit, or git failing to answer, keeps the ask.
-import { readFileSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const VERDICT = 'ask';
@@ -494,7 +496,9 @@ export function nothingAtStake(hit, command) {
   const args = words.slice(2);
   try {
     const common = gitOut(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim();
-    if (isAbsolute(common) && within(realpathSync(common), realpathSync(tmpdir()))) return true;
+    if (!isAbsolute(common)) return false;
+    const real = realpathSync(common);
+    if (within(real, realpathSync(tmpdir())) || existsSync(join(real, 'astrocode-scratch'))) return true;
     if (hit.id === 'reset' && args.some((a) => !a.startsWith('-') && a !== 'HEAD')) return false;
     const x = hit.id === 'clean' ? hasFlag(args, ['x', 'X'], []) : hit.id === 'stash' && hasFlag(args, ['a'], ['--all']);
     const lines = gitOut(dir, ['-c', 'core.fsmonitor=false', 'status', '--porcelain=v1', '--branch',

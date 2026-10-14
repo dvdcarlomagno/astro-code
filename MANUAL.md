@@ -167,7 +167,9 @@ every uncommitted change in the repo"), then the scoped alternative and the off 
   `HEAD` only; a reset to another commit can drop commits), `stash`, a whole-tree
   `checkout`/`restore` or `-f`; no untracked file for `git clean` (no ignored file either with
   `-x`/`-X`). The same holds for a scratch repo whose git data lives under the temp directory
-  (`TMPDIR`, else `/tmp`); a worktree of a real project placed there still counts as the project.
+  (`TMPDIR`, else `/tmp`), or whose `.git` holds an `astrocode-scratch` file: a throwaway copy that must
+  live where the host can see it is marked on purpose (`touch .git/astrocode-scratch`, which the
+  verifier does for its probe copies). A worktree of a real project still counts as the project.
   Only the plain shape qualifies, `git <subcommand> …` alone or after `cd <literal path>`; with
   prefixes, global options, other segments, unreadable words, or git not answering, it asks.
 - Verdict: Claude Code **asks**; a headless or Workflow agent cannot answer, so for it an ask is a

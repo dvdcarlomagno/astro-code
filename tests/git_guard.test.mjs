@@ -303,6 +303,18 @@ test('nothing at stake: a repo whose git data is under TMPDIR is scratch; a work
   table(['git reset --hard', 'git stash'], [WT2], isRefused, ENV(HOME));
 });
 
+test('nothing at stake: a repo marked .git/astrocode-scratch is scratch wherever it lives; an unmarked project still asks', () => {
+  const { S, HOME, R, WT } = sandbox();
+  const C = cleanRepo(S, 'copy');
+  writeFileSync(join(C, 'src', 'a.js'), 'export const probed = 1;\n');
+  writeFileSync(join(C, 'junk.txt'), 'x\n');
+  table(['git reset --hard', 'git checkout -q -- .', 'git clean -fdq'], [C], isRefused, ENV(HOME));
+  writeFileSync(join(C, '.git', 'astrocode-scratch'), '');
+  table(['git reset --hard', 'git checkout -q -- .', 'git clean -fdq', `cd ${C} && git reset --hard`], [C], isAllowed, ENV(HOME));
+  table(['git reset --hard $BASE'], [C], isRefused, ENV(HOME));
+  table(['git reset --hard'], [R, WT], isRefused, ENV(HOME));
+});
+
 // ---------------------------------------------------------------- Cursor
 
 test('Cursor: the arg and the preToolUse event name both get a deny in Cursor shape', () => {

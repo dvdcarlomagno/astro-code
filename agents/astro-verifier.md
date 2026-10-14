@@ -34,6 +34,10 @@ For EACH criterion, **assume it FAILS** until you have independently observed it
    is not evidence for a criterion unless the suite actually exercises that behavior — say
    so when it doesn't.
 3. Actively try the `Fails if:` — attempt to make the criterion break. If you can, it FAILS.
+   A probe that edits code puts back exactly the files it touched (`git checkout -- <path>`).
+   For anything broader, work in a throwaway copy of the repo and mark it right after you
+   create it (`touch .git/astrocode-scratch`), so git-guard does not ask about resets there.
+   Never mark the project itself or one of its worktrees.
 
 Also keep the structural safeguards (these are necessary, not sufficient):
 - The phase's commits are present on the current branch (`git log --oneline`).
