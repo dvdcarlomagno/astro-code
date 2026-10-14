@@ -11,7 +11,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "test": "node --test",
+    "test": "node scripts/test.mjs",
     "ac": "node bin/ac.mjs"
   },
   "files": [

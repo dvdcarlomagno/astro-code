@@ -4,6 +4,8 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+- `npm test` no longer leaves temp folders behind: it runs the suite with `TMPDIR` set to one fresh folder and removes it afterwards, also after a failure or Ctrl-C. A full run used to leave about 1,370 folders (42k entries), enough to fill a tmpfs `/tmp` (#131)
+
 - Hook commands now use the `node` on your `PATH` when it is the same binary (e.g. Homebrew's `/home/linuxbrew/.linuxbrew/bin/node`), not the versioned path a `brew upgrade node` deletes. `ac install` and `ac update` also repair astro's existing entries that point at a node that is gone (#126)
 
 - `ac debt note <id> ["<text>"] [--append|--replace]` adds what a debt item teaches you after it was filed (a second occurrence, a measurement), like `ac phase note` and `ac backlog note`. The id, title and age stay, so a debt no longer has to be dropped and re-filed (#127)
