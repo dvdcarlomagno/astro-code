@@ -124,8 +124,8 @@ needs it, and on Codex, Cursor or a Claude Code without the plugin everything wo
 `ac` records it, and it takes effect when it lands. A `hook` is a plain settings hook
 (Cursor imports it too); a `mod` is part of the `astro-mods` Claude Code plugin.
 
-**canon-guard** refuses hand edits to files the `ac` CLI owns or generates, and the deny reason
-names the rule, the `ac` verb to use for that file, and the escapes:
+**canon-guard** refuses hand edits to files the `ac` CLI owns or generates. The deny reason is two
+lines: the `ac` verb to use for that file (with the rule's source as a short tag), then the escapes:
 
 - Protected: `.astrocode/{roadmap,state,debt,backlog,fixes}.json`, `.astrocode/ROADMAP.md`,
   `.astrocode/DECISIONS.in-force.md`, and the personal principle store (`~/.astro/principles/`).

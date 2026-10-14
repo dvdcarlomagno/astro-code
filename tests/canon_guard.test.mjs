@@ -348,7 +348,7 @@ function helpCovers(helpText, words) {
   return lines.some((l) => words.slice(1).every((w) => l.includes(w)));
 }
 
-test('C7: the reason names the rule source, that file\'s verb, and both escapes, briefly', () => {
+test('C7: the reason names the rule source, that file\'s verb, and both escapes, in two lines', () => {
   const { S, HOME, P } = sandbox();
   try {
     const help = spawnSync(process.execPath, [AC, 'help'], { encoding: 'utf8', env: ENV(HOME) }).stdout;
@@ -366,7 +366,7 @@ test('C7: the reason names the rule source, that file\'s verb, and both escapes,
       for (const words of spec.help) assert.ok(helpCovers(help, words), `${label}: "ac ${words.join(' ')}" is in ac help`);
       assert.match(reason, /conflict|merge/i, `${label}: conflict escape`);
       assert.ok(reason.includes('ac mods disable canon-guard'), `${label}: mods escape`);
-      assert.ok(reason.trim().split('\n').length <= 8, `${label}: at most 8 lines`);
+      assert.equal(reason.trim().split('\n').length, 2, `${label}: two lines`);
       assert.doesNotMatch(reason, /ASTRO_[A-Z_]+|\benv(ironment)? var/i, `${label}: no env-var escape`);
       assert.ok(noStack(r), `${label}: no stack trace`);
       if (label === 'ROADMAP.md') assert.ok(!reason.includes('ac phase'), 'ROADMAP.md is not pointed at ac phase');
@@ -551,7 +551,7 @@ test('exports: PROTECTED, judgePath, bashTargets, denyReason, decide', async () 
     const entry = m.judgePath('.astrocode/ROADMAP.md', P, env);
     const reason = m.denyReason(entry, '.astrocode/ROADMAP.md');
     assert.ok(reason.includes('ac roadmap render'));
-    assert.ok(reason.trim().split('\n').length <= 8);
+    assert.equal(reason.trim().split('\n').length, 2);
 
     const hit = m.decide(claudeEvent('Write', '.astrocode/state.json', P), { env });
     assert.ok(hit && hit.reason && hit.entry);

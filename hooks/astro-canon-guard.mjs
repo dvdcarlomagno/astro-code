@@ -6,8 +6,8 @@
 // is the weakest enforcement there is, so this hook turns it into a deny at the one moment it
 // matters: just before a Write/Edit/MultiEdit/NotebookEdit or an obvious Bash write lands on a
 // protected path (ADR-071). It denies, never asks, so it behaves the same headless and in
-// Workflow subagents. The deny reason names the rule's source, the `ac` verb to use for THAT
-// file, and the two escapes.
+// Workflow subagents. The deny reason is two lines: the `ac` verb to use for THAT file (with
+// the rule's source as a short tag), then the two escapes.
 //
 // ## It never reads the switch
 //
@@ -350,14 +350,13 @@ function inConflict(file) {
 
 // ---------------------------------------------------------------- the verdict
 
-/** At most 6 lines: the rule and its source, the verb, both escapes. */
+/** Two plain lines: who writes the file and the verb to use, then both escapes. The rule's
+ * source stays as a short tag; its history lives in MANUAL.md. */
 export function denyReason(entry, displayPath) {
+  const what = entry.store ? 'the personal principle store' : displayPath;
   return [
-    `canon-guard: ${displayPath} is owned by the ac CLI — hand edits are refused.`,
-    `Rule: ${entry.rule} (${entry.source}).`,
-    `Use instead: ${entry.verb}`,
-    'Escapes: a file mid-merge (conflict markers, or unmerged in `git status`) may be edited by hand;',
-    'for anything else run `ac mods disable canon-guard`, edit, then `ac mods enable canon-guard`.',
+    `canon-guard: ${what} is written only by the ac CLI (${entry.source.replace(/^AGENTS\.md "Never hand-edit", /, '')}). Use: ${entry.verb}`,
+    'Hand edits are allowed only to resolve a merge conflict; otherwise run `ac mods disable canon-guard` first.',
   ].join('\n');
 }
 
