@@ -160,6 +160,14 @@ every uncommitted change in the repo"), then the scoped alternative and the off 
   prefixes, `git -C/-c/--git-dir`, `sh -c`/`bash -c` and the lean-ctx `-c` wrapper are seen;
   aliases, `eval`, scripts, `$(…)` and lean-ctx's `ctx_shell` are not. A git command merely quoted
   in `echo`, `grep` or a commit message never trips it.
+- Not asked when nothing can be lost. A refused call goes through without a prompt when git, asked
+  read-only, shows it would destroy nothing: no uncommitted change for `reset --hard` (bare or to
+  `HEAD` only; a reset to another commit can drop commits), `stash`, a whole-tree
+  `checkout`/`restore` or `-f`; no untracked file for `git clean` (no ignored file either with
+  `-x`/`-X`). The same holds for a scratch repo whose git data lives under the temp directory
+  (`TMPDIR`, else `/tmp`); a worktree of a real project placed there still counts as the project.
+  Only the plain shape qualifies, `git <subcommand> …` alone or after `cd <literal path>`; with
+  prefixes, global options, other segments, unreadable words, or git not answering, it asks.
 - Verdict: Claude Code **asks**; a headless or Workflow agent cannot answer, so for it an ask is a
   refusal. Cursor **denies**, because it cannot ask from `preToolUse`. `ac mods status` says
   which (`asks` / `denies`) per place.

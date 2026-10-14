@@ -7,7 +7,7 @@
 // a developer's real ~/.claude, ~/.astro or repo.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync, chmodSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, realpathSync, chmodSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -41,10 +41,15 @@ function sandbox() {
   writeFileSync(join(R, 'notes.txt'), 'keep me\n');
   const WT = join(R, '.claude', 'worktrees', 'agent-1');
   git(R, 'worktree', 'add', '-q', WT, '-b', 'wt1');
+  // Work at stake in both trees, so "nothing at stake" never lets a refused form through here.
+  for (const t of [R, WT]) writeFileSync(join(t, 'src', 'a.js'), 'export const changed = 1;\n');
+  writeFileSync(join(WT, 'scratch.txt'), 'untracked\n');
+  mkdirSync(join(HOME, 'tmp'));
   return { S, HOME, R, WT };
 }
 
-const ENV = (HOME, extra = {}) => ({ PATH: PINNED_PATH, HOME, ...extra });
+// TMPDIR points inside HOME, so the sandbox repos are not "scratch" to the hook (os.tmpdir()).
+const ENV = (HOME, extra = {}) => ({ PATH: PINNED_PATH, HOME, TMPDIR: join(HOME, 'tmp'), ...extra });
 
 function feed(event, { env, args = [], rawInput } = {}) {
   return spawnSync(process.execPath, [HOOK, ...args], {
@@ -204,7 +209,7 @@ test('C8: malformed or unexpected input fails open, silently', () => {
 
 // ---------------------------------------------------------------- C9
 
-test('C9: deciding spawns no other program and is fast', () => {
+test('C9: deciding spawns nothing; only a refused call asks git, and a git that cannot answer keeps the ask', () => {
   const { S, HOME, R } = sandbox();
   const bin = join(S, 'bin');
   const log = join(S, 'spawned.log');
@@ -213,12 +218,65 @@ test('C9: deciding spawns no other program and is fast', () => {
     writeFileSync(join(bin, n), `#!/bin/sh\necho ${n} >> "${log}"\n`);
     chmodSync(join(bin, n), 0o755);
   }
-  const env = { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, HOME };
-  for (const cmd of [...REFUSED_FORMS, ...WRAPPED_FORMS(R), ...ALLOWED_FORMS]) feed(bashEvent(cmd, R), { env });
+  const env = { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, HOME, TMPDIR: join(HOME, 'tmp') };
+  const spawned = () => (existsSync(log) ? readFileSync(log, 'utf8') : '');
+  for (const cmd of ALLOWED_FORMS) feed(bashEvent(cmd, R), { env });
+  assert.equal(spawned(), '', 'an allowed call spawns nothing');
+  for (const cmd of [...REFUSED_FORMS, ...WRAPPED_FORMS(R)]) {
+    assert.equal(isRefused(feed(bashEvent(cmd, R), { env })), true, `${cmd}: a git with no answer keeps the ask`);
+  }
+  assert.match(spawned(), /^(git\n)+$/, 'a refused call spawns git and nothing else');
   const t0 = Date.now();
   for (let i = 0; i < 20; i++) feed(bashEvent('git status', R), { env });
   assert.ok(Date.now() - t0 < 20000, 'twenty calls under 20 s');
-  assert.equal(existsSync(log) ? readFileSync(log, 'utf8') : '', '', 'nothing was spawned');
+});
+
+// ---------------------------------------------------------------- nothing at stake
+
+function cleanRepo(S, name) {
+  const C = join(S, name);
+  mkdirSync(join(C, 'src'), { recursive: true });
+  git(C, 'init', '-q', '-b', 'main');
+  writeFileSync(join(C, 'src', 'a.js'), 'export {};\n');
+  writeFileSync(join(C, '.gitignore'), '*.log\n');
+  git(C, 'add', '-A');
+  git(C, 'commit', '-q', '-m', 'init');
+  git(C, 'commit', '-q', '--allow-empty', '-m', 'second');
+  return C;
+}
+
+test('nothing at stake: a clean tree is not asked about; a commit-dropping reset, odd shapes and unsure calls still are', () => {
+  const { S, HOME, R } = sandbox();
+  const C = cleanRepo(S, 'clean');
+  const env = ENV(HOME);
+  const allowed = ['git reset --hard', 'git reset --hard HEAD', 'git reset -q --hard', 'git checkout .', 'git restore .',
+    'git checkout -f main', 'git stash', 'git stash -u', 'git clean -fd', 'git clean -fdx'];
+  table(allowed, [C], isAllowed, env);
+  table([`cd ${C} && git reset --hard`, `cd ${C}; git clean -fd`], [R], isAllowed, env);
+  const asked = ['git reset --hard HEAD~1', 'git reset --hard origin/main', `git -C ${C} reset --hard`, 'FOO=1 git reset --hard',
+    'touch x && git reset --hard', 'git status && git reset --hard', 'bash -c "git reset --hard"', 'git reset --hard $REF',
+    'git -C $(pwd) stash', `cd ${C} && touch x && git reset --hard`, 'cd ~ && git reset --hard'];
+  table(asked, [C], isRefused, env);
+  table([`cd ${R} && git reset --hard`], [C], isRefused, env);
+  // Only what each command destroys counts: an untracked file stakes clean and stash -u, not reset.
+  writeFileSync(join(C, 'new.txt'), 'x\n');
+  table(['git reset --hard'], [C], isAllowed, env);
+  table(['git clean -fd', 'git stash -u', 'git checkout .'], [C], isRefused, env);
+  rmSync(join(C, 'new.txt'));
+  writeFileSync(join(C, 'build.log'), 'x\n');
+  table(['git clean -fd'], [C], isAllowed, env);
+  table(['git clean -fdx', 'git stash -a'], [C], isRefused, env);
+});
+
+test('nothing at stake: a repo whose git data is under TMPDIR is scratch; a worktree of a real repo placed there is not', () => {
+  const { S, HOME, R } = sandbox();
+  const scratch = ENV(HOME, { TMPDIR: S });
+  table(['git reset --hard', 'git clean -fd', 'git stash -u'], [R], isAllowed, scratch);
+  table(['git reset --hard $REF'], [R], isRefused, scratch);
+  const WT2 = join(HOME, 'tmp', 'wt2');
+  git(R, 'worktree', 'add', '-q', WT2, '-b', 'wt2');
+  writeFileSync(join(WT2, 'src', 'a.js'), 'export const changed = 2;\n');
+  table(['git reset --hard', 'git stash'], [WT2], isRefused, ENV(HOME));
 });
 
 // ---------------------------------------------------------------- Cursor

@@ -53,10 +53,26 @@
 // Any internal failure (bad JSON, an unknown tool, a non-string command) allows the call with
 // empty stdout and stderr and never prints a stack: a guard that wedges every tool use is worse
 // than the mistake it prevents. An allowed call prints NOTHING; this script never emits `allow`,
-// which would auto-approve past the user's own permission rules. It spawns nothing and reads
-// nothing but stdin.
+// which would auto-approve past the user's own permission rules. Deciding spawns nothing and
+// reads nothing but stdin; only a call already judged destructive asks git, read-only, whether
+// anything is at stake (below).
+//
+// ## Nothing at stake, nothing to ask (ADR-076)
+//
+// A prompt the user always approves teaches them to approve without reading. So a refused call
+// is let through when it can lose nothing, which two read-only git calls settle:
+//   - the repo is scratch: its git data (the common dir, so a worktree of a real project never
+//     counts) lives under the OS temp directory (`os.tmpdir()`, i.e. TMPDIR or /tmp);
+//   - the tree holds nothing the command would destroy: no uncommitted change for reset --hard
+//     (bare or to HEAD only, since a reset to another commit can drop commits) and for stash,
+//     checkout, restore and -f; no untracked file for clean (no ignored file either with -x/-X).
+// Only the plainest shape qualifies: one segment starting with the word `git` and its subcommand
+// (no prefixes, global options or wrappers), optionally after a `cd <literal path>` segment.
+// Anything else, an `unsure` hit, or git failing to answer, keeps the ask.
 import { readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export const VERDICT = 'ask';
@@ -417,6 +433,51 @@ export function reasonFor(hit, verdict) {
   ].join('\n');
 }
 
+// ---------------------------------------------------------------- nothing at stake
+
+const gitOut = (dir, args) => execFileSync('git', ['-C', dir, ...args], {
+  encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'],
+  env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+});
+
+const within = (p, root) => p === root || p.startsWith(root.endsWith(sep) ? root : root + sep);
+
+// Does a short cluster or a long option among `args` name one of `short`/`long`?
+const hasFlag = (args, short, long) => args.some((a) => long.includes(a) || (/^-[A-Za-z]+$/.test(a) && [...a.slice(1)].some((c) => short.includes(c))));
+
+// The directory the git call runs in, when the command is plain enough to know it, else null.
+function plainGitDir(command) {
+  const segs = segments(command);
+  if (!CWD || segs.length < 1 || segs.length > 2) return null;
+  const g = segs[segs.length - 1];
+  if (g[0] !== 'git' || !DANGER.has(g[1]) || g.some((w) => typeof w !== 'string' || dynamic(w))) return null;
+  if (segs.length === 1) return { dir: CWD, words: g };
+  const c = segs[0];
+  if (c.length !== 2 || c[0] !== 'cd' || typeof c[1] !== 'string' || dynamic(c[1]) || /^[~-]/.test(c[1])) return null;
+  return { dir: resolve(CWD, c[1]), words: g };
+}
+
+/** True when the refused call provably loses nothing (see header); any doubt answers false. */
+export function nothingAtStake(hit, command) {
+  if (!hit || hit.id === 'unsure') return false;
+  const plain = plainGitDir(command);
+  if (!plain) return false;
+  const { dir, words } = plain;
+  const args = words.slice(2);
+  try {
+    const common = gitOut(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim();
+    if (isAbsolute(common) && within(realpathSync(common), realpathSync(tmpdir()))) return true;
+    if (hit.id === 'reset' && args.some((a) => !a.startsWith('-') && a !== 'HEAD')) return false;
+    const x = hit.id === 'clean' ? hasFlag(args, ['x', 'X'], []) : hit.id === 'stash' && hasFlag(args, ['a'], ['--all']);
+    const lines = gitOut(dir, ['-c', 'core.fsmonitor=false', 'status', '--porcelain=v1', '--branch',
+      hit.id === 'reset' ? '--untracked-files=no' : '--untracked-files=all', ...(x ? ['--ignored'] : [])]).split('\n').filter(Boolean);
+    if (!lines[0]?.startsWith('## ')) return false; // not git's answer
+    const rest = lines.slice(1);
+    if (hit.id === 'clean') return !rest.some((l) => l.startsWith('??') || l.startsWith('!!'));
+    return rest.length === 0;
+  } catch { return false; }
+}
+
 /** `{ reason, hit }` for a call to refuse, else null. */
 export function decide(input, { cursor = false } = {}) {
   if (!input || typeof input !== 'object') return null;
@@ -426,7 +487,7 @@ export function decide(input, { cursor = false } = {}) {
   CWD = typeof input.cwd === 'string' && isAbsolute(input.cwd) ? input.cwd : null;
   TEXT = command;
   const hit = judgeCommand(command);
-  if (!hit) return null;
+  if (!hit || nothingAtStake(hit, command)) return null;
   const isCursor = cursor || input.hook_event_name === 'preToolUse';
   return { reason: reasonFor(hit, isCursor ? CURSOR_VERDICT : VERDICT), hit };
 }

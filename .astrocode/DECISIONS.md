@@ -497,3 +497,10 @@ _2026-10-12 · at 38cb91b_
 
 **Rejected:** amending C6 to let the first enable edit settings.json; keeping phase 36's install-on-first-enable
 
+## ADR-076 — git-guard lets a refused call through when it provably loses nothing (a clean tree for that command, or a scratch repo whose git common dir is under os.tmpdir()), checked by read-only git status only after the call is judged destructive; and a guard's message is two plain lines, its ADR quoted at most as a short tag, refining ADR-071(a) and phase 38's C9
+_2026-10-14 · at a7f0599_
+
+**Why:** A prompt the user approves every time trains them to approve without reading, so the guard must ask only when work can be lost. A clean tree loses nothing to reset --hard (to HEAD), stash, whole-tree checkout/restore or -f, and nothing untracked means git clean deletes nothing. A throwaway clone under the temp directory has no work worth a prompt, while a worktree of the real project placed there shares its stash and still counts. Only the plain shape (git <sub> alone, or after cd <literal path>) qualifies, and an unsure hit or git not answering keeps the ask, so phase 38's ask-when-unsure default stands. Deciding still spawns nothing; git runs only for a call already judged destructive. Six-line messages with rule history and ADR numbers were hard to read mid-flow (user, 2026-10-14); the history lives in MANUAL.md.
+
+**Rejected:** Skipping reset --hard to any ref on a clean tree (it can drop commits). Treating any folder other than the project as scratch (a worktree elsewhere shares refs/stash). An env-var escape (ADR-071 keeps none). Dropping the source tag from canon-guard's deny (its reader is the agent, and phase 37's C7 pins the source).
+

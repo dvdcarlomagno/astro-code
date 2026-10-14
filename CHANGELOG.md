@@ -4,6 +4,9 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+- `git-guard` no longer asks when the command can lose nothing: a clean tree for `reset --hard` (bare or to `HEAD`), `stash`, a whole-tree `checkout`/`restore` or `-f`, no untracked files for `git clean`, or a scratch repo under the temp directory. It checks with read-only `git status` and still asks whenever it can't tell
+- `canon-guard`'s refusal is two lines: the `ac` command to use, then the escapes
+
 ## v0.41.0
 
 - astro-mods: an optional enforcement layer for Claude Code 2.1.292+, off by default with one switch per feature (`ac mods`, `ac mods enable <feature>…`, `ac mods disable <feature>…`, several at once). It enforces only rules the canon already states, nothing in the loop depends on it, and a failing mod lets the action through and says so once. Codex, Cursor and an older Claude Code work as before. `ac install` and `ac update` install the plugin with every mod off, so switching a mod never edits `settings.json`. See MANUAL "Enforcement mods"
