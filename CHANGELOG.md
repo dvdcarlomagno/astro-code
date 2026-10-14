@@ -4,6 +4,8 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+## v0.42.2
+
 - live-capture works on a local model: when the endpoint refuses Haiku with a 4xx, the session's own model judges for the rest of the session instead of failing with `api-error` on every session. A 429 or 5xx on Haiku is an outage and never moves capture to the session model.
 
 ## v0.42.1
