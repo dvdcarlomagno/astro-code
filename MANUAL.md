@@ -146,7 +146,8 @@ names the rule, the `ac` verb to use for that file, and the escapes:
   profile added later gets it; a stale entry is removed).
 
 **git-guard** refuses unscoped destructive git, the rule ADR-035 and ADR-038 put in every
-executor prompt. The reason names the rule, why, the scoped alternative and the escape:
+executor prompt. The prompt is two plain lines: what the command would do (e.g. "throws away
+every uncommitted change in the repo"), then the scoped alternative and the off switch:
 
 - Refused: `git stash` with no `-- <path>` pathspec (bare, `-u`/`-a`/`-k`, `save`, `push` without
   `--`), `git clean` unless `-n`/`--dry-run`, `git reset --hard`, and a whole-tree

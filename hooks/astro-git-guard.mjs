@@ -395,18 +395,25 @@ function judgeCommand(command, depth = 0) {
 
 // ---------------------------------------------------------------- the verdict
 
-/** At most 6 lines: the rule, why, the alternative, the escape. */
+// What each refused form does, in the words a person deciding in a hurry needs.
+const EFFECT = {
+  stash: 'moves every uncommitted change in the repo into the stash, which every session shares',
+  clean: 'deletes every untracked file in the repo',
+  reset: 'throws away every uncommitted change in the repo',
+  checkout: 'throws away every uncommitted change in the repo',
+  restore: 'throws away every uncommitted change in the repo',
+  force: 'throws away local changes in the repo',
+  unsure: 'might throw away uncommitted work (git-guard cannot tell what it touches)',
+};
+
+/** Two plain lines: what the command does, then the safer way and the off switch. The rule's
+ * history (ADR-035, ADR-038) lives in MANUAL.md, not in a prompt someone answers mid-flow. */
 export function reasonFor(hit, verdict) {
-  const seg = hit.segment.length > 120 ? `${hit.segment.slice(0, 117)}...` : hit.segment;
-  const approve = verdict === 'ask' ? 'approve this call if you meant it, or ' : '';
+  const seg = hit.segment.length > 80 ? `${hit.segment.slice(0, 77)}...` : hit.segment;
+  const ask = verdict === 'ask' ? ' Allow only if you meant that.' : ' Refused.';
   return [
-    hit.id === 'unsure'
-      ? `git-guard: \`${seg}\` may be an unscoped destructive git command (${hit.form}).`
-      : `git-guard: \`${seg}\` is an unscoped destructive git command (${hit.form}).`,
-    'Rule: no bare stash, git clean, git reset --hard or whole-tree checkout/restore (ADR-035, ADR-038).',
-    'Why: refs/stash is repository-wide even from a worktree; a finished plan was destroyed this way.',
-    'Use instead: `git stash push -- <path>…` then `git stash pop`; a broken task is dropped and re-run (ADR-014).',
-    `Escape: ${approve}run \`ac mods disable git-guard\` (re-enable with \`ac mods enable git-guard\`).`,
+    `git-guard: \`${seg}\` ${EFFECT[hit.id] ?? EFFECT.unsure}.${ask}`,
+    'Safer: `git stash push -- <path>` then `git stash pop`, or name the paths. Off: `ac mods disable git-guard`.',
   ].join('\n');
 }
 

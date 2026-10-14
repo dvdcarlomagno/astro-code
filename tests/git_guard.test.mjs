@@ -150,17 +150,23 @@ test('C5: scoped, read-only, out-of-scope git and mere mentions are never refuse
 
 // ---------------------------------------------------------------- C6 / C7
 
-test('C6: the reason cites the rule, says why, names the alternative and the escape, briefly', () => {
+test('C6: the reason says what the command does, the safer way and the off switch, in two lines', () => {
   const { HOME, R } = sandbox();
-  for (const cmd of ['git stash -u', 'git clean -fd', 'git reset --hard', 'git checkout .']) {
+  const effects = {
+    'git stash -u': /stash, which every session shares/,
+    'git clean -fd': /deletes every untracked file/,
+    'git reset --hard': /throws away every uncommitted change/,
+    'git checkout .': /throws away every uncommitted change/,
+  };
+  for (const [cmd, effect] of Object.entries(effects)) {
     const reason = reasonOf(feed(bashEvent(cmd, R), { env: ENV(HOME) }));
-    assert.match(reason, /ADR-035|ADR-038/, cmd);
-    assert.match(reason, /repository-wide|destroyed/, cmd);
+    assert.match(reason, effect, cmd);
+    assert.match(reason, /Allow only if you meant that\./, cmd);
     assert.ok(reason.includes('git stash push -- <path>'), cmd);
     assert.ok(reason.includes('git stash pop'), cmd);
     assert.ok(reason.includes('ac mods disable git-guard'), cmd);
-    assert.ok(reason.split('\n').length <= 8, cmd);
-    assert.ok(!reason.includes('ASTRO_'), cmd);
+    assert.equal(reason.split('\n').length, 2, cmd);
+    assert.doesNotMatch(reason, /ADR-\d+|ASTRO_/, cmd);
   }
 });
 
