@@ -22,7 +22,11 @@ export const meta = {
 
 // Defensive: accept args as an object, or as a JSON string if the caller stringified it.
 const input = typeof args === 'string' ? JSON.parse(args) : args || {}
-const { root, phase: phaseSlug, goal = '(see PROJECT.md)', models: baseModels = {}, reasoning: baseReasoning = {} } = input
+const { root, phase: phaseSlug, goal = '(see PROJECT.md)' } = input
+// `ac config get <map>` prints null for a map the project never set; a destructuring
+// default covers only undefined, so normalise both maps here.
+const baseModels = input.models || {}
+const baseReasoning = input.reasoning || {}
 // A local-model session hands every role the `inherit` tier (lib/models.mjs SESSION_MODEL):
 // no agent gets a model or an effort, so each one runs on the session's own model.
 const onSessionModel = Object.values(baseModels).includes('inherit')

@@ -4,6 +4,12 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+## v0.42.1
+
+- The verifier runs test suites, builds and type-checkers one at a time and, when the project routes them elsewhere (a `host` helper), runs them there, its own compiler scripts included. Its in-container `tsc` runs on top of a busy box were the spike before an out-of-memory restart.
+- `git-guard` judges a `for f in <named paths>; do … git checkout -- $f; done` loop path by path, so a probe that blanks and restores a list of files no longer stops for a prompt. A loop over a glob, `$(…)`, `.` or a reassigned variable still asks.
+- `/astro-execute` and `/astro-plan` no longer crash on their first launch in a project with no `reasoning` map: the workflows treat a `null` `models` or `reasoning` arg (what `ac config get` prints for an unset map) as empty.
+
 ## v0.42.0
 
 - `witness` keeps a typed `/astro-discuss <n>` or `/astro-accept <n>` witnessed when a background workflow's notification arrives during that turn; it used to record your own discussion as written by the agent. It also stops rewriting commands that only mention an acceptance inside quotes (an `echo`, a `grep` pattern, a commit message), which used to get `--agent claude` appended (ADR-077, #132)

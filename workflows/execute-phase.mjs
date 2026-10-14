@@ -22,7 +22,11 @@ export const meta = {
 
 // Defensive: accept args as an object, or as a JSON string if the caller stringified it.
 const input = typeof args === 'string' ? JSON.parse(args) : args || {}
-const { root, phase: phaseSlug, models: baseModels = {}, reasoning: baseReasoning = {} } = input
+const { root, phase: phaseSlug } = input
+// `ac config get <map>` prints null for a map the project never set; a destructuring
+// default covers only undefined, so normalise both maps here.
+const baseModels = input.models || {}
+const baseReasoning = input.reasoning || {}
 if (!root || !phaseSlug) throw new Error('execute-phase requires args { root, phase }')
 
 // Phase-10 (ADR-022): the per-phase effort dial.  `effort` arrives as a run-scoped
