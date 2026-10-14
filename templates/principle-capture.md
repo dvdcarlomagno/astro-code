@@ -32,7 +32,9 @@ judgement proposes nothing:
   its expanded body, `-p`/SDK input, notifications, peer, scheduled or plugin prompts,
   assistant text or tool output. A Haiku judge decides whether the prompt states a standing
   rule of the user's own, with no word list; it lifts (§2), picks the kind (§4) and gives the
-  why (§3).
+  why (§3). When the endpoint refuses Haiku with a 4xx (a local model behind Claude Code serves
+  no Claude tier), the session's own model judges for the rest of the session; a 429 or 5xx
+  never moves it.
 
 ## 2. Lift the generator
 
