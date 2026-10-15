@@ -172,7 +172,9 @@ every uncommitted change in the repo"), then the scoped alternative and the off 
   (`TMPDIR`, else `/tmp`), or whose `.git` holds an `astrocode-scratch` file: a throwaway copy that must
   live where the host can see it is marked on purpose (`touch .git/astrocode-scratch`, which the
   verifier does for its probe copies). A worktree of a real project still counts as the project.
-  Only the plain shape qualifies, `git <subcommand> …` alone or after `cd <literal path>`; with
+  Only the plain shape qualifies, `git <subcommand> …` alone or after literal assignments and
+  `cd <literal path>` segments, optionally inside one `lean-ctx -c`/`bash -c`. In a scratch repo the
+  segments after it may run too (a probe resets, then runs its test), unless one is refused itself; with
   prefixes, global options, other segments, unreadable words, or git not answering, it is refused.
 - Verdict: it **denies**, on Claude Code and Cursor alike, and never asks (ADR-082). An ask from
   a Workflow agent waits for you, so an unattended run stalled until you came back; a deny

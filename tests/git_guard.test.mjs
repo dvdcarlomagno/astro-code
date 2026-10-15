@@ -279,9 +279,9 @@ test('nothing at stake: a clean tree is not refused; a commit-dropping reset, od
   const allowed = ['git reset --hard', 'git reset --hard HEAD', 'git reset -q --hard', 'git checkout .', 'git restore .',
     'git checkout -f main', 'git stash', 'git stash -u', 'git clean -fd', 'git clean -fdx'];
   table(allowed, [C], isAllowed, env);
-  table([`cd ${C} && git reset --hard`, `cd ${C}; git clean -fd`], [R], isAllowed, env);
+  table([`cd ${C} && git reset --hard`, `cd ${C}; git clean -fd`, `bash -c "cd ${C} && git reset --hard"`], [R], isAllowed, env);
   const asked = ['git reset --hard HEAD~1', 'git reset --hard origin/main', `git -C ${C} reset --hard`, 'FOO=1 git reset --hard',
-    'touch x && git reset --hard', 'git status && git reset --hard', 'bash -c "git reset --hard"', 'git reset --hard $REF',
+    'touch x && git reset --hard', 'git status && git reset --hard', 'git reset --hard $REF',
     'git -C $(pwd) stash', `cd ${C} && touch x && git reset --hard`, 'cd ~ && git reset --hard'];
   table(asked, [C], isRefused, env);
   table([`cd ${R} && git reset --hard`], [C], isRefused, env);
@@ -434,4 +434,17 @@ test('ADR-082: calls the guard cannot read run, and a refusal is a deny, never a
   table(UNREAD_FORMS, [R], isAllowed, ENV(HOME));
   assert.equal(verdictOf(feed(bashEvent('git stash -u', R), { env: ENV(HOME) })), 'deny');
   intact(R);
+});
+
+test('ADR-082: a scratch-copy probe runs with assignments, a wrapper and its test after the reset; the project is still refused', () => {
+  const { S, HOME, R } = sandbox();
+  const scratch = ENV(HOME, { TMPDIR: S });
+  const C = cleanRepo(S, 'mut');
+  writeFileSync(join(C, 'src', 'a.js'), 'export const mutated = 1;\n');
+  table([
+    `M=${C}; cd $M; git checkout -q -- .; git diff --stat; node --version`,
+    `/usr/local/bin/lean-ctx -c 'M=${C}; cd $M; git checkout -q -- .; grep -n x src/a.js | head'`,
+  ], [R], isAllowed, scratch);
+  table([`cd ${C}; git checkout -q -- .; cd ${R}; git reset --hard`, `cd ${C}; git checkout -- .; git -C ${R} stash -u`], [R], isRefused, scratch);
+  table([`cd ${R}; git checkout -q -- .; echo hi`], [R], isRefused, ENV(HOME));
 });

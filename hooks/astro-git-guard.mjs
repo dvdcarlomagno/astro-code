@@ -470,15 +470,28 @@ const within = (p, root) => p === root || p.startsWith(root.endsWith(sep) ? root
 const hasFlag = (args, short, long) => args.some((a) => long.includes(a) || (/^-[A-Za-z]+$/.test(a) && [...a.slice(1)].some((c) => short.includes(c))));
 
 // The directory the git call runs in, when the command is plain enough to know it, else null.
+// Before the git call only literal assignments and `cd <literal path>` segments may run; one
+// `lean-ctx -c '…'` or `bash -c '…'` around the whole command is unwrapped first. `tail` holds
+// the segments after it, which count only in a scratch repo (see nothingAtStake).
 function plainGitDir(command) {
-  const segs = segments(command);
-  if (!CWD || segs.length < 1 || segs.length > 2) return null;
-  const g = segs[segs.length - 1];
-  if (g[0] !== 'git' || !DANGER.has(g[1]) || g.some((w) => typeof w !== 'string' || dynamic(w))) return null;
-  if (segs.length === 1) return { dir: CWD, words: g };
-  const c = segs[0];
-  if (c.length !== 2 || c[0] !== 'cd' || typeof c[1] !== 'string' || dynamic(c[1]) || /^[~-]/.test(c[1])) return null;
-  return { dir: resolve(CWD, c[1]), words: g };
+  let segs = segments(command);
+  const w = segs.length === 1 ? segs[0] : null;
+  if (w && w.length === 3 && w[1] === '-c' && typeof w[2] === 'string' && (base(w[0]) === 'lean-ctx' || SHELLS.has(base(w[0])))) {
+    segs = segments(resolveLiterals(w[2]));
+  }
+  if (!CWD || !segs.length) return null;
+  let dir = CWD;
+  let i = 0;
+  for (; i < segs.length; i++) {
+    const c = segs[i];
+    if (c.every((x) => typeof x === 'string' && /^[A-Za-z_]\w*=/.test(x) && !dynamic(x))) continue;
+    if (c[0] !== 'cd') break;
+    if (c.length !== 2 || typeof c[1] !== 'string' || dynamic(c[1]) || /^[~-]/.test(c[1])) return null;
+    dir = resolve(dir, c[1]);
+  }
+  const g = segs[i];
+  if (!g || g[0] !== 'git' || !DANGER.has(g[1]) || g.some((x) => typeof x !== 'string' || dynamic(x))) return null;
+  return { dir, words: g, tail: segs.slice(i + 1) };
 }
 
 /** True when the refused call provably loses nothing (see header); any doubt answers false. */
@@ -486,13 +499,15 @@ export function nothingAtStake(hit, command) {
   if (!hit || hit.id === 'unsure') return false;
   const plain = plainGitDir(command);
   if (!plain) return false;
-  const { dir, words } = plain;
+  const { dir, words, tail } = plain;
   const args = words.slice(2);
   try {
     const common = gitOut(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim();
     if (!isAbsolute(common)) return false;
     const real = realpathSync(common);
-    if (within(real, realpathSync(tmpdir())) || existsSync(join(real, 'astrocode-scratch'))) return true;
+    // A probe in a scratch copy goes on to run its test: what follows may not be refused itself.
+    if (within(real, realpathSync(tmpdir())) || existsSync(join(real, 'astrocode-scratch'))) return tail.every((t) => !judgeSegment(t, 0));
+    if (tail.length) return false;
     if (hit.id === 'reset' && args.some((a) => !a.startsWith('-') && a !== 'HEAD')) return false;
     const x = hit.id === 'clean' ? hasFlag(args, ['x', 'X'], []) : hit.id === 'stash' && hasFlag(args, ['a'], ['--all']);
     const lines = gitOut(dir, ['-c', 'core.fsmonitor=false', 'status', '--porcelain=v1', '--branch',
