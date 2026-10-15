@@ -135,7 +135,7 @@ function decideBash(e) {
   const mk = bashMarkerRewrite(e.command)
   if (mk !== null) {
     if (turn === null || undeterminedFor('discuss marker')) markSay = 'undetermined'
-    else if (!mk.phases.every((n) => witnessed('discuss marker', String(n), e))) {
+    else if (mk.unknown || !mk.phases.every((n) => witnessed('discuss marker', String(n), e))) {
       cur = { ...e, command: mk.command }
       markSay = 'marker'
     }
@@ -148,7 +148,7 @@ function decideGateBash(e) {
   const hit = findGates(e.command)
   // findGates found no gate, yet the gate verbs are there (`node --no-warnings bin/ac.mjs phase accept`,
   // `$(which ac) phase accept`): unreadable, not innocent.
-  if (hit.kind === 'none' && !GATE_VERBS.test(shellText(e.command))) return { out: e, say: null }
+  if (hit.kind === 'none' && !GATE_VERBS.test(shellText(e.command)) && !VAR_VERB.test(e.command)) return { out: e, say: null }
   // Named only inside quoted text nothing can run (`echo "… phase accept 12 --agent claude"`, a grep pattern, a
   // commit message): a mention, left exactly as written.
   if (hit.kind === 'none' && onlyQuotedMention(e.command)) return { out: e, say: null }

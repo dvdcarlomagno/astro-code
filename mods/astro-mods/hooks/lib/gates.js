@@ -360,7 +360,7 @@ export const GATE_VERBS = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\b/
 // `phase \\<newline>accept` are the same gate (phase 41 verify, C2/C3).
 // A gate verb held in a shell variable: `ac phase $V 41`, `ac fix "$G" id`, `ac $X accept 41`. witness
 // cannot know which verb runs, so such a call is signed as the agent (phase 46, ADR-081 hole closed).
-export const VAR_VERB = /(?:^|[\s;&|(])(?:\S*\/)?(?:ac|ac\.mjs)\s+(?:(?:phase|fix)\s+["']?[$`]|["']?[$`]\S*\s+(?:accept|reject)\b)/
+export const VAR_VERB = /(?:^|[\s;&|(])(?:\S*\/)?(?:ac|ac\.mjs)\s+(?:(?:phase|fix)\s+["']?[$`]|["']?[$`])/
 export const shellText = (s) => String(s).replace(/\\\r?\n/g, ' ').replace(/["'\\]/g, '')
 
 // Anything that can run text it was handed: a shell or interpreter, eval, a remote or deferred
@@ -411,6 +411,8 @@ export function signSegments(command, name = AGENT_NAME) {
   let changed = false
   const out = parts.map((p, i) => {
     if (i % 2 === 1) return p
+    // a pure assignment (`export V="phase accept"`) runs nothing: the `ac $V` segment carries the signature --agent claude
+    if (/^\s*(?:(?:export|declare|typeset|local|readonly)\s+(?:-\w+\s+)*)?\w+=\S*(?:"[^"]*"|'[^']*')?\s*$/.test(p) && !/(?:^|[\s"'=])(?:\S*\/)?(?:ac|ac\.mjs)\s/.test(p)) return p
     const t = shellText(p)
     if (!GATE_VERBS.test(t) && !VAR_VERB.test(p)) return p
     const dropped = dropWitnessed(p)
@@ -460,12 +462,21 @@ export function rewriteRaw(command, name = AGENT_NAME, keep = () => false) {
  */
 export function bashMarkerRewrite(command) {
   if (typeof command !== 'string') return null
-  if (!new RegExp(HUMAN_INLINE.source, 'i').test(command)) return null
+  const inline = new RegExp(HUMAN_INLINE.source, 'i').test(command)
+  // the marker split by printf's format (`printf '<!-- astro-discuss: %s -->\n' captured`): the word is the claim
+  const split = !inline && /astro-discuss:/i.test(command) && /(^|[^\w-])captured(?![\w-]| by agent)/i.test(command)
+  if (!inline && !split) return null
   const phases = new Set()
-  for (const tok of command.split(/[\s'"`;&|<>()]+/)) {
+  let unknown = false
+  for (const tok of command.split(/[\s'"`;&|<>()=]+/)) {
     const n = isPhaseContextPath(tok)
     if (n !== null) phases.add(n)
+    // `cd <phase dir> && … > CONTEXT.md`, `> "$F/CONTEXT.md"`: the file cannot be told, so it is never the human's
+    else if (/^(?:\.\/)?CONTEXT\.md$/i.test(tok) || (/\$/.test(tok) && /CONTEXT\.md$/i.test(tok))) unknown = true
   }
-  if (!phases.size) return null
-  return { command: command.replace(HUMAN_INLINE, AGENT_MARKER), phases: [...phases].sort((x, y) => x - y) }
+  if (!phases.size && !unknown) return null
+  const out = inline
+    ? command.replace(HUMAN_INLINE, AGENT_MARKER)
+    : command.replace(/(["']?)\bcaptured\b\1/i, (m, q) => (q ? `${q}captured by agent: ${AGENT_NAME}${q}` : `'captured by agent: ${AGENT_NAME}'`))
+  return { command: out, phases: [...phases].sort((x, y) => x - y), unknown }
 }

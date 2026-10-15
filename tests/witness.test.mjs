@@ -390,3 +390,19 @@ test('C4: rewriteGate leaves a --evidence citation byte-identical, and a citatio
   assert.strictEqual(sneaky.kind, 'one');
   assert.strictEqual(sneaky.ref, '41');
 });
+
+test('C8/C10 remediation: cd, variable-path and printf-format marker writes, and variable verbs, are signed as the agent', async () => {
+  const { bashMarkerRewrite, signSegments, VAR_VERB, AGENT_MARKER } = await gates();
+  const H = '<!-- astro-discuss: captured -->';
+  const a = bashMarkerRewrite(`cd .astrocode/phases/01-thing-one && printf '${H}\\nbody\\n' > CONTEXT.md`);
+  assert.ok(a.unknown && a.command.includes(AGENT_MARKER));
+  const b = bashMarkerRewrite(`P=.astrocode/phases/41-x/CONTEXT.md; printf '${H}\\nbody\\n' > $P`);
+  assert.deepStrictEqual(b.phases, [41]);
+  const c = bashMarkerRewrite(`printf '<!-- astro-discuss: %s -->\\n' captured > .astrocode/phases/41-x/CONTEXT.md`);
+  assert.strictEqual(c.command, `printf '<!-- astro-discuss: %s -->\\n' 'captured by agent: claude' > .astrocode/phases/41-x/CONTEXT.md`);
+  assert.strictEqual(bashMarkerRewrite(`printf '${H}' > notes/CONTEXT.md`), null);
+  assert.ok(VAR_VERB.test('ac $P $V 1'));
+  assert.strictEqual(signSegments('V=accept; P=phase; ac $P $V 1'), 'V=accept; P=phase; ac $P $V 1 --agent claude');
+  assert.strictEqual(signSegments('export V="phase accept" --agent claude; ac $V 1'), 'export V="phase accept" --agent claude; ac $V 1 --agent claude');
+  assert.strictEqual(signSegments('declare V="phase accept" --agent claude; ac $V 1'), 'declare V="phase accept" --agent claude; ac $V 1 --agent claude');
+});
