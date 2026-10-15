@@ -41,7 +41,10 @@ human accepts. This is the **human gate** after `/astro-verify` (the AI gate).
    command — so the record is only honest if the signer declares it.
    Declare honestly either way. Recording a machine
    sign-off as human does not just mislabel a field; it makes the two-gate guarantee
-   unauditable, which is the whole reason the second gate exists. The same rule extends
+   unauditable, which is the whole reason the second gate exists. When the user relayed a
+   decision made elsewhere (a board, a relay) and gave you its id or URL, add
+   `--evidence "<id or URL>"` with their text verbatim; it is stored as a citation and never
+   replaces `--agent` or makes the record human (ADR-081). The same rule extends
    to rejection: a stand-in agent MUST run
    `ac phase reject <slug> --reason "<what's wrong>" --agent "<your name>"`. The
    `--reason` is always the human's own words from step 3, quoted, not paraphrased —

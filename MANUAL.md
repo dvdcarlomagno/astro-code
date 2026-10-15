@@ -251,12 +251,24 @@ already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces i
   typed `/astro-discuss <n>` or `/astro-accept <n>` stays witnessed while a workflow finishes.
 - `accepted_evidence`: `--witnessed composer` is stored as `accepted_evidence: "composer"`
   (`ac phase show <n> --json`). `ac` never detects; it records what the caller declares.
+- Citing a decision made elsewhere: a gate (`ac phase accept|reject`, `ac fix accept`) takes
+  `--evidence "<id or URL>"` (one line, at most 200 characters), stored as `cited_evidence` beside the
+  record and shown by `ac phase show` and `ac fix list --all`. It is a citation, never a signer: it
+  does not make the acceptance human (ADR-081), works with the mod off, and combines with `--agent` or
+  `--witnessed composer`, which keep their own meaning.
+- Machine-typed prompts: a prompt (or typed slash command) that starts with one of your
+  `mods.machinePrefixes` (see the switches paragraph below) is a tool's, not yours, so a gate in that turn is
+  signed `--agent claude` and a human CONTEXT.md marker becomes the agent marker.
+- A `--witnessed` with no known turn (a fresh session, a reload, a typed gate with no id) is dropped; the call
+  is otherwise left as declared. A gate verb held in a shell variable (`V=accept; ac phase $V 41`) and a Bash
+  write of the human CONTEXT.md marker (`printf … >`, `sed -i`, a heredoc) are judged like their direct forms.
 - Fail open: an unknown turn, an empty typed id or a command it cannot parse is left declared, with
   one notice.
 - Known gaps: a typed `! ac phase accept <n>` line (the host shows it to no hook, so it is never
   witnessed; use the slash command), MCP shell tools (`ctx_shell`), an `ac` alias or script, a subagent's call (never
   witnessed), and Remote Control (`bridge`, counts as no signal so it is recorded as agent). The UAT
-  question's answer is not attestable (phase 41 `PROBE.md`).
+  question's answer is not attestable (phase 41 `PROBE.md`). A CONTEXT.md path held in a variable, a `cd`
+  followed by a bare `CONTEXT.md`, and a marker split across quoting are not read in a Bash write.
 
 **phase-band** draws a quiet band above the prompt in an astro-code project, and offers ids as you
 type. Optionally, on Claude Code, `ac mods enable phase-band` (off by default; headless `-p` and any
@@ -299,6 +311,8 @@ directory outside an astro-code project draw nothing):
   the count rises, or in the phase band when that is drawing; never a toast, nothing at zero. A
   failure gives at most one `⚠ principle capture failed` line per session and never touches your
   prompt.
+- Machine-typed prompts (a tool typing into your session, see the switches paragraph below) are never
+  looked at.
 - The escape: `ac mods disable live-capture`.
 - The rules (gate, lift, kinds, `--from-ref`, reporting) live once in
   `templates/principle-capture.md`; this section does not restate them.
@@ -314,6 +328,13 @@ The switches live in **`~/.astro/config.json`** under `mods`, beside `agent_tool
 not per project (`{ "mods": { "blindfold": true } }`; a missing key is off). `ac mods` is the only
 writer; an unparseable file is refused, never overwritten, and an unknown feature name changes
 nothing.
+
+Beside the switches, `mods.machinePrefixes: ["[relay] "]` lists strings a tool of yours types at the head
+of a prompt. A prompt whose trimmed text starts with one is machine-typed: **witness** never counts it as you
+and **live-capture** never reads it. It is per user, a plain case-sensitive prefix match (no regex, so `.*`
+is just those two characters), read at session start, so run `/reload-plugins` after a change. A malformed
+list (not a list of non-empty strings, over 50 entries or 200 characters) means no prefixes and one `⚠` in
+`ac mods status`; nothing else changes.
 
 Mods need **Claude Code 2.1.292 or newer**. On an older (or no) Claude Code, `ac mods enable`
 still records the switch and warns once, but installs nothing. The first `mod` you enable adds
@@ -1052,6 +1073,7 @@ ac phase add "Foundation"      # claim + add a phase
 ac phase check "<name>"        # is someone already building this?
 ac phase accept <n>            # human gate — requires a prior `verified`
 ac phase accept <n> --witnessed composer  # evidence the witness mod adds; also on `phase reject` and `fix accept`. `ac` never detects: it records what is declared
+ac phase accept <n> --evidence "<id or URL>"  # cite a decision made elsewhere (cited_evidence; never makes the signer human); also on `phase reject` and `fix accept`
 ac phase show <n> [--json]     # one phase's record, incl. accepted_kind / accepted_evidence
 ac phase reject <n> --reason … [--agent name]  # UAT failed → rejected + a blocker (--agent: machine-signed)
 ac phase surprise <n> [--healed n] [--remediation-cycles n] [--stopped-reason r] [--note "…"]  # execute records a run surprise
@@ -1068,7 +1090,7 @@ ac milestone complete          # archive the current milestone's phases (refuses
 ac milestone harvest [<n>] [--json]  # retrospective sweep material for the principle sweep
 
 ac fix add "<what is broken>"  # open a bugfix (dated id, no phase number)
-ac fix list                    # what is open
+ac fix list [--all]            # what is open (--all: accepted too, with who signed and any citation)
 ac fix accept <id>             # human gate — archives it
 ac fix accept <id> --agent <n> # machine-signed (ADR-033): records accepted_kind=agent
 

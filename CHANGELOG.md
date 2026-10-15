@@ -4,6 +4,11 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+- `--evidence "<id or URL>"` on `ac phase accept`, `ac phase reject` and `ac fix accept` cites a decision made elsewhere. It is stored as `cited_evidence` beside the record, shown by `ac phase show` and the new `ac fix list --all`, and never makes the signer human (ADR-081, #132)
+- `mods.machinePrefixes` in `~/.astro/config.json` lists strings your own tools type at the head of a prompt: witness signs a gate in such a turn as the agent and live-capture never reads it. A malformed list means no prefixes and one warning in `ac mods status` (ADR-081, #132)
+- witness closes four holes: a quoted gate with escaped quotes behind an `ac` head is left alone, a gate verb in a shell variable is signed as the agent, a Bash write of the human CONTEXT.md marker is rewritten like a Write, and a `--witnessed` with no known turn is dropped (ADR-081, #132)
+- `ac fix accept` on a slug that matches several fixes says it is ambiguous and names them, instead of "no such fix" (ADR-081, #132)
+
 ## v0.44.0
 
 - A re-verify after a FAIL re-checks the criteria that failed first and stops with FAIL while any is still unmet, so a still-failing phase no longer pays a full verifier run each time. A pass still checks every criterion in that same run. The verdict is saved and committed as `VERDICT.json` beside CRITERIA.md (written only by `ac verdict record`, protected by canon-guard), `ac phase verify` refuses without a full recorded pass, and a full run is forced when many criteria are unmet, CRITERIA.md changed, history moved, the fix is broad, or with `/astro-verify <n> --full` (ADR-079, #129)

@@ -459,12 +459,14 @@
     {
       "id": "2026-10-12-ac-fix-accept-on-an-ambiguous-slug-says",
       "title": "ac fix accept on an ambiguous slug says 'no such fix' instead of 'ambiguous'",
-      "status": "open",
+      "status": "dropped",
       "cost": "small",
       "found_at": "2026-10-12T10:59:07.373Z",
       "why": "findFix returns null for a multi-match, so the user is told the fix doesn't exist",
       "phase": "41",
-      "file": "lib/fixes.mjs"
+      "file": "lib/fixes.mjs",
+      "dropped_at": "2026-10-15T10:52:56.959Z",
+      "drop_reason": "closed by phase 46 t1, t2"
     },
     {
       "id": "2026-10-12-brief-section-double-logs-served-usage",
@@ -489,32 +491,38 @@
     {
       "id": "2026-10-12-witness-a-bash-write-of-the-human",
       "title": "witness: a Bash write of the human CONTEXT.md marker (printf >, sed -i) is not witnessed",
-      "status": "open",
+      "status": "dropped",
       "cost": "medium",
       "found_at": "2026-10-12T11:38:16.880Z",
       "why": "C6 covers only Write/Edit; a shell write in an autonomous turn leaves a human marker that ac phase context --author reads as human",
       "phase": "41",
-      "file": "mods/astro-mods/hooks/features/witness.js"
+      "file": "mods/astro-mods/hooks/features/witness.js",
+      "dropped_at": "2026-10-15T10:52:56.596Z",
+      "drop_reason": "closed by phase 46 t4, t6"
     },
     {
       "id": "2026-10-12-witness-a-self-supplied-witnessed",
       "title": "witness: a self-supplied --witnessed composer passes through on a cold (no-turn) call",
-      "status": "open",
+      "status": "dropped",
       "cost": "small",
       "found_at": "2026-10-12T11:38:16.968Z",
       "why": "After a reload the agent's own --witnessed composer reaches ac and records evidence; C5 mandates untouched, but stripping only a self-supplied --witnessed could never forge evidence",
       "phase": "41",
-      "file": "mods/astro-mods/hooks/features/witness.js"
+      "file": "mods/astro-mods/hooks/features/witness.js",
+      "dropped_at": "2026-10-15T10:52:56.724Z",
+      "drop_reason": "closed by phase 46 t4, t6"
     },
     {
       "id": "2026-10-12-witness-assigning-the-gate-verb-to-a",
       "title": "witness: assigning the gate verb to a variable (V=accept; ac phase $V 41) reads as a plain human accept",
-      "status": "open",
+      "status": "dropped",
       "cost": "medium",
       "found_at": "2026-10-12T11:38:16.793Z",
       "why": "In an autonomous turn the call passes through unchanged and ac records accepted_kind human; the C2/C3 amendment names this spelling as out of corpus",
       "phase": "41",
-      "file": "mods/astro-mods/hooks/lib/gates.js"
+      "file": "mods/astro-mods/hooks/lib/gates.js",
+      "dropped_at": "2026-10-15T10:52:56.857Z",
+      "drop_reason": "closed by phase 46 t4, t6"
     },
     {
       "id": "2026-10-15-after-a-withdrawn-carried-pass-the-loop",
