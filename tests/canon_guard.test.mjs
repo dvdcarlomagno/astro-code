@@ -525,6 +525,30 @@ test('Cursor: with the cursor arg a preToolUse payload gets the permission:deny 
   } finally { rmSync(S, { recursive: true, force: true }); }
 });
 
+// ---------------------------------------------------------------- phase 45: VERDICT.json
+
+test('ADR-079: VERDICT.json in a phase folder is protected (Write/Edit/Bash), ac verdict record is not', () => {
+  const { S, HOME, P } = sandbox();
+  try {
+    const env = ENV(HOME);
+    mkdirSync(join(P, '.astrocode', 'milestones', '3', 'phases', '12-y'), { recursive: true });
+    const targets = [
+      '.astrocode/phases/37-x/VERDICT.json',
+      '.astrocode/milestones/3/phases/12-y/VERDICT.json',
+    ];
+    for (const t of targets) for (const tool of ['Write', 'Edit']) {
+      const r = feed(claudeEvent(tool, t, P), { env });
+      assert.ok(isDenied(r), `${tool} ${t}`);
+      assert.ok(reasonOf(r).includes('ac verdict record'), reasonOf(r));
+    }
+    assert.ok(isDenied(feed(bashEvent('echo {} > .astrocode/phases/37-x/VERDICT.json', P), { env })));
+    assert.ok(isAllowed(feed(bashEvent("ac verdict record 37 --result '{}'", P), { env })));
+    for (const ok of ['.astrocode/phases/37-x/notes.md', '.astrocode/phases/37-x/CRITERIA.md', '.astrocode/phases/37-x/PLAN.md', '.astrocode/VERDICT.json', 'src/VERDICT.json']) {
+      assert.ok(isAllowed(feed(claudeEvent('Write', ok, P), { env })), ok);
+    }
+  } finally { rmSync(S, { recursive: true, force: true }); }
+});
+
 // ---------------------------------------------------------------- pure helpers + parity
 
 test('exports: PROTECTED, judgePath, bashTargets, denyReason, decide', async () => {
@@ -535,6 +559,7 @@ test('exports: PROTECTED, judgePath, bashTargets, denyReason, decide', async () 
     const names = m.PROTECTED.filter((e) => e.name).map((e) => e.name).sort();
     assert.deepEqual(names, [...PROTECTED_NAMES].sort());
     assert.equal(m.PROTECTED.filter((e) => e.store).length, 1, 'exactly one store entry');
+    assert.equal(m.PROTECTED.filter((e) => e.phaseFile).length, 1, 'exactly one phaseFile entry');
     for (const e of m.PROTECTED) for (const k of ['verb', 'rule', 'source']) assert.ok(e[k], `entry has ${k}`);
 
     const env = { HOME };

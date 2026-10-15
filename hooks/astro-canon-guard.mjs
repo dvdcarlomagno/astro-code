@@ -39,6 +39,10 @@
 // directory is named exactly `.astrocode`. A walk-up for the project root would need a stop
 // rule and lets a stray `/tmp/x/state.json` match; the parent rule needs neither.
 //
+// The one per-phase entry (`phaseFile`, ADR-079's VERDICT.json) sits one level deeper, in a
+// slug folder, so its rule also needs the grandparent to be `phases` under `.astrocode` (flat
+// or under `milestones/<n>/`); the parent alone would match any folder.
+//
 // The principle store dir is mirrored locally from `lib/principles.mjs` `principlesDir`, not
 // imported: the hot path stays free of `child_process` and brand imports. A parity test guards
 // the copy.
@@ -60,6 +64,8 @@ export const PROTECTED = Object.freeze([
   { name: 'fixes.json', verb: 'ac fix …', rule: HAND_EDIT_RULE, source: 'ADR-004' },
   { name: 'ROADMAP.md', verb: 'ac roadmap render', rule: 'ROADMAP.md is generated from roadmap.json', source: SRC_FILES },
   { name: 'DECISIONS.in-force.md', verb: 'ac canon pull', rule: 'generated from DECISIONS.md by ac', source: 'ADR-004' },
+  // A per-phase file, so it is matched by basename + grandparent (see "Paths"), not by `name`.
+  { phaseFile: 'VERDICT.json', verb: 'ac verdict record <phase> --result …', rule: HAND_EDIT_RULE, source: 'ADR-079' },
   { store: true, verb: 'ac principles add|accept|amend …', rule: 'the personal principle store is written only through ac principles', source: 'ADR-057, ADR-058' },
 ]);
 
@@ -105,6 +111,18 @@ function judge(p, cwd, env) {
   const name = basename(real).toLowerCase();
   const hit = PROTECTED.find((e) => e.name && e.name.toLowerCase() === name);
   if (hit && basename(dir).toLowerCase() === '.astrocode' && isDir(dir)) return { entry: hit, real, display: `.astrocode/${hit.name}` };
+  // Phase files live in `.astrocode/phases/<slug>/` (or, once archived,
+  // `.astrocode/milestones/<n>/phases/<slug>/`): the parent is the slug, so the rule needs the
+  // grandparent to be `phases` under `.astrocode` to avoid matching a stray VERDICT.json.
+  const pf = PROTECTED.find((e) => e.phaseFile && e.phaseFile.toLowerCase() === name);
+  if (pf && isDir(dir) && basename(dirname(dir)) === 'phases') {
+    const gg = dirname(dirname(dir));
+    const ggg = dirname(gg);
+    if (basename(gg).toLowerCase() === '.astrocode'
+        || (basename(ggg) === 'milestones' && basename(dirname(ggg)).toLowerCase() === '.astrocode')) {
+      return { entry: pf, real, display: `.astrocode/phases/${basename(dir)}/${pf.phaseFile}` };
+    }
+  }
   const rel = relative(realpathDeep(resolve(storeDir(env))), real);
   if (rel && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)) {
     return { entry: PROTECTED.find((e) => e.store), real, display: `~/.astro/principles/${rel}` };
