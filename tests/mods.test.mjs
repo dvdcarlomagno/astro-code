@@ -181,6 +181,44 @@ test('readMods: a non-object mods key warns; a non-boolean value is off; unknown
   assert.equal('zzz' in r.switches, false);
 });
 
+// Phase 46 (ADR-081) -- mods.machinePrefixes: validated whole, here and nowhere else.
+test('readMods: machinePrefixes is [] with no warning when the key is absent', async () => {
+  const { readMods } = await mods();
+  const r = readMods({ home: home({ mods: { witness: true } }) });
+  assert.deepEqual(r.machinePrefixes, []);
+  assert.deepEqual(r.warnings, []);
+  assert.deepEqual(readMods({ home: home() }).machinePrefixes, []);
+});
+
+test('readMods: a valid machinePrefixes list is returned verbatim, trailing space kept', async () => {
+  const { readMods } = await mods();
+  const list = ['[relay] ', '/astro-accept', '.*'];
+  const r = readMods({ home: home({ mods: { witness: true, machinePrefixes: list } }) });
+  assert.deepEqual(r.machinePrefixes, list);
+  assert.deepEqual(r.warnings, []);
+});
+
+test('readMods: any bad machinePrefixes voids the whole list with exactly one warning, switches intact', async () => {
+  const { readMods } = await mods();
+  const bads = ['x', {}, [1], ['ok', 2], [''], ['  '], [' lead'],
+    Array.from({ length: 51 }, (_, i) => `p${i}`), ['x'.repeat(201)]];
+  for (const bad of bads) {
+    const r = readMods({ home: home({ mods: { witness: true, machinePrefixes: bad } }) });
+    assert.deepEqual(r.machinePrefixes, [], JSON.stringify(bad).slice(0, 40));
+    assert.equal(r.warnings.length, 1);
+    assert.match(r.warnings[0], /mods\.machinePrefixes/);
+    assert.equal(r.switches.witness, true);
+    assert.equal(r.configured, true);
+  }
+});
+
+test('readMods: invalid JSON gives no prefixes and only the one existing warning', async () => {
+  const { readMods } = await mods();
+  const r = readMods({ home: home('{oops') });
+  assert.deepEqual(r.machinePrefixes, []);
+  assert.equal(r.warnings.length, 1);
+});
+
 // ── setMod ──────────────────────────────────────────────────────────────────
 
 test('setMod flips one switch and preserves every sibling key', async () => {

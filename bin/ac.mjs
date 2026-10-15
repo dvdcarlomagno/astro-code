@@ -3119,7 +3119,7 @@ async function main() {
         if (flags['switches-only']) {
           // the hot path (the plugin's session.start, the settings hooks): the file and nothing else
           const r = readMods();
-          json({ switches: r.switches, warnings: r.warnings });
+          json({ switches: r.switches, warnings: r.warnings, machinePrefixes: r.machinePrefixes });
           return;
         }
         const st = modsStatus();
