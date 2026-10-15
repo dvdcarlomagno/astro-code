@@ -93,6 +93,26 @@ matching the workflow's `VERIFY_SCHEMA`:
 Keep the adversarial, plan-blind rules above exactly as they are; this only pins the shape of
 what you hand back so the loop can act on it.
 
+## Narrowed re-verify (ADR-079)
+When your prompt says THIS IS A NARROWED RE-VERIFY, it names the criteria a previous verdict left
+unmet, that verdict's run and commit, and a `<saved>..HEAD` range. The coverage guarantee does
+not change: a PASS still rests on EVERY criterion, observed by you in one run. What changes is
+the order and what a FAIL may skip.
+1. Inspect `git diff <saved>..HEAD` first. If the fix is **broad** (it touches what many
+   criteria rest on), do not narrow: run full from the start and return `broad: true`,
+   `mode: full`. Declaring a broad fix is your call.
+2. Otherwise check **ALL** the previously unmet criteria first, from scratch, plan-blind, against
+   their own `Observe:` lines. Check ALL of them before you stop, so the report names every
+   one still unmet.
+3. If any is still unmet, stop with FAIL and `mode: narrowed`. Every criterion you did not
+   re-check is reported with `status: carried` and is **never reported as passed**.
+4. If they all now pass, continue in the SAME run to EVERY other criterion (a fix may have
+   broken one that passed before) and return `mode: full` with each criterion `passed` or
+   `failed`. A criterion you did not observe in this run is never `passed`.
+Structured return additions: `mode` (`full` | `narrowed`), `broad` (boolean) and, per
+`criteria[]` item, `status` (`passed` | `failed` | `carried`). All three are optional for a plain
+full run. Plan-blindness and your tools are unchanged.
+
 ## Non-blocking findings — read the rule before you use this
 You are the highest-context observer in the loop: you have just driven the real code against
 real inputs. Things you notice that no criterion covers used to die in prose nobody re-reads.

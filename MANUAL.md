@@ -481,6 +481,15 @@ evidence per criterion, never by trusting the plan or the task summaries.
 `/astro-accept` is the **human gate**: UAT against the acceptance checklist written at plan
 time. The AI never auto-closes its own work; `ac phase accept` requires a prior `verified`.
 
+Each phase keeps one saved `VERDICT.json` beside its `CRITERIA.md`, written and committed only by
+`ac verdict record` (canon-guard blocks hand edits). A re-verify after a FAIL reads it and checks
+the unmet criteria first, failing cheaply when they are still unmet; when they now pass, the same
+run continues over every other criterion, so a PASS always rests on a full run. It falls back to a
+full run when many criteria are unmet, `CRITERIA.md` changed, the history does not line up, the
+fix is broad, or you pass `--full` (`ac verdict plan <phase>` shows the decision and the
+thresholds live in `lib/verdict.mjs`). `ac phase verify` refuses without a full all-passed
+verdict (`--force` is the escape).
+
 > **A phase's goal is the bar, not its task list.** Every task passing while the goal is
 > unmet is a failed phase.
 

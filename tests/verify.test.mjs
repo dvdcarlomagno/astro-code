@@ -72,3 +72,17 @@ test('non-blocking findings cannot become a back door out of failing a phase', (
   assert.match(verifier, /Uncertain whether a criterion covers it\? FAIL/i, 'same rule in the agent doc');
   assert.match(verifier, /never \*instead\* of one/i, 'findings never substitute for a verdict');
 });
+
+test('astro-verifier.md has a narrowed re-verify section that keeps full coverage for a PASS (ADR-079)', () => {
+  const verifier = readFileSync(new URL('../agents/astro-verifier.md', import.meta.url), 'utf8');
+  const i = verifier.indexOf('## Narrowed re-verify');
+  assert.ok(i !== -1, 'narrowed section present');
+  const sec = verifier.slice(i, verifier.indexOf('## Non-blocking findings'));
+  assert.match(sec, /\*\*ALL\*\*\s+the\s+previously\s+unmet\s+criteria\s+first/i);
+  assert.match(sec, /continue in the SAME run to EVERY other criterion/i);
+  assert.match(sec, /never reported as passed/i);
+  assert.match(sec, /<saved>\.\.HEAD/);
+  assert.match(sec, /broad/i);
+  const frontmatter = verifier.split('---')[1] || '';
+  assert.doesNotMatch(frontmatter, /Write/);
+});
