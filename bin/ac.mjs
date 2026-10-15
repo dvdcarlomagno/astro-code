@@ -2567,8 +2567,9 @@ async function main() {
 
     case 'models': {
       // Speed switch: apply a whole per-role tier preset in one shot, instead of
-      // six `ac config set models.<role>` calls. Every profile is opus→sonnet (ADR-035);
-      // haiku is a per-role user choice (ADR-073), never a profile value. See lib/models.mjs.
+      // six `ac config set models.<role>` calls. The profile ladder is opus→sonnet, except
+      // the wave `integrator`, which balanced and fast run on haiku 5.5 (#125); any other
+      // role may still be set to haiku by the user (ADR-073). See lib/models.mjs.
       //   ac models                  print the current effective tiers
       //   ac models <profile>        apply the preset (persist to config.models)
       //   ac models <profile> --preview   print the preset JSON without writing

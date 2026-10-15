@@ -827,14 +827,15 @@ always-synced codebase map.
 
 ## Models, thinking and effort
 
-`.astrocode/config.json` sets a **model tier** (`models.<role>`: opus/sonnet) and a
+`.astrocode/config.json` sets a **model tier** (`models.<role>`: opus/sonnet/haiku; the profiles put haiku on the integrator only) and a
 **reasoning depth** (`reasoning.<role>`: low→max) for each of the six roles. They're
 independent and both move cost — a cheap model at `xhigh` can outspend an expensive one at
 `low` — so `ac models max|balanced|fast` sets the **pair** in one switch:
 
 - **balanced** (default) — opus + `high` for `planner` and `verifier`, sonnet + `medium`
-  elsewhere (the mechanical `discover`/`integrator` stay `low` in every profile).
-- **fast** — sonnet and `low` everywhere **except the verify gate**, which keeps opus +
+  elsewhere, and the `integrator` on haiku (the mechanical `discover`/`integrator` stay `low`
+  in every profile).
+- **fast** — sonnet (haiku for the integrator) and `low` everywhere **except the verify gate**, which keeps opus +
   `high`. Going fast can never silently cost correctness. Phases dominated by execution
   shrink the most.
 - **max** — opus everywhere (`xhigh` on planner/verifier), except `integrator`, which stays
@@ -846,11 +847,15 @@ then the built-in one; `ac models` shows which (`sources`). A new project leaves
 you set unset, so it follows your default; an existing one keeps its own until you
 `ac config unset models.<role>` there.
 
-The tier ladder is **opus→sonnet for every role; haiku is excluded everywhere**. ADR-035
-reverted the old `integrator` carve-out: benchmarking showed haiku's cherry-pick *judgement*
-was sound but its *discipline* was not — it ran a bare `git stash -u` in the shared tree and
-destroyed a completed phase plan. Speed comes from opus→sonnet, never from dropping a role
-to haiku. Hosts clamp depth to their own ceiling (Codex tops out at `xhigh`) rather than
+The profile ladder is **opus→sonnet for every judgement role; haiku runs the `integrator`
+only** (the `balanced` and `fast` profiles; `max` keeps sonnet). Haiku on any other role is
+your own per-role choice (ADR-073). ADR-035 dropped the old
+haiku 4.5 `integrator` after benchmarking: its cherry-pick *judgement* was sound but its
+*discipline* was not — it ran a bare `git stash -u` in the shared tree and destroyed a
+completed phase plan. Haiku 5.5 is a different model at about a twentieth of sonnet's price,
+and with the integrator prompt's prohibition paragraph it did neither in any of the 40 guarded haiku trial runs.
+Opt out with `ac config set models.integrator sonnet`. Speed for every other role comes
+from opus→sonnet, never from haiku. Hosts clamp depth to their own ceiling (Codex tops out at `xhigh`) rather than
 silently falling back; on Cursor there is no separate reasoning dial in v1 — depth lives
 in the model id suffix, so `reasoning.<role>` is not applied there.
 

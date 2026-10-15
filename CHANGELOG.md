@@ -4,6 +4,9 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+- The balanced and fast profiles run the wave integrator on Haiku 5.5 at low reasoning (ADR-078, amends ADR-035; #125, thanks @luigi-lauro). `max` keeps sonnet, an unset `models.integrator` still floors to sonnet, and no profile puts haiku on a judgement role. Opt out with `ac config set models.integrator sonnet`.
+- The verifier runs on the 1-hour prompt cache, like the executor (#128).
+
 ## v0.42.2
 
 - live-capture works on a local model: when the endpoint refuses Haiku with a 4xx, the session's own model judges for the rest of the session instead of failing with `api-error` on every session. A 429 or 5xx on Haiku is an outage and never moves capture to the session model.

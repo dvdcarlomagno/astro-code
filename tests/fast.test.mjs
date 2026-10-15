@@ -50,7 +50,7 @@ test('astro-fast defaults the executor to Opus and honors --model override', () 
   assert.match(src, /--model/, 'must document the --model flag');
   // The default-Opus rule must be stated for the executor role.
   assert.match(src, /defaults? to \*\*Opus\*\*|else \*\*`?opus`?\*\*/i, 'executor must default to Opus');
-  // ADR-035: haiku is excluded from every role, so the fast lane offers opus|sonnet only.
+  // the profiles put haiku on the integrator only, so the fast lane offers opus|sonnet only.
   assert.match(src, /opus\|sonnet/i, 'must list the override tiers (opus/sonnet)');
   assert.doesNotMatch(src, /haiku/i, 'the fast lane must not offer haiku for any role (ADR-035)');
 });

@@ -98,7 +98,7 @@ Phases 22–27: the store and CLI → capture at the moments of intent → the r
 The loop's most important rules exist only as prose: never hand-edit `roadmap.json` /
 `state.json` / the registry / `debt.json`, `ROADMAP.md` is generated, the verifier and
 criteria-author are plan-blind (ADR-021), no unscoped destructive git (ADR-035/038), no
-role runs haiku. astro-code installs no hook that can refuse anything, and two of those
+profile runs haiku on a judgement role (ADR-078). astro-code installs no hook that can refuse anything, and two of those
 rules have already been broken in real runs. Claude Code ≥ 2.1.287 ships *mods* — plugins
 whose JS hooks can deny a tool call, refuse or re-model a subagent spawn, see who typed a
 prompt, and draw UI — so on Claude Code those rules can become enforced.

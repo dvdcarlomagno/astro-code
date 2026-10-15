@@ -83,16 +83,18 @@ Then stop: skip the Steps and Apply below.
    `sources`: whether each role's value comes from this `project`, the `user` default in
    `~/.astro/config.json`, or — a role in neither — the built-in default).
 2. Ask the user how to set them with **AskUserQuestion** — start with a profile pick.
-   The profiles use **opus → sonnet** for every role. haiku is the user's choice per role
-   (ADR-073), offered only under **Custom**, never put into a profile: the profiles keep
-   sonnet as their floor. The integrator's git-safety rules (ADR-035) apply whatever the
-   model.
+   The profiles use **opus → sonnet** for every judgement role (planner, researcher,
+   executor, verifier, discover). The one profile exception is the `integrator`: Balanced
+   and Fast run it on haiku 5.5 (low reasoning), allowed (#125) because the integrator
+   prompt pins its git behaviour (ADR-035). Beyond that, haiku is the user's choice per
+   role (ADR-073), offered only under **Custom**.
    - **Balanced** (recommended): planner `opus`, researcher `sonnet`, executor
-     `sonnet`, verifier `opus`, discover `sonnet`, integrator `sonnet`. The default
+     `sonnet`, verifier `opus`, discover `sonnet`, integrator `haiku`. The default
      daily-driver.
    - **Fast**: planner `sonnet`, researcher `sonnet`, executor `sonnet`, verifier
-     `opus`, discover `sonnet`, integrator `sonnet`. Everything sonnet except the
-     verify gate (kept opus so speed never costs correctness). Fastest sane setting.
+     `opus`, discover `sonnet`, integrator `haiku`. Everything sonnet except the
+     verify gate (kept opus so speed never costs correctness) and the haiku integrator.
+     Fastest sane setting.
    - **Max quality**: every role `opus`, except integrator which is `sonnet` — opus
      on a cherry-pick is waste. Slowest, best.
    - **Custom**: choose each role yourself.
@@ -145,7 +147,7 @@ for more clamps to the host's ceiling rather than silently falling back to its d
 - **verifier** — goal-backward verification (a false PASS is the costliest error)
 - **discover** — mechanical task/dependency parsing before execution
 - **integrator** — folds each parallel wave's worktree branches back onto the
-  branch (mechanical git, run at `sonnet` like every other role — ADR-035; anything it cannot
+  branch (mechanical git, run at `haiku` under Balanced and Fast, `sonnet` under Max and when unset — #125; anything it cannot
   pick cleanly is preserved and re-run at the executor tier)
 
 Finish by showing the result: `ac models`.
