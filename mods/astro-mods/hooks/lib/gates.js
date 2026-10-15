@@ -406,6 +406,19 @@ export function onlyQuotedMention(command) {
 }
 
 /**
+ * The command with `ASTRO_SIGNER_AGENT=<name>` exported in front: ac reads it as `--agent <name>` when a
+ * gate call names neither --agent nor --witnessed, so a nested ac (a shell -c string however quoted,
+ * xargs, a script) is signed as the agent too (phase 46, C10). Exported once; never a human claim.
+ */
+// A runner that hands text to another ac call: where splicing --agent into the text can miss.
+export const NESTS = /(?:^|[\s;&|("'])(?:\S*\/)?(?:bash|sh|zsh|dash|ksh|eval|xargs)(?=[\s;&|)]|$)/
+export function withSignerEnv(command, name = AGENT_NAME) {
+  const s = String(command)
+  if (/(?:^|[\s;&|])export ASTRO_SIGNER_AGENT=/.test(s)) return s
+  return `export ASTRO_SIGNER_AGENT=${name}; ${s}`
+}
+
+/**
  * Last resort for a gate witness cannot parse even on the raw text: drop any --witnessed (quoted or
  * not) and append ` --agent <name>` to every top-level segment whose shell text names a gate and
  * declares no agent. Never a human sign-off by default.

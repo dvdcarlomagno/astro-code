@@ -264,6 +264,10 @@ already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces i
   write of the human CONTEXT.md marker (`printf … >`, `sed -i`, a heredoc) are judged like their direct forms.
   A Bash call that can write a phase CONTEXT.md it names is also judged by its effect: if line 1 becomes the
   human marker during it, witness sets line 1 to the agent marker afterwards (the call's exit status is kept).
+  Where splicing `--agent` into the text can miss (a verb in a variable, a nested `bash -c`, `eval`, `xargs`),
+  witness also puts `export ASTRO_SIGNER_AGENT=claude;` in front: `ac` reads it as `--agent claude` on any gate
+  call that names neither `--agent` nor `--witnessed`, so a nested call is signed however it is quoted. The
+  variable can only make a signer an agent, never a human.
 - Fail open: an unknown turn, an empty typed id or a command it cannot parse is left declared, with
   one notice.
 - Known gaps: a typed `! ac phase accept <n>` line (the host shows it to no hook, so it is never

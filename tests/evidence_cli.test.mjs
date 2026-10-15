@@ -109,3 +109,46 @@ test('C3: a citation of exactly 200 characters is accepted', async () => {
   assert.equal(r.status, 0, r.stderr);
   assert.equal(show(dir).cited_evidence, 'x'.repeat(200));
 });
+
+// Phase 46 C10: ASTRO_SIGNER_AGENT, exported by witness in front of a gate call it cannot read fully,
+// signs every nested ac as the agent; an explicit --agent or --witnessed on the call wins.
+const runEnv = (args, cwd, extra) => spawnSync(process.execPath, [AC, ...args], { cwd, encoding: 'utf8', env: { ...process.env, HOME, ...extra } });
+
+test('C10: ASTRO_SIGNER_AGENT signs phase accept, phase reject and fix accept as the agent', async () => {
+  const env = { ASTRO_SIGNER_AGENT: 'claude' };
+  const a = await project();
+  assert.equal(runEnv(['phase', 'accept', '1'], a.dir, env).status, 0);
+  assert.equal(show(a.dir).accepted_kind, 'agent');
+  assert.equal(show(a.dir).accepted_by, 'claude');
+  const b = await project();
+  assert.equal(runEnv(['phase', 'reject', '1', '--reason', 'x'], b.dir, env).status, 0);
+  assert.match(run(['phase', 'show', '1', '--json'], b.dir).stdout, /"kind": "agent"/);
+  const c = await project();
+  assert.equal(runEnv(['fix', 'accept', c.fix.id], c.dir, env).status, 0);
+  assert.match(run(['fix', 'list', '--all'], c.dir).stdout, /\(agent\)/);
+  // an explicit flag wins; an empty variable is no signer
+  const d = await project();
+  assert.equal(runEnv(['phase', 'accept', '1', '--witnessed', 'composer'], d.dir, env).status, 0);
+  assert.equal(show(d.dir).accepted_kind, 'human');
+  const e = await project();
+  assert.equal(runEnv(['phase', 'accept', '1'], e.dir, { ASTRO_SIGNER_AGENT: ' ' }).status, 0);
+  assert.equal(show(e.dir).accepted_kind, 'human');
+});
+
+test('C10: run 5 forms, as witness rewrites them, record the agent when executed', async () => {
+  const gates = await import('../mods/astro-mods/hooks/lib/gates.js');
+  const forms = [
+    'V=accept; bash --norc -c "ac phase $V 1"',
+    'V=accept; bash -c -- "ac phase $V 1"',
+    "V=accept; bash -c 'ac phase '\"$V\"' 1'",
+    'V=accept; /bin/bash -c "ac phase $V 1"',
+  ];
+  for (const form of forms) {
+    const { dir } = await project();
+    const out = gates.withSignerEnv(gates.signSegments(form) ?? form);
+    const shim = `ac() { "${process.execPath}" "${AC}" "$@"; }; export -f ac; `;
+    const r = spawnSync('bash', ['-c', shim + out], { cwd: dir, encoding: 'utf8', env: { ...process.env, HOME } });
+    assert.equal(r.status, 0, `${form}: ${r.stderr}`);
+    assert.equal(show(dir).accepted_kind, 'agent', form);
+  }
+});

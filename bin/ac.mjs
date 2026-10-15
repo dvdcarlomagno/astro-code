@@ -340,6 +340,15 @@ function witnessedEvidence(flags) {
   return flags.witnessed;
 }
 const WITNESSED_NOTE = ' (witnessed: typed at the composer)';
+
+// ASTRO_SIGNER_AGENT=<name> in the environment declares the agent signer when the call itself names
+// neither --agent nor --witnessed. The witness mod exports it in front of a gate call it cannot read
+// fully (a shell -c string, a variable verb), so every nested ac inherits it however the command is
+// quoted (phase 46, C10). It can only make a signer an agent, never a human.
+function signerFromEnv(flags) {
+  const name = typeof process.env.ASTRO_SIGNER_AGENT === 'string' ? process.env.ASTRO_SIGNER_AGENT.trim() : '';
+  if (name && flags.agent === undefined && flags.witnessed === undefined) flags.agent = name;
+}
 // ADR-081 — `--evidence "<id or URL>"` cites a decision made elsewhere. The rule (one line, at most
 // 200 characters) lives in lib/util.mjs `checkCitation`; this only turns its throw into a `die`, and
 // runs BEFORE any write. A citation is stored beside the record and never touches who signed.
@@ -733,6 +742,7 @@ async function main() {
 
       if (sub === 'accept') {
         checkFlags('fix accept', flags);
+        signerFromEnv(flags);
         // A bare or empty --agent on an ACCEPT would otherwise record a human sign-off (agentSigner
         // falsy): refuse it rather than guess. A reject keeps declaring agent on a bare flag (below).
         if (flags.agent !== undefined && (typeof flags.agent !== 'string' || !flags.agent.trim())) die('fix accept --agent needs a name, e.g. --agent claude (ADR-033: an agent signer is declared by name)');
@@ -2325,6 +2335,7 @@ async function main() {
       } else if (sub === 'accept') {
         if (!ph) die('usage: ac phase accept <phase> [--by name | --agent name | --witnessed composer] [--evidence "<id or URL>"] [--force]');
         checkFlags('phase accept', flags);
+        signerFromEnv(flags);
         const evidence = witnessedEvidence(flags);
         const cite = citedEvidence(flags);
         if (ph.status !== 'verified' && !flags.force) {
@@ -2388,6 +2399,7 @@ async function main() {
       } else if (sub === 'reject') {
         if (!ph) die('usage: ac phase reject <phase> --reason "…" [--agent name | --witnessed composer] [--evidence "<id or URL>"]');
         checkFlags('phase reject', flags);
+        signerFromEnv(flags);
         const evidence = witnessedEvidence(flags);
         const cite = citedEvidence(flags);
         const reason = typeof flags.reason === 'string' ? flags.reason : '';

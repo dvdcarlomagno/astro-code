@@ -753,16 +753,22 @@ test('C9 the same holds after a typed accept and a reload, and for a typed gate 
 });
 
 test('C10 a gate verb held in a shell variable is agent-signed on the ac segment in every unlocking-less turn', async () => {
+  const E = 'export ASTRO_SIGNER_AGENT=claude; ';
   const cases = [
-    ['V=accept; ac phase $V 41', `V=accept; ac phase $V 41${A}`],
-    ['V=accept && ac phase "$V" 41', `V=accept && ac phase "$V" 41${A}`],
-    ['export V=reject; ac phase $V 41 --reason x', `export V=reject; ac phase $V 41 --reason x${A}`],
-    ['G=accept; ac fix $G 2026-10-01-foo', `G=accept; ac fix $G 2026-10-01-foo${A}`],
+    ['V=accept; ac phase $V 41', `${E}V=accept; ac phase $V 41${A}`],
+    ['V=accept && ac phase "$V" 41', `${E}V=accept && ac phase "$V" 41${A}`],
+    ['export V=reject; ac phase $V 41 --reason x', `${E}export V=reject; ac phase $V 41 --reason x${A}`],
+    ['G=accept; ac fix $G 2026-10-01-foo', `${E}G=accept; ac fix $G 2026-10-01-foo${A}`],
   ];
   for (const events of [sdkAccept(40), [submit('hi')], typedAccept(40)]) {
     for (const [cmd, want] of cases) {
       const eng = await armed();
       assert.equal((await turnThen(eng, events, bash(cmd))).command, want, cmd);
+    }
+    // run 5: a nested shell however quoted gets the signer in the environment every nested ac inherits
+    for (const cmd of ['V=accept; bash --norc -c "ac phase $V 41"', 'V=accept; bash -c -- "ac phase $V 41"', "V=accept; bash -c 'ac phase '\"$V\"' 41'"]) {
+      const eng = await armed();
+      assert.ok((await turnThen(eng, events, bash(cmd))).command.startsWith(E), cmd);
     }
   }
 });
