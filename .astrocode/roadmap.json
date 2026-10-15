@@ -17,7 +17,7 @@
       "number": 46,
       "name": "witness: cite proof of a human choice made elsewhere (an --evidence id or URL stored with the acceptance), and a list of machine-typed prompt prefixes that never count as human (GitHub #132)",
       "slug": "46-witness-cite-proof-of-a-human-choice",
-      "status": "pending",
+      "status": "verified",
       "milestone": 5
     }
   ]
