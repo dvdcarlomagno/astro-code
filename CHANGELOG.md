@@ -4,6 +4,8 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+## v0.43.0
+
 - The balanced and fast profiles run the wave integrator on Haiku 5.5 at low reasoning (ADR-078, amends ADR-035; #125, thanks @luigi-lauro). `max` keeps sonnet, an unset `models.integrator` still floors to sonnet, and no profile puts haiku on a judgement role. Opt out with `ac config set models.integrator sonnet`.
 - The verifier runs on the 1-hour prompt cache, like the executor (#128).
 
