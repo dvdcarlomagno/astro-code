@@ -684,7 +684,7 @@ test('modsStatus carries the verdict on git-guard and canon-guard enforcement ro
   enableMod({ home: h, run: fakeClaude().run, targets, cursorTargets: new Map(), feature: 'git-guard' });
   enableMod({ home: h, run: fakeClaude().run, targets, cursorTargets: new Map(), feature: 'canon-guard' });
   const st = status();
-  assert.deepEqual(feat(st, 'git-guard').enforcement.map((r) => [r.state, r.verdict]), [['enforced', 'ask']]);
+  assert.deepEqual(feat(st, 'git-guard').enforcement.map((r) => [r.state, r.verdict]), [['enforced', 'deny']]);
   assert.deepEqual(feat(st, 'canon-guard').enforcement.map((r) => [r.state, r.verdict]), [['enforced', 'deny']]);
 
   const cursorDir = join(h, 'cursor');

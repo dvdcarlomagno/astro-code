@@ -169,7 +169,7 @@ test('C6: the reason says what the command does, the safer way for it and the of
   for (const [cmd, effect] of Object.entries(effects)) {
     const reason = reasonOf(feed(bashEvent(cmd, R), { env: ENV(HOME) }));
     assert.match(reason, effect, cmd);
-    assert.match(reason, /Allow only if you meant that\./, cmd);
+    assert.match(reason, /Refused\./, cmd);
     if (cmd.startsWith('git clean')) {
       assert.ok(reason.includes('git clean -n'), cmd);
       assert.doesNotMatch(reason, /git stash push/, cmd);
@@ -217,7 +217,7 @@ test('C8: malformed or unexpected input fails open, silently', () => {
 
 // ---------------------------------------------------------------- C9
 
-test('C9: deciding spawns nothing; only a refused call asks git, and a git that cannot answer keeps the ask', () => {
+test('C9: deciding spawns nothing; only a refused call asks git, and a git that cannot answer keeps the refusal', () => {
   const { S, HOME, R } = sandbox();
   const bin = join(S, 'bin');
   const log = join(S, 'spawned.log');
@@ -231,7 +231,7 @@ test('C9: deciding spawns nothing; only a refused call asks git, and a git that 
   for (const cmd of ALLOWED_FORMS) feed(bashEvent(cmd, R), { env });
   assert.equal(spawned(), '', 'an allowed call spawns nothing');
   for (const cmd of [...REFUSED_FORMS, ...WRAPPED_FORMS(R)]) {
-    assert.equal(isRefused(feed(bashEvent(cmd, R), { env })), true, `${cmd}: a git with no answer keeps the ask`);
+    assert.equal(isRefused(feed(bashEvent(cmd, R), { env })), true, `${cmd}: a git with no answer keeps the refusal`);
   }
   assert.match(spawned(), /^(git\n)+$/, 'a refused call spawns git and nothing else');
   const t0 = Date.now();
@@ -253,7 +253,7 @@ function cleanRepo(S, name) {
   return C;
 }
 
-test('a probe that puts back its own file is not asked about: a literal variable, a loop over named files or a glob under a named folder', () => {
+test('a probe that puts back its own file is not refused: a literal variable, a loop over named files or a glob under a named folder', () => {
   const { HOME, R } = sandbox();
   const env = ENV(HOME);
   table([
@@ -272,7 +272,7 @@ test('a probe that puts back its own file is not asked about: a literal variable
   intact(R);
 });
 
-test('nothing at stake: a clean tree is not asked about; a commit-dropping reset, odd shapes and unsure calls still are', () => {
+test('nothing at stake: a clean tree is not refused; a commit-dropping reset, odd shapes and unsure calls still are', () => {
   const { S, HOME, R } = sandbox();
   const C = cleanRepo(S, 'clean');
   const env = ENV(HOME);
@@ -306,7 +306,7 @@ test('nothing at stake: a repo whose git data is under TMPDIR is scratch; a work
   table(['git reset --hard', 'git stash'], [WT2], isRefused, ENV(HOME));
 });
 
-test('nothing at stake: a repo marked .git/astrocode-scratch is scratch wherever it lives; an unmarked project still asks', () => {
+test('nothing at stake: a repo marked .git/astrocode-scratch is scratch wherever it lives; an unmarked project is still refused', () => {
   const { S, HOME, R, WT } = sandbox();
   const C = cleanRepo(S, 'copy');
   writeFileSync(join(C, 'src', 'a.js'), 'export const probed = 1;\n');
@@ -393,11 +393,11 @@ const UNSURE_FORMS = (R) => [
   'git -C $(pwd) stash -u', 'git -C $(git rev-parse --show-toplevel) reset --hard', 'git -C $(pwd) clean -fd',
   'git --git-dir=$(pwd)/.git stash -u', 'git --attr-source HEAD stash -u',
   // unsure shapes
-  '$GIT stash -u', '"$(command -v git)" reset --hard', 'git $SUB -u', 'git --frobnicate stash',
+  '$GIT stash -u', '"$(command -v git)" reset --hard', 'git --frobnicate stash',
   'xargs git clean -f', 'watch git reset --hard', 'eval "git stash -u"', 'git checkout -- $TARGET',
 ];
 
-test('C3/C4: whole-tree pathspecs, env -S, $(…) values and unreadable calls are asked about', () => {
+test('C3/C4: whole-tree pathspecs, env -S, $(…) values and unknown wrappers are refused', () => {
   const { HOME, R } = sandbox();
   table(UNSURE_FORMS(R), [R], isRefused, ENV(HOME));
   intact(R);
@@ -412,12 +412,26 @@ const ROUND4_FORMS = [
   "printf '.\\n' | git stash push --pathspec-from-file=-", "printf '.\\n' | git stash push --pathspec-from-file=- -u",
   "printf '.\\n' | git checkout --pathspec-from-file=- HEAD", "printf '.\\n' | git restore --pathspec-from-file=-",
   'git checkout -f', 'git checkout -f HEAD', 'git checkout --force main', 'git switch -f main', 'git switch --discard-changes main',
-  `bash -c "bash -c \\"bash -c 'git stash -u'\\""`, "x='git stash -u'; $x", `C='git reset --hard'; bash -c "$C"`,
-  "echo 'git stash -u' | bash",
 ];
 
-test('C3/C4: round-four spellings (aliases, -c --, -m values, pathspec files, -f, nesting, stdin) are asked about', () => {
+test('C3/C4: round-four spellings (aliases, -c --, -m values, pathspec files, -f) are refused', () => {
   const { HOME, R } = sandbox();
   table(ROUND4_FORMS, [R], isRefused, ENV(HOME));
+  intact(R);
+});
+
+// ADR-082: what the guard cannot read at all runs. Matching the text for "git" and a destructive
+// word anywhere refused a mutation-test script whose comment said "restore FILE", and the ask
+// stalled an unattended workflow until the user came back.
+const UNREAD_FORMS = [
+  'git $SUB -u', "echo 'git stash -u' | bash", "x='git stash -u'; $x", `C='git reset --hard'; bash -c "$C"`,
+  `bash -c "bash -c \\"bash -c 'git stash -u'\\""`,
+  "# one mutation of FILE, then restore FILE\nR=/repo\ngit -C $R archive HEAD server | tar -x -C /tmp/p\n$P cometjobs TestX pick.go 'if a {' 'if false {'",
+];
+
+test('ADR-082: calls the guard cannot read run, and a refusal is a deny, never an ask', () => {
+  const { HOME, R } = sandbox();
+  table(UNREAD_FORMS, [R], isAllowed, ENV(HOME));
+  assert.equal(verdictOf(feed(bashEvent('git stash -u', R), { env: ENV(HOME) })), 'deny');
   intact(R);
 });

@@ -146,7 +146,7 @@ lines: the `ac` verb to use for that file (with the rule's source as a short tag
   profile added later gets it; a stale entry is removed).
 
 **git-guard** refuses unscoped destructive git, the rule ADR-035 and ADR-038 put in every
-executor prompt. The prompt is two plain lines: what the command would do (e.g. "throws away
+executor prompt. The refusal reason is two plain lines: what the command would do (e.g. "throws away
 every uncommitted change in the repo"), then the scoped alternative and the off switch:
 
 - Refused: `git stash` with no `-- <path>` pathspec (bare, `-u`/`-a`/`-k`, `save`, `push` without
@@ -158,12 +158,13 @@ every uncommitted change in the repo"), then the scoped alternative and the off 
   `worktree remove --force` are out of scope without an ADR).
 - Parsing: a mistake-catcher, not a sandbox. Compound commands, `cd`/env/`command`/`exec`/`sudo`
   prefixes, `git -C/-c/--git-dir`, `sh -c`/`bash -c`, `<(…)` and the lean-ctx `-c` wrapper are seen;
-  aliases, `eval`, scripts, `$(…)` and lean-ctx's `ctx_shell` are not. A git command merely quoted
+  scripts, a subcommand that is an expansion (`git $SUB`), a shell fed on stdin, nesting three
+  shells deep and lean-ctx's `ctx_shell` are not, and those run. A git command merely quoted
   in `echo`, `grep` or a commit message never trips it. A variable set once in the same command to
   a plain path (`F=src/a.js; …; git checkout -- $F`) is read as that path, a loop over plain paths
   (`for f in a.md b.md; do …; git checkout -- $f; done`) is judged path by path, and a glob below a named
-  folder (`git checkout src/components/*.css`) counts as scoped; any other expansion asks.
-- Not asked when nothing can be lost. A refused call goes through without a prompt when git, asked
+  folder (`git checkout src/components/*.css`) counts as scoped; any other expansion in a destructive call is refused.
+- Not refused when nothing can be lost. A refused call goes through when git, asked
   read-only, shows it would destroy nothing: no uncommitted change for `reset --hard` (bare or to
   `HEAD` only; a reset to another commit can drop commits), `stash`, a whole-tree
   `checkout`/`restore` or `-f`; no untracked file for `git clean` (no ignored file either with
@@ -172,12 +173,13 @@ every uncommitted change in the repo"), then the scoped alternative and the off 
   live where the host can see it is marked on purpose (`touch .git/astrocode-scratch`, which the
   verifier does for its probe copies). A worktree of a real project still counts as the project.
   Only the plain shape qualifies, `git <subcommand> …` alone or after `cd <literal path>`; with
-  prefixes, global options, other segments, unreadable words, or git not answering, it asks.
-- Verdict: Claude Code **asks**; a headless or Workflow agent cannot answer, so for it an ask is a
-  refusal. Cursor **denies**, because it cannot ask from `preToolUse`. `ac mods status` says
-  which (`asks` / `denies`) per place.
-- Escapes: approve the prompt if you meant it, or `ac mods disable git-guard`. There is no
-  environment-variable escape.
+  prefixes, global options, other segments, unreadable words, or git not answering, it is refused.
+- Verdict: it **denies**, on Claude Code and Cursor alike, and never asks (ADR-082). An ask from
+  a Workflow agent waits for you, so an unattended run stalled until you came back; a deny
+  reaches the agent at once with the scoped form to use instead. `ac mods status` says
+  `denies` per place.
+- Escapes: run the command yourself if you meant it (`! <command>` in the prompt), or
+  `ac mods disable git-guard`. There is no environment-variable escape.
 - Where it is enforced, and the re-sync on `ac install` / `ac update`: as for canon-guard.
 - Not seen: `ac`'s and the workflow's own git calls run through `child_process`, not the Bash tool.
   That is why `NO_BROAD_STASH` stays in the prompts.
