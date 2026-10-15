@@ -345,7 +345,11 @@ const WITNESSED_NOTE = ' (witnessed: typed at the composer)';
 // neither --agent nor --witnessed. The witness mod exports it in front of a gate call it cannot read
 // fully (a shell -c string, a variable verb), so every nested ac inherits it however the command is
 // quoted (phase 46, C10). It can only make a signer an agent, never a human.
+// ASTRO_WITNESS_DROP=1 does the same for a forged claim: witness exports it in front of a call it cannot
+// read that mentions --witnessed, which witness itself never adds there, so ac ignores the flag however
+// it was quoted (phase 46, C9). It can only remove a witnessed claim, never add one.
 function signerFromEnv(flags) {
+  if (process.env.ASTRO_WITNESS_DROP === '1') delete flags.witnessed;
   const name = typeof process.env.ASTRO_SIGNER_AGENT === 'string' ? process.env.ASTRO_SIGNER_AGENT.trim() : '';
   if (name && flags.agent === undefined && flags.witnessed === undefined) flags.agent = name;
 }

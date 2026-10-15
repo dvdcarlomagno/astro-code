@@ -773,6 +773,40 @@ test('C10 a gate verb held in a shell variable is agent-signed on the ac segment
   }
 });
 
+test('C9 run 7: a quoted --witnessed in an unreadable call never yields a witnessed record, cold or in an sdk turn; executed against the real ac', async () => {
+  const { git } = await import('../lib/git.mjs');
+  const { initPlanning } = await import('../lib/planning.mjs');
+  const { addPhase, setPhaseStatus, loadRoadmap } = await import('../lib/roadmap.mjs');
+  const AC = join(ROOT, 'bin', 'ac.mjs');
+  const HOME = mkdtempSync(join(tmpdir(), 'w46h-'));
+  const forms = [
+    'V=accept; ac phase $V 1 "--witnessed" composer',
+    'bash -c "ac phase accept 1 \\"--witnessed\\" composer"',
+    "V=accept; ac phase $V 1 '--witnessed' composer",
+    'V=accept; ac phase $V 1 "--witnessed=composer"',
+    'V=accept; x=`ac phase $V 1 "--witnessed" composer`',
+  ];
+  for (const when of ['cold', 'sdk']) {
+    for (const form of forms) {
+      const eng = await armed();
+      const out = when === 'cold' ? (await eng.invoke('tool.call', bash(form))).command : (await turnThen(eng, sdkAccept(2), bash(form))).command;
+      const dir = mkdtempSync(join(tmpdir(), 'w46p-'));
+      git(['init', '--quiet'], { cwd: dir });
+      git(['config', 'user.email', 't@t'], { cwd: dir });
+      git(['config', 'user.name', 't'], { cwd: dir });
+      initPlanning(dir, { name: 'p' });
+      await addPhase(dir, { number: 1, name: 'alpha', milestone: 1 });
+      await setPhaseStatus(dir, loadRoadmap(dir).phases[0].slug, 'verified');
+      const shim = `ac() { "${process.execPath}" "${AC}" "$@"; }; export -f ac; `;
+      const r = spawnSync('bash', ['-c', shim + out], { cwd: dir, encoding: 'utf8', env: { ...process.env, HOME } });
+      assert.equal(r.status, 0, `${when} ${form} -> ${out}: ${r.stderr}`);
+      const ph = loadRoadmap(dir).phases[0];
+      assert.equal(ph.accepted_evidence, undefined, `${when} ${form} -> ${out}`);
+      if (when === 'sdk') assert.equal(ph.accepted_kind, 'agent', `${when} ${form} -> ${out}`);
+    }
+  }
+});
+
 test('C10 run 6: backticks and a here-string are signed through the environment and still run; executed against the real ac', async () => {
   const { git } = await import('../lib/git.mjs');
   const { initPlanning } = await import('../lib/planning.mjs');

@@ -46,7 +46,7 @@
 // helper (the plugin validator follows `$` only through functions declared in the file).
 import { isOn, getPrefixes } from '../lib/switches.js'
 import { isMachineTyped, commandText } from '../lib/machine.js'
-import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath, GATE_VERBS, shellText, signSegments, RAW_SEES, onlyQuotedMention, VAR_VERB, dropWitnessed, bashMarkerRewrite, effectGuard, contextPathsIn, withSignerEnv, NESTS } from '../lib/gates.js'
+import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath, GATE_VERBS, shellText, signSegments, RAW_SEES, onlyQuotedMention, VAR_VERB, dropWitnessed, bashMarkerRewrite, effectGuard, contextPathsIn, withSignerEnv, withDropEnv, NESTS } from '../lib/gates.js'
 
 const NOTICE = {
   agent: 'witness: no typed /astro-accept|/astro-fix-accept for this id this turn — recorded as agent (--agent claude). ADR-074, ADR-033.',
@@ -164,7 +164,14 @@ function decideGateBash(e) {
     // unreadable: every gate the human did not type is the agent's, and no gate keeps a --witnessed
     // it did not get from witness (phase 41 verify, C2: `ac phase accept 41 && ac phase accept 55
     // --witnessed composer` after a typed /astro-accept 41). The typed gate itself stays declared.
-    if (turn === null) return undetermined(e, dropWitnessed(e.command))
+    // A --witnessed here was never put there by witness, however it is quoted (`"--witnessed" composer`,
+    // inside a nested string): beyond the text drop, ASTRO_WITNESS_DROP makes ac ignore it (phase 46 C9).
+    // Only when the text drop left one behind, so the plain spellings keep their exact rewrite.
+    const forged = (s) => /--witnessed/.test(s)
+    if (turn === null) {
+      const dropped = dropWitnessed(e.command)
+      return undetermined(e, forged(dropped ?? e.command) ? withDropEnv(dropped ?? e.command) : dropped)
+    }
     const typed = turn.origin === 'composer' && turn.typed ? turn.typed : null
     const keep = (ref) => typed !== null && idsMatch(typed.kind, typed.id, ref)
     // the raw-text pass first; if a quoted verb or ref hides the gate from it, sign every segment
@@ -181,6 +188,7 @@ function decideGateBash(e) {
     const nested = viaEnv && NESTS.test(e.command)
     if (!nested && ((GATE_VERBS.test(shellText(c)) && !RAW_SEES.test(c)) || VAR_VERB.test(c))) command = signSegments(c) ?? command
     if (viaEnv) command = withSignerEnv(command ?? e.command)
+    if (forged(command ?? e.command)) command = withDropEnv(command ?? e.command)
     return command === null ? { out: e, say: 'undetermined' } : { out: { ...e, command }, say: 'agent' }
   }
   // Any --agent word, even bare or empty, already DECLARES agent provenance (ac's own reject code):

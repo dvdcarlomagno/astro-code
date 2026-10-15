@@ -135,6 +135,19 @@ test('C10: ASTRO_SIGNER_AGENT signs phase accept, phase reject and fix accept as
   assert.equal(show(e.dir).accepted_kind, 'human');
 });
 
+test('C9: ASTRO_WITNESS_DROP=1 makes ac ignore --witnessed, so no witnessed record; it never adds a claim', async () => {
+  const a = await project();
+  assert.equal(runEnv(['phase', 'accept', '1', '--witnessed', 'composer'], a.dir, { ASTRO_WITNESS_DROP: '1' }).status, 0);
+  assert.equal('accepted_evidence' in show(a.dir), false);
+  // with a signer exported too, the forged claim no longer contradicts it: the agent signs
+  const b = await project();
+  assert.equal(runEnv(['phase', 'accept', '1', '--witnessed', 'composer'], b.dir, { ASTRO_WITNESS_DROP: '1', ASTRO_SIGNER_AGENT: 'claude' }).status, 0);
+  assert.equal(show(b.dir).accepted_kind, 'agent');
+  const c = await project();
+  assert.equal(runEnv(['phase', 'accept', '1'], c.dir, { ASTRO_WITNESS_DROP: '1' }).status, 0);
+  assert.equal('accepted_evidence' in show(c.dir), false);
+});
+
 test('C10: run 5 forms, as witness rewrites them, record the agent when executed', async () => {
   const gates = await import('../mods/astro-mods/hooks/lib/gates.js');
   const forms = [

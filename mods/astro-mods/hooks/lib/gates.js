@@ -413,6 +413,12 @@ export function onlyQuotedMention(command) {
 // A runner that hands text to another ac call: where splicing --agent into the text can miss.
 // A command substitution (`$(…)`, backticks) and a here-string count too.
 export const NESTS = /(?:^|[\s;&|("'`])(?:\S*\/)?(?:bash|sh|zsh|dash|ksh|eval|xargs)(?=[\s;&|)`]|$)|\$\(|`|<<</
+/** The command with `ASTRO_WITNESS_DROP=1` exported in front: ac ignores any --witnessed in it (C9). */
+export function withDropEnv(command) {
+  const s = String(command)
+  return s.startsWith('export ASTRO_WITNESS_DROP=1; ') ? s : `export ASTRO_WITNESS_DROP=1; ${s}`
+}
+
 export function withSignerEnv(command, name = AGENT_NAME) {
   const s = String(command)
   if (s.startsWith(`export ASTRO_SIGNER_AGENT=${name}; `)) return s

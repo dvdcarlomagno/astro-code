@@ -267,7 +267,9 @@ already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces i
   Where splicing `--agent` into the text can miss (a verb in a variable, a nested `bash -c`, `eval`, `xargs`),
   witness also puts `export ASTRO_SIGNER_AGENT=claude;` in front: `ac` reads it as `--agent claude` on any gate
   call that names neither `--agent` nor `--witnessed`, so a nested call is signed however it is quoted. The
-  variable can only make a signer an agent, never a human.
+  variable can only make a signer an agent, never a human. Likewise, a call it cannot read that mentions
+  `--witnessed` (which witness never adds there) gets `export ASTRO_WITNESS_DROP=1;`, and `ac` then ignores
+  the flag however it is quoted.
 - Fail open: an unknown turn, an empty typed id or a command it cannot parse is left declared, with
   one notice.
 - Known gaps: a typed `! ac phase accept <n>` line (the host shows it to no hook, so it is never
