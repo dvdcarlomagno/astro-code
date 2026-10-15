@@ -65,7 +65,7 @@ test('acceptFix with a multi-line citation throws and the fix stays open', async
 test('rejectPhase records a citation on the rejection and never an evidence key', async () => {
   const { rejectPhase, addPhase, loadRoadmap } = await import('../lib/roadmap.mjs');
   const root = project();
-  await addPhase(root, { name: 'alpha' });
+  await addPhase(root, { number: 1, name: 'alpha', milestone: 1 });
   const slug = loadRoadmap(root).phases[0].slug;
   await rejectPhase(root, slug, { reason: 'x', agent: 'claude', cite: 'DEC-9' });
   const entry = loadRoadmap(root).phases[0].rejections.at(-1);
@@ -77,7 +77,7 @@ test('rejectPhase records a citation on the rejection and never an evidence key'
 test('rejectPhase with a bad citation throws before the write', async () => {
   const { rejectPhase, addPhase, loadRoadmap } = await import('../lib/roadmap.mjs');
   const root = project();
-  await addPhase(root, { name: 'alpha' });
+  await addPhase(root, { number: 1, name: 'alpha', milestone: 1 });
   const slug = loadRoadmap(root).phases[0].slug;
   const before = loadRoadmap(root).phases[0].status;
   await assert.rejects(() => rejectPhase(root, slug, { reason: 'x', cite: 'a\nb' }), /--evidence/);

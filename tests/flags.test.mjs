@@ -735,3 +735,22 @@ test('ADR-039: an identical entry on both sides is not duplicated', async () => 
   const ids = [...readFileSync(paths(dir).decisions, 'utf8').matchAll(/^##\s+(ADR-\d+)/gm)].map((m) => m[1]);
   assert.strictEqual(new Set(ids).size, ids.length, 'a matching entry must dedupe, not double');
 });
+
+// ── phase 46: --evidence and `fix list` are on the allowlist (ADR-029, ADR-081) ──
+
+test('ADR-029: a typo of --evidence on phase accept exits with unknown flag', async () => {
+  const dir = mkWorkdir(null);
+  await addPhase(dir, { number: 1, name: 'alpha', milestone: 1 });
+  await setPhaseStatus(dir, '01-alpha', 'verified');
+  const res = run(['phase', 'accept', '1', '--evidnce', 'x'], dir);
+  assert.notStrictEqual(res.status, 0);
+  assert.match(res.stderr, /unknown flag/i);
+  assert.match(res.stderr, /--evidnce/);
+});
+
+test('ADR-029: `ac fix list --bogus` exits with unknown flag', () => {
+  const dir = mkWorkdir(null);
+  const res = run(['fix', 'list', '--bogus'], dir);
+  assert.notStrictEqual(res.status, 0);
+  assert.match(res.stderr, /unknown flag/i);
+});

@@ -225,3 +225,29 @@ test('ADR-074: acceptFix refuses evidence together with a declared agent', async
   await assert.rejects(() => acceptFix(root, a.id, { agent: 'x', evidence: 'composer' }));
   assert.notEqual(loadFixes(root).fixes.find((f) => f.id === a.id).status, 'accepted');
 });
+
+// --- phase 46 (C12): an ambiguous slug says so, and accepts nothing ---------------
+
+test('phase 46: the CLI names an ambiguous fix slug instead of saying "no such fix"', async () => {
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const AC = join(fileURLToPath(new URL('..', import.meta.url)), 'bin', 'ac.mjs');
+  const root = project();
+  const a = await addFix(root, { title: 'foo', now: new Date('2026-10-01T08:00:00Z') });
+  const b = await addFix(root, { title: 'foo', now: new Date('2026-10-02T08:00:00Z') });
+  const ac = (args) => spawnSync(process.execPath, [AC, ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, HOME: root } });
+
+  const amb = ac(['fix', 'accept', 'foo']);
+  assert.notEqual(amb.status, 0);
+  assert.equal(amb.stderr.trim().split('\n').length, 1, amb.stderr);
+  assert.match(amb.stderr, /ambiguous fix "foo".*matches .*-foo, .*-foo/);
+  assert.equal(openFixes(root).length, 2, 'nothing was accepted');
+
+  const none = ac(['fix', 'accept', 'no-such-slug']);
+  assert.notEqual(none.status, 0);
+  assert.match(none.stderr, /no such fix/);
+
+  const one = ac(['fix', 'accept', a.id]);
+  assert.equal(one.status, 0, one.stderr);
+  assert.deepEqual(openFixes(root).map((f) => f.id), [b.id], 'exactly the named fix was accepted');
+});
