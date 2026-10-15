@@ -22,3 +22,5 @@ Capture a decision into the project canon.
 
 Use this whenever a real architectural choice is made — stack, pattern, naming rule,
 boundary. Small, frequent entries keep the canon honest.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

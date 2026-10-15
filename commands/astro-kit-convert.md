@@ -151,3 +151,5 @@ The conversion is DONE when the "Build & definition of done" list in
 tools/parity/parity.json` exits 0 on the shipped fixtures. Any flagged non-self-
 contained capability from step 8 stays an explicit, visible follow-up — it is never
 quietly treated as complete.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

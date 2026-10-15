@@ -471,3 +471,49 @@ _2026-10-11 · at b0bdfde_
 **Why:** A PreToolUse guard runs on every tool call; registering only when on makes an off feature cost nothing and keeps the script free of config reads, while re-sync on install/update covers profiles added later. Applies to canon-guard (phase 37) and git-guard (phase 38).
 
 **Rejected:** one always-registered entry that reads ~/.astro/config.json on each call (a node start per tool call even when off)
+
+## ADR-073 — Haiku is the user's choice per role: ADR-035's 'no role runs haiku' ban is lifted; ac models may set haiku for any role, and the integrator's git-safety rules from ADR-035 stay in force
+_2026-10-11 · at d8b1268_
+
+**Why:** With Haiku 5.5, a cheap model can be right for simple roles, and the model per role is the user's decision, not the framework's. ADR-035's other parts (integrator destructive-git ban, branches[] pinned to source branches, zero-task phase is a hard FAIL, plan artifacts committed by /astro-plan, gitignored worktrees, agent-authored brief marker) are unchanged.
+
+**Rejected:** keeping the haiku ban; enforcing it at spawn time in the spawn-policy mod
+
+## ADR-074 — Acceptance provenance is declared everywhere and witnessed where the host allows: on Claude Code with the witness mod on, a human-gate command (phase accept/reject, fix accept, the discuss 'captured' marker) counts as human only when the turn began with the human typing the matching command at the composer; otherwise witness adds --agent, and a witnessed sign-off records accepted_evidence 'composer'. Amends ADR-033's 'never detected'
+_2026-10-11 · at d6b0961_
+
+**Why:** ADR-033 rejected detection because the human's own accepts also run through an agent, so env or harness signals would manufacture false confidence. A mod sees a stronger signal ac cannot: whether the human typed the prompt that started the turn (origin.kind 'composer', PROBE.md phase 36). Requiring the specific gate command, not any human-started turn, keeps an autonomous turn the human merely kicked off from reading as a sign-off. Elsewhere (Codex, Cursor, mod off) provenance stays declared, and the record says which. Phase 41 probe outcome: the UAT AskUserQuestion answer is not attestable as human (no field names the answerer), so the signal is the typed gate command alone. Subagent calls are never witnessed. An empty-id typed command and an unknown turn stay declared. Remote Control (bridge) prompts and MCP shell tools are not witnessed. ac still never detects; the witness mod is the only detector. A typed `! ac ...` line is invisible to every witness hook (PROBE.md), so it reaches ac undeclared and is not witnessed: only the slash form (`/astro-accept <n>`, `/astro-fix-accept <id>`) earns `--witnessed composer`.
+
+**Rejected:** any human-started turn counts (an autonomous turn would read as human); denying unwitnessed accepts (unattended runs would stall); annotating instead of correcting (the record would still say human)
+
+_Amended 2026-10-12: phase 41 probe outcome_
+
+_Amended 2026-10-12: publish the phase 41 remediation sentence (a typed ! ac line is never witnessed), accepted with phase 41 on 2026-10-12_
+
+## ADR-075 — ac install and ac update install the astro-mods plugin with every mod off wherever Claude Code meets the floor, so ac mods enable/disable only flip switches and never edit settings.json; refines ADR-071's distribution, which installed the plugin on the first enable
+_2026-10-12 · at 38cb91b_
+
+**Why:** Phase 42 C6 requires that turning a mod on leaves settings.json untouched. Claude Code records a plugin install in settings.json (extraKnownMarketplaces, enabledPlugins), so the only place that write can live without breaking C6 is install itself. Every mod stays off by default (ADR-071 d), and the plugin is inert with all switches off. ensurePlugin still never runs a plugin command against a config dir that does not exist (phase 39). User decision, 2026-10-12.
+
+**Rejected:** amending C6 to let the first enable edit settings.json; keeping phase 36's install-on-first-enable
+
+## ADR-076 — git-guard lets a refused call through when it provably loses nothing (a clean tree for that command, or a scratch repo whose git common dir is under os.tmpdir()), checked by read-only git status only after the call is judged destructive; and a guard's message is two plain lines, its ADR quoted at most as a short tag, refining ADR-071(a) and phase 38's C9
+_2026-10-14 · at a7f0599_
+
+**Why:** A prompt the user approves every time trains them to approve without reading, so the guard must ask only when work can be lost. A clean tree loses nothing to reset --hard (to HEAD), stash, whole-tree checkout/restore or -f, and nothing untracked means git clean deletes nothing. A throwaway clone under the temp directory has no work worth a prompt, while a worktree of the real project placed there shares its stash and still counts. Only the plain shape (git <sub> alone, or after cd <literal path>) qualifies, and an unsure hit or git not answering keeps the ask, so phase 38's ask-when-unsure default stands. Deciding still spawns nothing; git runs only for a call already judged destructive. Six-line messages with rule history and ADR numbers were hard to read mid-flow (user, 2026-10-14); the history lives in MANUAL.md.
+
+**Rejected:** Skipping reset --hard to any ref on a clean tree (it can drop commits). Treating any folder other than the project as scratch (a worktree elsewhere shares refs/stash). An env-var escape (ADR-071 keeps none). Dropping the source tag from canon-guard's deny (its reader is the agent, and phase 37's C7 pins the source).
+
+## ADR-077 — witness: a prompt the engine delivers into the running turn (turnId set) does not start a turn, so who started it stands; and a command that names a gate only inside quoted text nothing can run is a mention, left as written. Refines ADR-074
+_2026-10-14 · at eec6b8f_
+
+**Why:** In astro-forge on 2026-10-14 the owner typed /astro-discuss 223-226 and answered every question, yet each CONTEXT.md was recorded as captured by agent: a background workflow's task notification was delivered into the running discussion turn, and witness read every prompt event as a new turn. Separately, witness rewrote any Bash command whose text contained an acceptance phrase, including echo strings, grep patterns and commit messages, so agents' searches and commit messages were corrupted mid-run. A notification that starts its own turn still reads as agent (phase 41 C2c stands), and a gate word outside quotes, or any runner that could execute quoted text (a shell, eval, ssh, the host bridge, xargs, an interpreter, a substitution), still makes the command unreadable and signed as agent.
+
+**Rejected:** Ignoring every non-composer prompt (a notification that starts its own turn is not the human). Dropping the unreadable-text rule entirely (phase 41 found real gates hidden behind quoting and wrappers).
+
+## ADR-078 — The balanced and fast profiles run the wave integrator on Haiku 5.5; max stays sonnet, and no profile puts haiku on a judgement role (amends ADR-035)
+_2026-10-15 · at ca74200_
+
+**Why:** ADR-035's premise was Haiku 4.5 (a bare git stash -u in the shared tree; branches[] filled with the target). Haiku 5.5, at about a twentieth of Sonnet's price, was 20/20 on benchmark #2's scenario as a fixture against Sonnet low's 19/20, with no destructive git in 141 integrator runs, and never stashed under a stash-inviting prompt (0/21; Sonnet stashed a path 19/20). It is not good enough for judgement: hard coding tasks 9/16 against 14/16, and in discover 6/20 runs put a task's file at the plan file. The ADR-035 prohibition paragraph in the integrator prompt is load-bearing (branches[] shape wrong 5/20 without it, 0/20 with it) and stays. An unset models.integrator still floors to sonnet. Haiku on any other role remains the user's per-role choice (ADR-073). Evidence: PR #133, issue #125.
+
+**Rejected:** Haiku for discover (a silent wrong file costs more than it saves); haiku in a profile for any judgement role; dropping the prompt paragraph to save tokens; lowering the unset-key floor to haiku (a project that never set the key should not change tier unannounced).

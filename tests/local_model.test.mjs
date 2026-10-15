@@ -209,3 +209,30 @@ test('execute-phase uses only astro-code agents (none of its agents is a built-i
   const src = readFileSync(join(ROOT, 'workflows', 'execute-phase.mjs'), 'utf8');
   for (const [, t] of src.matchAll(/agentType: *'([^']+)'/g)) assert.ok(OWN_AGENTS.has(t), `execute-phase uses ${t}`);
 });
+
+// `ac config get reasoning` prints null in a project that never set the map, and the
+// command passes that output through as-is: both workflows must run on it, not crash.
+test('plan-phase and execute-phase run when models or reasoning arrive as null', async () => {
+  const calls = [];
+  const agent = async (prompt, opts = {}) => {
+    calls.push(opts);
+    const props = (opts.schema && opts.schema.properties) || {};
+    if ('tasks' in props) return { tasks: [{ id: 't1', title: 'T1', file: 'f1.mjs', depends_on: [], done: false }] };
+    if ('criteriaFound' in props) return { passed: true, criteriaFound: true, summary: 'ok', criteria: [] };
+    if ('ranSuite' in props) return { ranSuite: true, passed: true, testsRun: 1 };
+    return { summary: 'done', criteria: [{ id: 'C1', text: 'x' }], written: true, path: 'CRITERIA.md' };
+  };
+  const parallel = async (thunks) => Promise.all(thunks.map((f) => f()));
+  for (const [name, phase] of [['plan-phase.mjs', '01-x'], ['execute-phase.mjs', '03-x']]) {
+    for (const nulls of [{ reasoning: null }, { models: null, reasoning: null }]) {
+      calls.length = 0;
+      try {
+        await loadWorkflow(name)(() => {}, agent, parallel, () => {}, { root: '/tmp/p', phase, models: { executor: 'sonnet' }, ...nulls });
+      } catch (e) {
+        assert.doesNotMatch(String(e), /null is not an object|Cannot (read|convert)/, `${name} ${JSON.stringify(nulls)}: ${e}`);
+      }
+      assert.ok(calls.length >= 1, `${name} ${JSON.stringify(nulls)}: no agent ran`);
+      for (const o of calls) assert.equal(o.effort, undefined, `${name}: an unset reasoning map passes no effort`);
+    }
+  }
+});

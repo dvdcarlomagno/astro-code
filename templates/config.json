@@ -6,7 +6,7 @@
   "registry_branch": "astro-registry",
   "registry_remote": "origin",
   "models": {
-    "_comment": "Per-role model tier: opus | sonnet for every judgement role; haiku is allowed for integrator ONLY (haiku 5.5, #125). `ac config set models.integrator sonnet` opts out. Switch all at once with `ac models max|balanced|fast`. Remove a role to inherit the session model.",
+    "_comment": "Per-role model tier: opus | sonnet | haiku. The profiles put haiku (5.5) on the integrator only (#125); any other role on haiku is your choice (ADR-073). `ac config set models.integrator sonnet` opts out. Switch all at once with `ac models max|balanced|fast`. Remove a role to inherit the session model.",
     "planner": "opus",
     "researcher": "sonnet",
     "executor": "sonnet",

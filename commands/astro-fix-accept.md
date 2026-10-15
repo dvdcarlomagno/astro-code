@@ -58,8 +58,9 @@ If you are an autonomous agent standing in for the operator — running unattend
 closing on their behalf without them confirming — you MUST pass
 `ac fix accept <id> --agent "<your name>"`, which records `accepted_kind: "agent"`.
 
-astro-code cannot detect which happened: when the operator accepts, their assistant runs
-this same command. The record is only honest if the signer declares it. This matters more
+It is declared everywhere; witnessed where the host allows (ADR-074). When the operator
+accepts, their assistant runs this same command. The record is only honest if the signer
+declares it. Declare honestly either way. This matters more
 for a bug than for a phase — a bug wrongly marked fixed stops being looked for, which is
 worse than a bug known to be open.
 
@@ -69,3 +70,5 @@ The record stays in `.astrocode/fixes.json` with `accepted_at` — what broke an
 the most useful history a project has. Only the working directory is archived.
 
 Mention that `ac fix list` is now shorter, and if nothing else is open, say so.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

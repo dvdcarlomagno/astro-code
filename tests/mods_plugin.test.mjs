@@ -2,82 +2,117 @@
 // RED first (ADR-018): the plugin's modules arrive only through `await import(...)` inside the
 // test bodies, so a missing module fails each test on its own.
 //
-// The engine is a small in-test simulator, because the plugin is plain ESM that only needs
-// something to call `register(on)` and then drive its hooks the way Claude Code does:
-//   - `on(name, hook)` records the hook and returns `{ catch(h) }`;
-//   - an invocation that THROWS, REJECTS or OVERRUNS the budget goes to the recorded `.catch`
-//     handler with `next` augmented by `error` and `called` -- the fail-open mechanism the
-//     real validator accepts (PROBE.md F3), which is why the plugin has no wrapper of its own;
-//   - `$` has just `process.run` and `ui.toast`, both recorders. Anything else the plugin
-//     reached for would be undefined and surface as a failed hook (and a toast).
-// Event shapes come from PROBE.md: `session.start` is `{ cwd, surface, isInteractive }`.
-//
-// register() starts a clean slate (every switch off, the once-per-session notice re-armed), so
-// each test registers a fresh simulated engine against the same module instance: the plugin's
-// sibling modules are cached by Node and a `?query` on register.js would not reach them.
+// The engine is the shared simulator in fixtures/mods_engine.mjs (phase 39 moved it there so the
+// blindfold suite drives the same hooks). Event shapes come from PROBE.md: `session.start` is
+// `{ cwd, surface, isInteractive }`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
+import { boot, answer, switches, NAMES, SESSION_START, BENEATH } from './fixtures/mods_engine.mjs';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const PLUGIN = join(ROOT, 'mods', 'astro-mods');
 const HOOKS = join(PLUGIN, 'hooks');
-const PROBE_MD = join(ROOT, '.astrocode', 'phases', '36-astro-mods-foundation-adr-api-probe', 'PROBE.md');
-const NAMES = ['canon-guard', 'git-guard', 'blindfold', 'spawn-policy', 'witness', 'brief-section', 'phase-band', 'live-capture'];
-const ARGV = ['ac', 'mods', 'status', '--json', '--switches-only'];
-const SESSION_START = { cwd: '/work/proj', surface: null, isInteractive: false };
-
-const plugin = () => import('../mods/astro-mods/hooks/register.js');
-const switches = (over = {}) => ({ switches: { ...Object.fromEntries(NAMES.map((n) => [n, false])), ...over }, warnings: [] });
-const answer = (obj) => async () => ({ exitCode: 0, stdout: JSON.stringify(obj), stderr: '', isStdoutTruncated: false, isStderrTruncated: false });
-
-async function boot(runImpl, { toastThrows = false } = {}) {
-  const { register } = await plugin();
-  const hooks = [];
-  const on = (name, hook) => {
-    const rec = { name, hook, catchHandler: null };
-    hooks.push(rec);
-    return { catch(h) { rec.catchHandler = h; return this; } };
-  };
-  const runs = [];
-  const toasts = [];
-  const $ = {
-    process: { run: (argv, init) => { runs.push({ argv, init }); return runImpl(argv, init); } },
-    ui: { toast: (text) => { toasts.push(text); if (toastThrows) throw new Error('no UI under -p'); } },
-  };
-  register(on, {});
-  async function invoke(name, e, budgetMs = 10000) {
-    const rec = hooks.find((h) => h.name === name);
-    const next = Object.assign((x) => x, { called: false });
-    let timer;
-    try {
-      const overrun = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('hook overran its budget')), budgetMs); });
-      return await Promise.race([Promise.resolve().then(() => rec.hook($, e, next)), overrun]);
-    } catch (error) {
-      if (!rec.catchHandler) throw error;
-      return await rec.catchHandler($, e, Object.assign((x) => x, { called: false, error }));
-    } finally {
-      clearTimeout(timer);
-    }
+// a phase's PROBE.md lives in .astrocode/phases while its milestone is open, and in
+// .astrocode/milestones/<n>/phases once `ac milestone complete` archives it
+const probeOf = (slug) => {
+  const live = join(ROOT, '.astrocode', 'phases', slug, 'PROBE.md');
+  if (existsSync(live)) return live;
+  const milestones = join(ROOT, '.astrocode', 'milestones');
+  for (const m of existsSync(milestones) ? readdirSync(milestones) : []) {
+    const archived = join(milestones, m, 'phases', slug, 'PROBE.md');
+    if (existsSync(archived)) return archived;
   }
-  return { hooks, invoke, runs, toasts };
-}
+  return live;
+};
+const PROBE_MDS = [
+  '36-astro-mods-foundation-adr-api-probe',
+  '39-blindfold-mod-plan-blind-verifier-and',
+  '41-witness-mod-detect-human-vs-agent',
+  '42-brief-section-mod-principles-brief-as',
+  '43-phase-band-mod-phase-band-with-next',
+].map(probeOf);
+const ARGV = ['ac', 'mods', 'status', '--json', '--switches-only'];
+// brief-section's hooks, in register.js order (phase 42 PROBE.md: F1 classic.SessionStart drops the
+// SessionStart parts, F9-F11 session.append rewrites the PreCompact row, F14 prompt.compose adds the
+// section; F22 allows ONE session.start handler, so that one stays the existing registration).
+const BRIEF_HOOKS = ['classic.SessionStart', 'prompt.compose', 'session.append'];
+// phase 43: phase-band's hooks. session.start and agent.spawn already have an UNMATCHED hook in this
+// plugin (a second one is refused by the validator, phase 42 F22), so these two carry a matcher.
+const BAND_HOOKS = ['session.start', 'turn.start', 'turn.complete', 'agent.spawn', 'ui.render', 'prompt.autocomplete'];
+const READ_ONLY_BAND_ARGV = ['status --json', 'debt list --json', 'backlog list --json', 'fix list --json'];
 
 // ── switches all off ────────────────────────────────────────────────────────
 
 test('with every switch off, every registered handler passes the event through untouched', async () => {
   const eng = await boot(answer(switches()));
-  assert.deepEqual(eng.hooks.map((h) => h.name), ['session.start'], 'this phase registers session.start and nothing else');
+  const names = eng.hooks.map((h) => h.name);
+  assert.ok(names.includes('session.start') && names.includes('tool.check'), `registered: ${names}`);
+  assert.ok(['command.run', 'prompt.submit', 'tool.call'].every((n) => names.includes(n)), `witness registers command.run, prompt.submit and tool.call (phase 41): ${names}`);
+  assert.deepEqual(names.slice(0, 1 + BRIEF_HOOKS.length), ['session.start', ...BRIEF_HOOKS], `brief-section registers its hooks right after session.start (phase 42): ${names}`);
+  assert.ok(names.every((n) => ['session.start', ...BRIEF_HOOKS, 'tool.check', 'agent.spawn', 'command.run', 'prompt.submit', 'tool.call', ...BAND_HOOKS].includes(n)), `an unexpected hook: ${names}`);
+ assert.ok(BAND_HOOKS.every((n) => names.includes(n)), `phase-band registers ${BAND_HOOKS} (phase 43): ${names}`);
+ for (const n of ['session.start', 'agent.spawn']) {
+  const mine = eng.hooks.filter((h) => h.name === n);
+  assert.equal(mine.filter((h) => !h.matcher).length, 1, `${n}: exactly one unmatched hook (a second is refused by the validator)`);
+}
+ assert.deepEqual(eng.hooks.find((h) => h.name === 'ui.render').matcher, { component: 'AbovePrompt' });
   assert.ok(eng.hooks.every((h) => typeof h.catchHandler === 'function'), 'every hook has a fail-open .catch');
+  const EVENTS = {
+    'session.start': { ...SESSION_START },
+    'tool.check': { tool: 'Read', input: { file_path: '/work/proj/.astrocode/phases/39-x/PLAN.md' }, tool_use_id: 'toolu_1', agentId: 'a1' },
+    'agent.spawn': { subagentType: 'astro-verifier', prompt: 'p', tool_use_id: 'toolu_2' },
+    'command.run': { command: 'astro-accept', args: '41', origin: { kind: 'composer' } },
+    'prompt.submit': { text: '/astro-accept 41', origin: { kind: 'composer' } },
+    'tool.call': { tool: 'Bash', command: 'ac phase accept 41', tool_use_id: 'toolu_3' },
+    'turn.complete': { answer: 'a', reason: 'answer' },
+    'classic.SessionStart': { source: 'startup', cwd: '/work/proj' },
+    'prompt.compose': {},
+    'session.append': { door: 'command', message: { content: [{ type: 'text', text: 'x' }] } },
+  };
   for (const rec of eng.hooks) {
-    const e = { ...SESSION_START };
-    assert.equal(await eng.invoke(rec.name, e), e, `${rec.name} resolves to next(e)'s value`);
+    const sentinel = { sentinel: rec.name };
+    assert.equal(await eng.invoke(rec.name, EVENTS[rec.name], { beneath: sentinel }), sentinel, `${rec.name} resolves to next(e)'s value`);
   }
+  assert.equal(await eng.invoke('tool.check', EVENTS['tool.check']), BENEATH);
   assert.deepEqual(eng.toasts, []);
+});
+
+// phase 44: live-capture's four hooks. session.start carries a matcher (one unmatched per plugin, F22).
+test('live-capture registers session.start (matched), command.run, prompt.submit and turn.complete', async () => {
+  const eng = await boot(answer(switches()));
+  const count = (n) => eng.hooks.filter((h) => h.name === n).length;
+  assert.equal(count('session.start'), 3, 'the switch reader, phase-band, live-capture');
+  assert.equal(count('command.run'), 2, 'witness, live-capture');
+  assert.equal(count('prompt.submit'), 3, 'witness, live-capture, phase-band (task notifications)');
+  assert.equal(count('turn.complete'), 2, 'phase-band, live-capture');
+  for (const n of ['session.start', 'command.run', 'prompt.submit', 'turn.complete']) {
+    assert.equal(eng.hooks.filter((h) => h.name === n && !h.matcher).length, 1, `${n}: one unmatched hook only (F22)`);
+  }
+  const submits = eng.hooks.filter((h) => h.name === 'prompt.submit').map((h) => h.matcher);
+  assert.ok(submits.some((m) => m && m.origin && m.origin.kind === 'composer'), 'live-capture sees composer prompts only');
+  assert.ok(submits.some((m) => m && m.origin && m.origin.kind === 'task-notification'), 'phase-band sees task notifications only');
+});
+
+test('with every switch off, live-capture touches no $ and toasts nothing', async () => {
+  const live = await import('../mods/astro-mods/hooks/features/live-capture.js');
+  const { resetSwitches } = await import('../mods/astro-mods/hooks/lib/switches.js');
+  resetSwitches();
+  const untouchable = new Proxy({}, { get() { throw new Error('$ was touched'); } });
+  const next = (x) => x;
+  const events = [
+    [live.liveSessionStart, { ...SESSION_START, isInteractive: true }],
+    [live.liveCommandRun, { command: 'astro-status', args: '', origin: { kind: 'composer' } }],
+    [live.livePromptSubmit, { text: 'x', wait: false, origin: { kind: 'composer' } }],
+    [live.liveTurnComplete, { answer: 'a', reason: 'answer' }],
+  ];
+  for (const [hook, e] of events) assert.equal(await hook(untouchable, e, next), e);
+  await live.liveSettled();
 });
 
 test('session.start reads the switches through ac, with argv exactly and a timeout under the hook budget', async () => {
@@ -88,7 +123,7 @@ test('session.start reads the switches through ac, with argv exactly and a timeo
   assert.ok(eng.runs[0].init.timeoutMs > 0 && eng.runs[0].init.timeoutMs <= 8000, 'stays under the session.start budget');
 });
 
-test('a switch that is on is read, and a feature that is not built yet still passes through', async () => {
+test('a switch that is on is read, and session.start still passes through', async () => {
   const eng = await boot(answer(switches({ blindfold: true, witness: true })));
   const e = { ...SESSION_START };
   assert.equal(await eng.invoke('session.start', e), e);
@@ -152,8 +187,8 @@ function sources(dir) {
   });
 }
 
-test('no module reads an event field PROBE.md does not record as observed', () => {
-  const probe = readFileSync(PROBE_MD, 'utf8');
+test('no module reads an event field the PROBE.md files do not record as observed', () => {
+  const probe = PROBE_MDS.map((f) => readFileSync(f, 'utf8')).join('\n');
   for (const file of sources(HOOKS)) {
     const text = readFileSync(file, 'utf8').replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
     for (const [, field] of text.matchAll(/\be\.(\w+)/g)) {
@@ -165,6 +200,17 @@ test('no module reads an event field PROBE.md does not record as observed', () =
 
 // ── Claude Code's own checks, when a qualifying claude is on PATH ───────────
 
+test('phase-band source: no submit, run, tool or state write; every ac argv is a read-only query (C3)', () => {
+ const raw = readFileSync(join(HOOKS, 'features', 'phase-band.js'), 'utf8');
+ for (const forbidden of ['prompt.submit', 'command.run', '$.tool', '$.state.set', '$.state.']) {
+  assert.ok(!raw.includes(forbidden), `phase-band.js mentions ${forbidden}`);
+}
+ const argvs = [...raw.matchAll(/\[\s*'ac'\s*,([^\]]*)\]/g)].map((m) => [...m[1].matchAll(/'([^']*)'/g)].map((x) => x[1]).join(' '));
+ assert.ok(argvs.length >= READ_ONLY_BAND_ARGV.length, `found ${argvs.length} ac argv literals`);
+ for (const a of argvs) assert.ok(READ_ONLY_BAND_ARGV.includes(a), `ac ${a} is not a read-only band query`);
+ for (const a of READ_ONLY_BAND_ARGV) assert.ok(argvs.includes(a), `missing ac ${a}`);
+ assert.ok(!/\.fs\.write|\$\.env\.set|ui\.toast/.test(raw), 'the band writes no file and raises no toast');
+});
 function claudeAtFloor() {
   const r = spawnSync('claude', ['--version'], { encoding: 'utf8' });
   if (r.error || r.status !== 0) return 'no claude on PATH';
@@ -189,4 +235,419 @@ for (const target of ['mods', 'mods/astro-mods', 'scripts/mods-probe']) {
 test('claude plugin test mods/astro-mods passes', { skip: SKIP }, () => {
   const r = live(['plugin', 'test', PLUGIN]);
   assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+});
+
+// ── witness (phase 41, ADR-074): who started the turn, and the gate calls it makes ──────────────
+// `next` on tool.call is the identity here, so what `invoke` returns is exactly what the engine
+// below would have received. features/witness.js is reached only through register.js and
+// `await import`, so a missing module fails each test on its own (ADR-018).
+
+const P41 = PROBE_MDS[2];
+const HUMAN = '<!-- astro-discuss: captured -->';
+const run = (command, args, kind = 'composer') => ({ name: 'command.run', e: { command, args, origin: { kind } } });
+const submit = (text, kind = 'composer') => ({ name: 'prompt.submit', e: { text, origin: { kind } } });
+const bash = (command, extra = {}) => ({ tool: 'Bash', command, description: 'd', tool_use_id: 'toolu_b', ...extra });
+const CTX = '/p/.astrocode/phases/41-x/CONTEXT.md';
+const write = (content, file_path = CTX) => ({ tool: 'Write', file_path, content, tool_use_id: 'toolu_w' });
+const edit = (new_string, file_path = CTX) => ({ tool: 'Edit', file_path, old_string: 'x', new_string, replace_all: false, tool_use_id: 'toolu_e' });
+
+const typedAccept = (n) => [run('astro-accept', String(n)), submit(`/astro-accept ${n}`)];
+const typedFixAccept = (f) => [run('astro-fix-accept', f), submit(`/astro-fix-accept ${f}`)];
+const typedDiscuss = (n) => [run('astro-discuss', String(n)), submit(`/astro-discuss ${n}`)];
+// a prompt the engine delivers INTO the running turn carries that turn's id
+const midTurn = (text, kind = 'task-notification') => ({ name: 'prompt.submit', e: { text, origin: { kind }, turnId: 'turn-1' } });
+
+async function armed(over = { witness: true }) {
+  const eng = await boot(answer(switches(over)));
+  await eng.invoke('session.start', { ...SESSION_START });
+  return eng;
+}
+/** Fire each prompt-side event, then the tool.call; return what reached the engine below. */
+async function turnThen(eng, events, call) {
+  for (const ev of events) await eng.invoke(ev.name, ev.e);
+  return eng.invoke('tool.call', call);
+}
+
+const W = ' --witnessed composer';
+const A = ' --agent claude';
+// [label, prompt events, tool.call, expected command (Bash) or [field, expected] (Write/Edit), toast on]
+// expected `null` means byte-identical.
+const AGENT_RE = /agent/;
+const BASH = [
+  ['C1 slash form, numeric ref', typedAccept(41), bash('ac phase accept 41'), `ac phase accept 41${W}`, null],
+  ['C1 slash form, slug ref', typedAccept(41), bash('ac phase accept 41-witness-x'), `ac phase accept 41-witness-x${W}`, null],
+  ['C1 bang form', [submit('! ac phase accept 41')], bash('ac phase accept 41'), `ac phase accept 41${W}`, null],
+  ['C2a composer astro-autonomous', [run('astro-autonomous', ''), submit('/astro-autonomous')], bash('ac phase accept 41'), `ac phase accept 41${A}`, AGENT_RE],
+  ['C2b sdk astro-accept', [run('astro-accept', '41', 'sdk'), submit('/astro-accept 41', 'sdk')], bash('ac phase accept 41'), `ac phase accept 41${A}`, AGENT_RE],
+  ['C2c typed then task-notification', [...typedAccept(41), submit('<task-notification>done</task-notification>', 'task-notification')], bash('ac phase accept 41'), `ac phase accept 41${A}`, AGENT_RE],
+  // a notification delivered INTO the typed turn does not start a turn: the typed accept stands
+  ['C1 typed, then a task-notification delivered into the running turn', [...typedAccept(41), midTurn('<task-notification>done</task-notification>')], bash('ac phase accept 41'), `ac phase accept 41${W}`, null],
+  ['C2 sdk turn stays agent after a delivery into it', [run('astro-accept', '41', 'sdk'), submit('/astro-accept 41', 'sdk'), midTurn('hi', 'composer')], bash('ac phase accept 41'), `ac phase accept 41${A}`, AGENT_RE],
+  ['C2d typed for another phase', typedAccept(40), bash('ac phase accept 41'), `ac phase accept 41${A}`, AGENT_RE],
+  ['C2e plugin origin', [run('astro-accept', '41', 'plugin'), submit('/astro-accept 41', 'plugin')], bash('ac phase accept 41'), `ac phase accept 41${A}`, AGENT_RE],
+  ['C2 subagent call after a typed accept', typedAccept(41), bash('ac phase accept 41', { agentId: 'a1' }), `ac phase accept 41${A}`, AGENT_RE],
+  ['C2 model-supplied --witnessed in an sdk turn', [run('astro-accept', '41', 'sdk'), submit('/astro-accept 41', 'sdk')], bash('ac phase accept 41 --witnessed composer'), `ac phase accept 41${A}`, AGENT_RE],
+  ['C3 reject after typed accept', typedAccept(41), bash('ac phase reject 41 --reason x'), `ac phase reject 41${W} --reason x`, null],
+  ['C3 reject after typed accept of another phase', typedAccept(40), bash('ac phase reject 41 --reason x'), `ac phase reject 41${A} --reason x`, AGENT_RE],
+  ['C3 fix accept after typed fix-accept of the exact id', typedFixAccept('2026-10-11-foo'), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${W}`, null],
+  // the documented slug form: the agent runs it with its date; a longer slug is another fix (phase 41 verify C3)
+  ['C3 fix accept after a typed bare slug', typedFixAccept('foo'), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${W}`, null],
+  ['C3 fix accept of a longer slug after a typed bare slug', typedFixAccept('foo'), bash('ac fix accept 2026-10-11-other-foo'), `ac fix accept 2026-10-11-other-foo${A}`, AGENT_RE],
+  ['C3 fix accept after bang', [submit('! ac fix accept 2026-10-11-foo')], bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${W}`, null],
+  ['C3 fix accept after another fix id', typedFixAccept('bar'), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${A}`, AGENT_RE],
+  ['C3 fix accept after typed phase accept', typedAccept(41), bash('ac fix accept 2026-10-11-foo'), `ac fix accept 2026-10-11-foo${A}`, AGENT_RE],
+];
+const IDENTICAL = [
+  ['C4 declared --agent, sdk turn', [run('astro-accept', '41', 'sdk'), submit('/astro-accept 41', 'sdk')], bash('ac phase accept 41 --agent bot')],
+  ['C4 declared --agent after typed accept', typedAccept(41), bash('ac phase accept 41 --agent bot')],
+  ['C5 ambiguous bash -c', typedAccept(41), bash("bash -c 'ac phase accept 41'")],
+  ['C5 no gate in the command', typedAccept(41), bash('ls -la')],
+  // a gate named only inside quoted text nothing runs is a mention, left as written
+  ['mention: echo of a quoted gate, sdk turn', [run('astro-accept', '41', 'sdk'), submit('/astro-accept 41', 'sdk')], bash('echo "search for: phase accept 12"')],
+  ['mention: grep pattern', [submit('hi')], bash('grep -rn -E "phase accept|fix accept" docs | head')],
+  ['mention: commit message', [submit('hi')], bash('git commit -m "chore(41): after ac phase accept 41"')],
+];
+const FILES = [
+  ['C6a Write after typed discuss', typedDiscuss(41), write(`${HUMAN}\nbody\n`), null],
+  ['C6a Edit after typed discuss', typedDiscuss(41), edit(`${HUMAN}\nbody`), null],
+  // astro-forge 223: a background run finished mid-discussion; the human's CONTEXT.md stays human
+  ['C6a Write after typed discuss and a notification delivered into the turn', [...typedDiscuss(41), midTurn('<task-notification>plan done</task-notification>')], write(`${HUMAN}\nbody\n`), null],
+  ['C6b Write after discuss of another phase', typedDiscuss(40), write(`${HUMAN}\nbody\n`), 'content'],
+  ['C6b Write after composer astro-autonomous', [run('astro-autonomous', ''), submit('/astro-autonomous')], write(`${HUMAN}\nbody\n`), 'content'],
+  ['C6b Write in an sdk turn', [run('astro-discuss', '41', 'sdk'), submit('/astro-discuss 41', 'sdk')], write(`${HUMAN}\nbody\n`), 'content'],
+];
+
+for (const [label, events, call, want, toast] of BASH) {
+  test(`witness on: ${label}`, async () => {
+    const eng = await armed();
+    const out = await turnThen(eng, events, call);
+    assert.equal(out.command, want);
+    assert.ok(!(/--agent/.test(out.command) && /--witnessed/.test(out.command)), 'never both');
+    assert.equal(out.deny, undefined, 'never a deny');
+    assert.equal(eng.toasts.length, toast ? 1 : 0, `toasts: ${JSON.stringify(eng.toasts)}`);
+    if (toast) assert.match(eng.toasts[0], toast);
+  });
+}
+
+for (const [label, events, call] of IDENTICAL) {
+  test(`witness on: ${label} is byte-identical`, async () => {
+    const eng = await armed();
+    const out = await turnThen(eng, events, call);
+    assert.deepEqual(out, call);
+    assert.equal(out.command, call.command);
+  });
+}
+
+test('C4 witness off: every C1-C3 and C6 scenario is byte-identical and silent', async () => {
+  for (const [label, events, call] of [...BASH, ...FILES].map(([l, ev, c]) => [l, ev, c])) {
+    const eng = await armed({ witness: false });
+    const out = await turnThen(eng, events, call);
+    assert.equal(out, call, `${label}: the very event, untouched`);
+    assert.deepEqual(eng.toasts, [], label);
+  }
+});
+
+test('C5 no prompt event after session.start: gate calls and a marker Write are byte-identical, one toast across them', async () => {
+  const eng = await armed();
+  for (const call of [bash('ac phase accept 41'), bash('ac fix accept foo'), write(`${HUMAN}\nbody\n`)]) {
+    assert.deepEqual(await eng.invoke('tool.call', call), call);
+  }
+  assert.equal(eng.toasts.length, 1, JSON.stringify(eng.toasts));
+  assert.match(eng.toasts[0], /could not tell/);
+});
+
+test('C5 a reload (session.start) loses the turn: the next gate call is byte-identical', async () => {
+  const eng = await armed();
+  for (const ev of typedAccept(41)) await eng.invoke(ev.name, ev.e);
+  await eng.invoke('session.start', { ...SESSION_START });
+  const call = bash('ac phase accept 41');
+  assert.deepEqual(await eng.invoke('tool.call', call), call);
+});
+
+test('C5 malformed events never reject and pass through', async () => {
+  const eng = await armed();
+  for (const ev of typedAccept(41)) await eng.invoke(ev.name, ev.e);
+  const bad = bash(42);
+  assert.equal(await eng.invoke('tool.call', bad), bad);
+  const noOrigin = { text: '/astro-accept 41' };
+  assert.equal(await eng.invoke('prompt.submit', noOrigin), noOrigin);
+  const call = bash('ac phase accept 41');
+  assert.equal((await eng.invoke('tool.call', call)).command, 'ac phase accept 41', 'a missing origin makes the turn unknown');
+});
+
+test('C5 an empty-arg composer astro-accept leaves the call as declared and says it could not tell', async () => {
+  const eng = await armed();
+  const call = bash('ac phase accept 41');
+  const out = await turnThen(eng, [run('astro-accept', ''), submit('/astro-accept')], call);
+  assert.deepEqual(out, call);
+  assert.equal(eng.toasts.length, 1);
+  assert.match(eng.toasts[0], /could not tell/);
+});
+
+for (const [label, events, call, field] of FILES) {
+  test(`witness on: ${label}`, async () => {
+    const eng = await armed();
+    const { AGENT_MARKER } = await import('../mods/astro-mods/hooks/lib/gates.js');
+    const out = await turnThen(eng, events, call);
+    if (field === null) {
+      assert.deepEqual(out, call);
+      assert.deepEqual(eng.toasts, []);
+      return;
+    }
+    assert.equal(out[field], call[field].replace(HUMAN, AGENT_MARKER), 'line 1 only');
+    assert.equal(out.file_path, call.file_path);
+    assert.equal(eng.toasts.length, 1);
+  });
+}
+
+// An Edit is judged by where its text lands in the file (phase 41 verify, C6): the engine reads the
+// file, so these scenarios give it one.
+test('C6b an Edit that makes line 1 the human marker becomes the agent marker; one landing on line 2 is left alone', async () => {
+  const { AGENT_MARKER } = await import('../mods/astro-mods/hooks/lib/gates.js');
+  const eng = await armed();
+  eng.setRead(() => 'x\nbody\n');
+  const line1 = await turnThen(eng, typedDiscuss(40), edit(`${HUMAN}`));
+  assert.equal(line1.old_string, 'x\nbody\n');
+  assert.equal(line1.new_string, `${AGENT_MARKER}\nbody\n`);
+  const eng2 = await armed();
+  eng2.setRead(() => '# Title\nbody\n');
+  const line2 = { ...edit(`${HUMAN}\nbody`), old_string: 'body' };
+  assert.deepEqual(await turnThen(eng2, typedDiscuss(40), line2), line2, 'a marker landing on line 2 is prose (C6 d)');
+});
+
+test('C6c/d an agent-form marker, another file, or an Edit marker on line 3 is unchanged in every turn', async () => {
+  const { AGENT_MARKER } = await import('../mods/astro-mods/hooks/lib/gates.js');
+  const calls = [
+    write(`${AGENT_MARKER}\nbody\n`),
+    edit(`${AGENT_MARKER}\nbody`),
+    write(`${HUMAN}\nbody\n`, '/p/notes/CONTEXT.md'),
+    edit(`# t\n\n${HUMAN}`),
+  ];
+  for (const call of calls) {
+    for (const events of [[run('astro-autonomous', ''), submit('/astro-autonomous')], [run('astro-discuss', '41', 'sdk'), submit('/astro-discuss 41', 'sdk')]]) {
+      const eng = await armed();
+      assert.deepEqual(await turnThen(eng, events, call), call);
+    }
+  }
+});
+
+test('C8 the UAT verdict in PROBE.md and the code agree', async () => {
+  const v = /^Verdict \(decision 2\): (observable|not-observable)$/m.exec(readFileSync(P41, 'utf8'));
+  assert.ok(v, 'PROBE.md carries exactly one machine-read verdict line');
+  if (v[1] === 'not-observable') {
+    const eng = await armed();
+    const out = await turnThen(eng, typedAccept(41), bash('ac phase accept 41'));
+    assert.equal(out.command, `ac phase accept 41${W}`, 'the typed command alone is the signal; no AskUserQuestion event is needed');
+    const ask = { tool: 'AskUserQuestion', questions: [], tool_use_id: 'toolu_q' };
+    assert.equal(await eng.invoke('tool.call', ask), ask, 'witness registers nothing for AskUserQuestion');
+  } else {
+    assert.fail('PROBE.md says observable: add the P7 accept/reject/absent cases from its recorded field paths');
+  }
+});
+
+// ── brief-section (phase 42): one cached system-prompt section, and no second copy of the brief ──
+// The engine below is the same simulator; `next` on classic.SessionStart / prompt.compose /
+// session.append is whatever the test says sits beneath. Everything the feature reads comes from a
+// scripted `ac` (ADR-071 c), keyed by argv; an argv outside the three brief-section shapes throws.
+// The feature module is reached only through register.js (ADR-018). A `turn.start` hook is NOT
+// required (PROBE.md F18: compose runs before turn.start in -p, so position is read at compose);
+// the tests fire it anyway, so a feature that does register one is exercised too.
+
+const BRIEF_ARGV = ['ac', 'principles', 'brief', '--stage', 'session', '--by', 'session'];
+const FEED_ARGV = ['ac', 'mods', 'feed', 'brief-section'];
+const POS_ARGV = [...FEED_ARGV, '--position'];
+const key = (argv) => argv.join(' ');
+const BRIEF = 'HARD RULES\n- RULE one\n- RULE two\n\nIN SCOPE\n- RULE three';
+const PARTS = ['SESSION BRIEF part 1\n- RULE one', 'SESSION BRIEF part 2\n- RULE two'];
+const POS1 = 'proj · M1 · Phase 42 executing · Next: /astro-verify 42';
+const POS2 = 'proj · M1 · Phase 42 verified · Next: /astro-accept 42';
+const okRun = (stdout) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false });
+const CORE = [{ id: 'lean_body', text: 'core', scope: 'shared' }, { id: 'env_info_simple', text: 'env', scope: 'session' }];
+
+/** A scripted ac. `s` is live state: a test edits it between turns to move the project. */
+function acStub(over = {}) {
+  const s = { position: POS1, serve: true, parts: PARTS, brief: `${BRIEF}\n`, briefMode: 'ok', switchOn: true, others: {}, ...over };
+  const impl = async (argv) => {
+    const k = key(argv);
+    if (k === key(ARGV)) return okRun(JSON.stringify(switches({ ...s.others, 'brief-section': s.switchOn })));
+    if (k === key(BRIEF_ARGV)) {
+      if (s.briefMode === 'enoent') throw new Error('spawn ac ENOENT');
+      if (s.briefMode === 'exit1') return { ...okRun(''), exitCode: 1, stderr: 'boom' };
+      if (s.briefMode === 'empty') return okRun('');
+      if (s.briefMode === 'timeout') return new Promise((_, rej) => setTimeout(() => rej(new Error('timed out')), 20));
+      return okRun(s.brief);
+    }
+    if (k === key(FEED_ARGV)) return okRun(JSON.stringify({ serve: s.serve, parts: s.parts, position: s.position }));
+    if (k === key(POS_ARGV)) return okRun(JSON.stringify({ position: s.position }));
+    throw new Error(`unscripted argv: ${k}`);
+  };
+  impl.s = s;
+  return impl;
+}
+const countRuns = (eng, argv) => eng.runs.filter((r) => key(r.argv) === key(argv)).length;
+const sessionOf = async (stub, opts) => {
+  const eng = await boot(stub, opts);
+  await eng.invoke('session.start', { ...SESSION_START });
+  return eng;
+};
+const composeOf = (eng, sections = CORE) => eng.invoke('prompt.compose', {}, { beneath: { sections: sections.map((x) => ({ ...x })) } });
+const hookOut = (eng, entries, source = 'startup') => eng.invoke('classic.SessionStart', { source, cwd: SESSION_START.cwd }, { beneath: { additionalContext: [...entries] } });
+const preCompactRow = (position, order = 'astro-first') => {
+  const astro = `PreCompact ["/usr/bin/node" "/h/hooks/astro-precompact.mjs"] completed successfully: ${JSON.stringify({ systemMessage: position })}`;
+  const foreign = 'PreCompact ["/usr/bin/node" "/x/foreign.mjs"] completed successfully: {"systemMessage":"FOREIGN-PC"}';
+  const text = `<local-command-stdout>Compacted ${order === 'astro-first' ? `${astro}\n${foreign}` : `${foreign}\n${astro}`}</local-command-stdout>`;
+  return { astro, foreign, e: { door: 'command', message: { role: 'user', content: [{ type: 'text', text }] } } };
+};
+const rowText = (out) => out.message.content.map((b) => b.text).join('');
+const FOREIGN = ['a foreign hook says: - RULE one', 'unrelated context'];
+
+test('brief-section on: one astro-mods:brief section, session scope, appended last, text = BRIEF + position; core sections unchanged', async () => {
+  const eng = await sessionOf(acStub());
+  const out = await composeOf(eng);
+  assert.deepEqual(out.sections.slice(0, CORE.length), CORE);
+  assert.equal(out.sections.length, CORE.length + 1);
+  const mine = out.sections.filter((x) => x.id === 'astro-mods:brief');
+  assert.equal(mine.length, 1, 'exactly one');
+  assert.equal(out.sections.at(-1), mine[0], 'appended last');
+  assert.equal(mine[0].scope, 'session');
+  assert.equal(mine[0].text, `${BRIEF}\n\n${POS1}`, 'BRIEF trimmed like the hooks trim it, then one position line');
+});
+
+test('brief-section on: an empty position leaves the section BRIEF alone', async () => {
+  const eng = await sessionOf(acStub({ position: '' }));
+  assert.equal((await composeOf(eng)).sections.at(-1).text, BRIEF);
+});
+
+test('brief-section on: five turns give the identical string and the brief ran once; a changed position changes only the last line', async () => {
+  const stub = acStub();
+  const eng = await sessionOf(stub);
+  const texts = [];
+  for (let i = 0; i < 5; i++) {
+    await eng.invoke('turn.start', { cwd: SESSION_START.cwd });
+    texts.push((await composeOf(eng)).sections.at(-1).text);
+  }
+  assert.ok(texts.every((t) => t === texts[0]), 'byte-identical on every turn (===), or the prompt cache breaks each turn');
+  assert.equal(countRuns(eng, BRIEF_ARGV), 1, 'the brief ran once per session');
+  stub.s.position = POS2;
+  await eng.invoke('turn.start', { cwd: SESSION_START.cwd });
+  assert.equal((await composeOf(eng)).sections.at(-1).text, `${BRIEF}\n\n${POS2}`);
+  assert.equal(countRuns(eng, BRIEF_ARGV), 1, 'a state change never re-runs the brief');
+});
+
+test('brief-section on: ac is read through the scripted argv shapes only, in the session cwd, inside the hook budget', async () => {
+  const eng = await sessionOf(acStub());
+  await composeOf(eng);
+  await hookOut(eng, PARTS);
+  await eng.invoke('session.append', preCompactRow(POS1).e);
+  const allowed = [ARGV, BRIEF_ARGV, FEED_ARGV, POS_ARGV].map(key);
+  assert.ok(eng.runs.every((r) => allowed.includes(key(r.argv))), `argv: ${eng.runs.map((r) => key(r.argv))}`);
+  const { SWITCHES_TIMEOUT_MS } = await import('../mods/astro-mods/hooks/lib/switches.js');
+  const mine = eng.runs.filter((r) => [BRIEF_ARGV, FEED_ARGV].map(key).includes(key(r.argv)));
+  assert.ok(mine.length >= 2 && mine.every((r) => r.init.cwd === SESSION_START.cwd && r.init.timeoutMs > 0));
+  assert.ok(SWITCHES_TIMEOUT_MS + mine.slice(0, 2).reduce((n, r) => n + r.init.timeoutMs, 0) <= 9000, 'session.start stays 1 s under its 10 s budget');
+});
+
+for (const source of ['startup', 'clear', 'compact']) {
+  test(`brief-section on, SessionStart (${source}): entries equal to the parts are dropped, a foreign entry quoting a BRIEF line is kept, order preserved`, async () => {
+    const eng = await sessionOf(acStub());
+    const out = await hookOut(eng, [FOREIGN[0], PARTS[0], FOREIGN[1], PARTS[1]], source);
+    assert.deepEqual(out.additionalContext, [FOREIGN[0], FOREIGN[1]]);
+    const near = [`${PARTS[0]} x`, PARTS[0].slice(0, -1)];
+    assert.deepEqual((await hookOut(eng, near, source)).additionalContext, near, 'exact match only, never prefix or similarity');
+  });
+}
+
+test('brief-section on, PreCompact: the astro segment is dropped from the command row, the foreign one is kept', async () => {
+  const stub = acStub();
+  const eng = await sessionOf(stub);
+  stub.s.position = POS2; // the row carries the position as it is NOW; the match re-reads it first
+  for (const order of ['astro-first', 'astro-last']) {
+    const row = preCompactRow(POS2, order);
+    const text = rowText(await eng.invoke('session.append', row.e));
+    assert.ok(!text.includes(row.astro), `${order}: astro segment gone`);
+    assert.ok(text.includes(row.foreign), `${order}: foreign kept byte-identical`);
+    assert.ok(text.startsWith('<local-command-stdout>') && text.endsWith('</local-command-stdout>'), 'the wrapper survives');
+  }
+  const foreignOnly = { door: 'command', message: { role: 'user', content: [{ type: 'text', text: `<local-command-stdout>Compacted ${preCompactRow(POS2).foreign}</local-command-stdout>` }] } };
+  assert.equal(await eng.invoke('session.append', foreignOnly), foreignOnly, 'a foreign-only row is the very event');
+  const other = { door: 'user', message: { role: 'user', content: [{ type: 'text', text: preCompactRow(POS2).astro }] } };
+  assert.equal(await eng.invoke('session.append', other), other, 'only the command door is touched');
+});
+
+const FAIL_MODES = {
+  'ac is missing (ENOENT)': 'enoent',
+  'the brief exits 1': 'exit1',
+  'the brief prints nothing': 'empty',
+  'the brief call rejects at its timeout': 'timeout',
+};
+for (const [label, briefMode] of Object.entries(FAIL_MODES)) {
+  test(`fail open, ${label}: bounded, no section, nothing dropped, one notice across turns and events, other mods untouched`, async () => {
+    const eng = await boot(acStub({ briefMode, others: { blindfold: true } }));
+    const t0 = Date.now();
+    const e = { ...SESSION_START };
+    assert.equal(await eng.invoke('session.start', e), e);
+    assert.ok(Date.now() - t0 < 2000, 'bounded');
+    for (let i = 0; i < 3; i++) {
+      assert.deepEqual((await composeOf(eng)).sections, CORE, 'no section');
+      await eng.invoke('turn.start', { cwd: SESSION_START.cwd });
+    }
+    assert.deepEqual((await hookOut(eng, [...PARTS, FOREIGN[0]])).additionalContext, [...PARTS, FOREIGN[0]], 'the hooks deliver the brief as today');
+    const row = preCompactRow(POS1).e;
+    assert.equal(await eng.invoke('session.append', row), row);
+    assert.equal(eng.toasts.length, 1, `one notice, got ${JSON.stringify(eng.toasts)}`);
+    assert.match(eng.toasts[0], /brief-section/);
+    const { isOn } = await import('../mods/astro-mods/hooks/lib/switches.js');
+    assert.equal(isOn('blindfold'), true, 'the failure is the feature\'s own: it does not reset the other mods');
+  });
+}
+
+test('serve false (not an astro-code project, or the #116 opt-out): no section, no notice, everything passes through', async () => {
+  const eng = await sessionOf(acStub({ serve: false }));
+  assert.deepEqual((await composeOf(eng)).sections, CORE);
+  assert.deepEqual((await hookOut(eng, PARTS)).additionalContext, PARTS);
+  const row = preCompactRow(POS1).e;
+  assert.equal(await eng.invoke('session.append', row), row);
+  assert.deepEqual(eng.toasts, []);
+});
+
+test('switch off: no section, no brief run, every hook output passes through untouched', async () => {
+  const eng = await sessionOf(acStub({ switchOn: false }));
+  assert.deepEqual((await composeOf(eng)).sections, CORE);
+  assert.deepEqual((await hookOut(eng, PARTS)).additionalContext, PARTS);
+  const row = preCompactRow(POS1).e;
+  assert.equal(await eng.invoke('session.append', row), row);
+  assert.equal(countRuns(eng, BRIEF_ARGV), 0);
+  assert.deepEqual(eng.toasts, []);
+});
+
+test('the invariant: drop only while served. After a drop, a forced failOpen keeps the section; before any drop it removes it', async () => {
+  const malformed = (eng) => eng.invoke('classic.SessionStart', { source: 'startup', cwd: SESSION_START.cwd }, { beneath: { additionalContext: 'not an array' } });
+  const dropped = await sessionOf(acStub());
+  assert.deepEqual((await hookOut(dropped, PARTS)).additionalContext, [], 'a part was dropped');
+  await malformed(dropped);
+  assert.equal((await composeOf(dropped)).sections.at(-1).id, 'astro-mods:brief', 'the model must not be left with ZERO copies');
+  const fresh = await sessionOf(acStub());
+  await malformed(fresh);
+  assert.deepEqual((await composeOf(fresh)).sections, CORE, 'nothing of ours has passed through: reset removes the section');
+  assert.deepEqual((await hookOut(fresh, PARTS)).additionalContext, PARTS, 'and later outputs pass through');
+});
+
+test('a reload (a fresh register + session.start) recomputes the brief exactly once more', async () => {
+  const stub = acStub();
+  const briefRuns = [];
+  const spy = async (argv, init) => { if (key(argv) === key(BRIEF_ARGV)) briefRuns.push(argv); return stub(argv, init); };
+  await sessionOf(spy);
+  assert.equal(briefRuns.length, 1);
+  const again = await sessionOf(spy);
+  assert.equal(briefRuns.length, 2);
+  assert.equal((await composeOf(again)).sections.at(-1).id, 'astro-mods:brief');
+});
+
+test('event order: classic.SessionStart before session.start yields section-and-drop or neither, never one without the other', async () => {
+  const eng = await boot(acStub());
+  const first = await hookOut(eng, PARTS);
+  await eng.invoke('session.start', { ...SESSION_START });
+  const droppedAny = first.additionalContext.length < PARTS.length;
+  const hasSection = (await composeOf(eng)).sections.some((x) => x.id === 'astro-mods:brief');
+  assert.equal(droppedAny, hasSection, `dropped=${droppedAny} section=${hasSection}`);
 });

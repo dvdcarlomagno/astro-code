@@ -55,7 +55,7 @@ devs never collide.
 - `/astro-fleet` — report this machine's Claude Code sessions to an Astro Fleet's Forge (`connect <url> --token <t>`, `status`, `pause`/`resume`, `color`, `disconnect`)
 - `/astro-statusline` — set a rich statusline (busy/idle dot · task recap · model · context-fill bar · milestone/phase)
 
-**Go faster** (the speed switch — an opus→sonnet ladder; haiku only for the integrator, #125):
+**Go faster** (the speed switch — an opus→sonnet ladder; the profiles put haiku on the integrator only, #125):
 - `ac models fast` — persist the fast profile (sonnet everywhere except the opus verify gate and the haiku integrator)
 - `ac models balanced` (default) · `ac models max` (all opus) · `ac models` (show current)
 - one-off without persisting: `/astro-plan <n> --fast` or `/astro-execute <n> --fast`

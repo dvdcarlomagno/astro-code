@@ -60,7 +60,22 @@ Claude config dir. `lib/mods.mjs` is the only writer of the per-user switches (`
 `~/.astro/config.json`); the plugin holds no state and reads them through `ac mods status --json
 --switches-only` at `session.start`, failing open if `ac` cannot answer. No command or agent
 depends on it (`tests/hosts.test.mjs` guards that). `scripts/mods-probe/` is a dev-only probe of
-Claude Code's mod events, never shipped; its findings are in phase 36's `PROBE.md`.
+Claude Code's mod events, never shipped; its findings are in phase 36's `PROBE.md`. `blindfold` (phase 39) is the first `hooks/features/*.js` mod: it identifies an agent by pairing the `agentId` that `agent.spawn`'s `next(e)` settles with against `subagentType` in an in-memory map (`$.agent.list()` misses Workflow agents), as phase 39's `PROBE.md` observed.
+
+A `hook` feature is not part of the plugin: `lib/hosts/guards.mjs` is the data-only spec of each
+guard (script, per-host event and matcher) and the one ownership rule (an entry is ours by script
+filename, never by path), and the host adapters register from it. A hook's switch is its
+registration: `lib/mods.mjs` `syncHookFeatures` writes or removes the entry in every Claude profile
+(and Cursor's `hooks.json` when it is not importing Claude's), `ac install`/`update` re-run it, and
+the hook script itself never reads a switch. Phase 37's `PROBE.md` records what blocks on each host. `git-guard` (phase 38) is a second `GUARD_HOOKS` entry, and the spec carries the per-host `verdict` (Claude asks, Cursor denies) that the script and `ac mods status` both read; phase 38's `PROBE.md` records why.
+
+`witness` (phase 41) is `hooks/features/witness.js` plus `hooks/lib/gates.js` (the gate table and marker rewrite). It keeps module-level turn state (the origin and typed command of the current turn, from `prompt.submit` and `command.run`) and rewrites a gate `Bash` call on `tool.call`; it never blocks, and it registers no settings hook. `ac` still never detects: the flags it receives are declarations.
+
+`brief-section` (phase 42) is `hooks/features/brief-section.js`: one `astro-mods:brief` section appended through `prompt.compose`. The settings hooks stay registered (Cursor and Codex run them), so inside Claude it drops their output by exact content: the engine exposes no hook name, only the entry text (phase 42 `PROBE.md`). `ac mods feed brief-section` (`lib/modfeed.mjs`, `sessionParts` in `lib/retrieval.mjs`) is the one place that says what the hooks print, sharing `shortlist`'s selection and logging no usage, so the plugin reimplements nothing. A SessionStart entry goes only if it is byte-equal to a part, and the PreCompact segment only if it equals the position re-read just before. The invariant: output is dropped only while the section is served, and once something was dropped the section stays even if `failOpen` switches the mods off, so the model never holds zero copies; before any drop a failure removes the section and the hooks deliver as today.
+
+`phase-band` (phase 43) is `hooks/features/phase-band.js`: it reads `ac status --json` (`lib/nextstep.mjs`: the one `nextAction` rule plus siblings) and the `debt`, `backlog` and `fix` `list --json`s, caches them in session memory keyed by the mtimes under `.astrocode/`, and fills the composer but never submits. Its `session.start` and `agent.spawn` hooks carry a matcher because the plugin already registers one unmatched hook per event. See phase 43 `PROBE.md` for the live-wave source: `$.agent.list()` shows no workflow agent, so the band falls back to `ac`'s activity text.
+
+`live-capture` (phase 44) is `hooks/features/live-capture.js`: the capture moment `templates/principle-capture.md` names as Live capture. Features live in `hooks/features/`, and `hooks/lib/badges.js` is the in-memory band contract (a feature sets a badge, `phase-band` draws the badges and claims them, otherwise live-capture prints its one dim line).
 
 ## The numbering registry (the core guarantee)
 
@@ -219,8 +234,8 @@ move cost, so `ac models max|balanced|fast` sets the pair in one switch. The def
 | integrator | haiku | mechanical wave-fold: stamp-mapped cherry-picks; anything unclean is preserved and healed at executor tier (`max` keeps sonnet) |
 
 Tiers are the short names `opus | sonnet | haiku` — what the agent tooling accepts, resolved by
-the host to its current model. **haiku is excluded from every judgement role; only the
-integrator may run it.** ADR-035 dropped haiku 4.5 there after benchmark #2: its cherry-pick
+the host to its current model. **No profile puts haiku on a judgement role; balanced and fast
+run the integrator on it**, and you may still set it for any role yourself (ADR-073). ADR-035 dropped haiku 4.5 there after benchmark #2: its cherry-pick
 judgement was sound but its discipline was not — it ran a bare `git stash -u` in the shared
 tree and destroyed a completed plan. Haiku 5.5 is a different model at about a twentieth of
 sonnet's price; with the prompt's prohibition paragraph it was 20/20 on that scenario and

@@ -86,3 +86,5 @@ no judgement call about whether the goal was met.
 - No number is claimed. This follows ADR-013: urgent out-of-band work is
   name-identified so it stays instant and works offline.
 - `ac fix list` shows what is open; `ac fix show <id>` prints one.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

@@ -50,3 +50,5 @@ Complete and archive the current milestone.
    nothing is stale. Never pay or drop on the user's behalf — a register that empties
    itself is back to being a list nobody trusts.
 5. Suggest `/astro-milestone` to start the next cycle.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

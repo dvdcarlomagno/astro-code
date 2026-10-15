@@ -346,6 +346,8 @@ test('classifyContext: one classifier for the discuss gate and the sweep', async
   assert.strictEqual(classifyContext('<!-- astro-discuss: captured by agent -->\n').kind, 'agent');
   assert.strictEqual(classifyContext('<!-- astro-discuss: captured by fleet-bot -->\n').kind, 'agent');
   assert.strictEqual(contextAuthor('<!-- astro-discuss: captured by agent -->\n'), '');
+  // A human marker below line 1 is prose, not a claim: never human (phase 41, witness C6).
+  assert.strictEqual(classifyContext('# T\n<!-- astro-discuss: captured -->\nbody\n').kind, 'stub');
   // No marker at all.
   assert.strictEqual(classifyContext('# just notes\n').kind, 'stub');
 });

@@ -221,12 +221,14 @@
     {
       "id": "2026-10-07-cursor-hook-ownership-matched-by-full",
       "title": "Cursor hook ownership matched by full path, not script filename as decision 2 specifies",
-      "status": "open",
+      "status": "dropped",
       "cost": "small",
       "found_at": "2026-10-07T13:54:51.608Z",
       "why": "stale/duplicate entries if astro home path differs; Claude adapter matches filename",
       "phase": "35",
-      "file": "lib/hosts/cursor.mjs"
+      "file": "lib/hosts/cursor.mjs",
+      "dropped_at": "2026-10-11T13:31:36.053Z",
+      "drop_reason": "fixed in phase 37: Cursor ownership now matches by script filename (lib/hosts/guards.mjs ownsCommand)"
     },
     {
       "id": "2026-10-07-headless-docs-omit-force-so-shell-is",
@@ -247,6 +249,272 @@
       "why": "misleading output",
       "phase": "35",
       "file": "bin/ac.mjs"
+    },
+    {
+      "id": "2026-10-11-ac-mods-enable-of-a-mod-feature-before",
+      "title": "ac mods enable of a mod feature before the marketplace is shipped gives a raw claude error with no fix line",
+      "status": "dropped",
+      "cost": "small",
+      "found_at": "2026-10-11T09:33:09.567Z",
+      "why": "In a sandbox where `ac install`/`ac update` has not yet copied mods/ into ~/.astro/code/mods (for example a user who upgraded the global CLI and skipped `ac install`), `ac mods enable phase-band` on claude 2.1.292 records the switch, then prints '⚠ ... claude plugin marketplace add failed (invalid_source): ✘ Path does not exist: ~/.astro/code/mods' and exits 1, with no 'run ac install' hint. C6/C8 only exercise the after-install path and C7 covers only the name collision, so no criterion covers this.",
+      "phase": "36",
+      "file": "lib/mods.mjs",
+      "dropped_at": "2026-10-11T18:05:20.336Z",
+      "drop_reason": "fixed in phase 39 t3: install-first line, switch recorded"
+    },
+    {
+      "id": "2026-10-11-ac-mods-status-creates-claude-as-a-side",
+      "title": "ac mods status creates ~/.claude as a side effect",
+      "status": "dropped",
+      "cost": "small",
+      "found_at": "2026-10-11T16:21:56.687Z",
+      "why": "It runs the claude binary, which makes ~/.claude and ~/.claude.json. On a Cursor-only machine that also has claude installed, the next ac install treats Claude as present: it drops Cursor's native guard and switches Cursor to importing Claude's hooks. The claude binary does this itself, and no criterion covers what status writes.",
+      "phase": "37",
+      "file": "lib/mods.mjs",
+      "dropped_at": "2026-10-11T17:59:47.282Z",
+      "drop_reason": "fixed in phase 39 t2: no claude plugin call against a missing config dir"
+    },
+    {
+      "id": "2026-10-11-blindfold-a-negated-directory-glob-does",
+      "title": "blindfold: a negated directory glob does not exclude the search root itself",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:26:07.391Z",
+      "why": "Grep path <P>/.astrocode/phases with glob !**/phases, path <P>/.astrocode with !**/.astrocode, and path …/39-x with !**/phases are allowed; real rg returned PLAN.md for all three. excludesAll ignores where the search starts.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-a-shell-glob-in-a-search-root",
+      "title": "blindfold: a shell glob in a search root is not expanded",
+      "status": "open",
+      "cost": "medium",
+      "found_at": "2026-10-11T20:26:07.532Z",
+      "why": "rg foo .astro* is allowed; bash expands it to .astrocode and rg then returned PLAN.md.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-ansi-c-quoting-hides-the-file",
+      "title": "blindfold: ANSI-C quoting hides the file name",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:26:07.684Z",
+      "why": "cat $'.astrocode/phases/39-x/\\x50LAN.md' is allowed.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-archive-and-pipe-readers-are",
+      "title": "blindfold: archive and pipe readers are not recognised",
+      "status": "open",
+      "cost": "medium",
+      "found_at": "2026-10-11T20:26:07.609Z",
+      "why": "tar cf - .astrocode | tar xOf - is allowed.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-git-diff-astrocode-is-allowed",
+      "title": "blindfold: git diff -- .astrocode is allowed",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:26:07.755Z",
+      "why": "It can print plan contents whenever the plan changed in the range.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-grep-r-with-several-include",
+      "title": "blindfold: grep -r with several --include flags returns early on the first",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:26:07.317Z",
+      "why": "grep -r x --include='*.js' --include='*.md' . is allowed; real grep returned PLAN.md.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-pushd-is-not-treated-like-cd",
+      "title": "blindfold: pushd is not treated like cd",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:26:07.462Z",
+      "why": "pushd .astrocode && cat phases/39-x/PLAN.md is allowed.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-blindfold-rg-with-several-g-globs-is",
+      "title": "blindfold: rg with several -g globs is allowed when the first one is narrow",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:26:07.248Z",
+      "why": "rg x -g '*.js' -g '*.md' passes because searchRoots returns [] on the first narrowing -g; real rg ORs the globs and returned PLAN.md and SPEC.md.",
+      "phase": "39",
+      "file": "mods/astro-mods/hooks/features/blindfold.js"
+    },
+    {
+      "id": "2026-10-11-canon-guard-bash-scan-misses-deleting",
+      "title": "canon-guard Bash scan misses deleting the whole .astrocode/ directory and a few other writers",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T16:21:56.544Z",
+      "why": "rm -rf .astrocode, touch .astrocode/state.json, ln -sf /tmp/x .astrocode/state.json, install … .astrocode/state.json and xargs rm <<< .astrocode/state.json are all allowed. None is in C5's list, and the phase decision covers only targets named as protected paths.",
+      "phase": "37",
+      "file": "hooks/astro-canon-guard.mjs"
+    },
+    {
+      "id": "2026-10-11-git-guard-allows-destructive-git-inside",
+      "title": "git-guard allows destructive git inside command substitution in arguments/assignments",
+      "status": "open",
+      "cost": "medium",
+      "found_at": "2026-10-11T17:51:36.752Z",
+      "why": "Run for real: `echo $(git stash -u)` and `X=$(git stash -u)` stashed, removed notes.txt and lost the a.js change; `echo \\`git reset --hard\\`` lost the a.js change; `: \"$(git clean -fd)\"` deleted notes.txt. All allowed: $(...) is only treated as unsure in the command or subcommand slot.",
+      "phase": "38",
+      "file": "/Users/buu/Development/astro-code/hooks/astro-git-guard.mjs"
+    },
+    {
+      "id": "2026-10-11-git-guard-allows-find-exec-git-stash",
+      "title": "git-guard allows find … -exec git stash \\;",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T17:51:36.935Z",
+      "why": "Run for real: `find . -maxdepth 0 -exec git stash \\;` stashed and lost the a.js change while allowed; the escaped ; is read as a stash subcommand and stashRefused treats unknown subcommands as safe.",
+      "phase": "38",
+      "file": "/Users/buu/Development/astro-code/hooks/astro-git-guard.mjs"
+    },
+    {
+      "id": "2026-10-11-git-guard-allows-same-effect-plumbing",
+      "title": "git-guard allows same-effect plumbing (read-tree --reset, checkout-index -f)",
+      "status": "open",
+      "cost": "medium",
+      "found_at": "2026-10-11T17:51:37.077Z",
+      "why": "Run for real: `git read-tree -u --reset HEAD` and `git checkout-index -a -f` each lost the uncommitted a.js change while allowed; neither is in DANGER, and covering them may need a decision first.",
+      "phase": "38",
+      "file": "/Users/buu/Development/astro-code/hooks/astro-git-guard.mjs"
+    },
+    {
+      "id": "2026-10-11-git-guard-allows-source-of-a-process",
+      "title": "git-guard allows source/. of a process substitution",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T17:51:37.009Z",
+      "why": "Run for real: `source <(echo \"git stash -u\")` (full damage) and `. <(echo \"git reset --hard\")` (a.js change lost) were allowed; the shell-reading-stdin check covers only bash/sh/zsh/dash.",
+      "phase": "38",
+      "file": "/Users/buu/Development/astro-code/hooks/astro-git-guard.mjs"
+    },
+    {
+      "id": "2026-10-11-git-guard-does-not-see-git-run-through",
+      "title": "git-guard does not see git run through other interpreters",
+      "status": "open",
+      "cost": "medium",
+      "found_at": "2026-10-11T17:51:37.152Z",
+      "why": "Run for real: `python3 -c \"import os; os.system('git stash -u')\"` stashed, deleted notes.txt and lost the a.js change while allowed; only sh/bash/zsh/dash/lean-ctx/eval/env -S bodies are unwrapped.",
+      "phase": "38",
+      "file": "/Users/buu/Development/astro-code/hooks/astro-git-guard.mjs"
+    },
+    {
+      "id": "2026-10-11-git-guard-is-bypassed-by-brace-expansion",
+      "title": "git-guard is bypassed by brace expansion",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T17:51:36.842Z",
+      "why": "Run for real: `git {stash,} -u` (full stash damage), `git reset --{hard,}` and `git checkout {.,}` (a.js change lost) were all allowed; the tokenizer does not expand braces.",
+      "phase": "38",
+      "file": "/Users/buu/Development/astro-code/hooks/astro-git-guard.mjs"
+    },
+    {
+      "id": "2026-10-11-parity-guard-scans-commands-md-and",
+      "title": "Parity guard scans commands/*.md and agents/*.md but not the agent prompts embedded in workflows/*.mjs",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T09:33:09.645Z",
+      "why": "The ADR-071 rule (b) guard in tests/hosts.test.mjs walks only the commands and agents dirs. workflows/execute-phase.mjs and plan-phase.mjs carry the prompts handed to spawned agents, so a mod dependency written there would go unnoticed. C14 and ADR-071 scope the rule to command and agent bodies, which the canon's file layout lists separately from workflows, so this sits outside the bar.",
+      "phase": "36",
+      "file": "tests/hosts.test.mjs"
+    },
+    {
+      "id": "2026-10-11-phase-37-worktree-residue-still-checked",
+      "title": "Phase-37 worktree residue still checked out at .claude/worktrees/wf_6a116c1d-67a-9 (branch worktree-wf_6a116c1d-67a-9)",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-11T20:44:10.720Z",
+      "why": "`git cherry HEAD` shows the branch is fully integrated (it is an ancestor of HEAD), so nothing is stranded. But the worktree and branch are still present and show up as untracked .claude/worktrees/ in git status.",
+      "phase": "40",
+      "file": ".claude/worktrees/wf_6a116c1d-67a-9"
+    },
+    {
+      "id": "2026-10-11-unbuilt-feature-enable-message-promises",
+      "title": "Unbuilt-feature enable message promises 'takes effect when phase 40 lands' even though phase 40 has landed as no-signal",
+      "status": "dropped",
+      "cost": "small",
+      "found_at": "2026-10-11T20:44:10.630Z",
+      "why": "`ac mods enable spawn-policy` prints 'not built yet — takes effect when phase 40 lands'. Once phase 40 is accepted, that tells the user the switch will start working, which is false: spawn-policy stays unbuilt until a re-probe. The template is generic to every unbuilt feature. C2's bar ('says not built') is met and the blocker is recorded in PROBE.md, so no criterion covers this wording.",
+      "phase": "40",
+      "file": "lib/mods.mjs",
+      "dropped_at": "2026-10-11T20:49:30.436Z",
+      "drop_reason": "fixed directly: spawn-policy now carries a parked reason (commit above)"
+    },
+    {
+      "id": "2026-10-12-ac-fix-accept-on-an-ambiguous-slug-says",
+      "title": "ac fix accept on an ambiguous slug says 'no such fix' instead of 'ambiguous'",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-12T10:59:07.373Z",
+      "why": "findFix returns null for a multi-match, so the user is told the fix doesn't exist",
+      "phase": "41",
+      "file": "lib/fixes.mjs"
+    },
+    {
+      "id": "2026-10-12-brief-section-double-logs-served-usage",
+      "title": "brief-section double-logs 'served' usage for every rule at each session start/compaction",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-12T16:12:13.615Z",
+      "why": "The plugin runs `ac principles brief --stage session --by session` (BRIEF_ARGV), which adds 86 'served' rows to <store>/.local/usage.jsonl. The update hook's `--part 1/4` call still adds its 78. So with the mod on, each startup, compaction or clear logs every rule as served twice, including rules the packed hooks CUT. usageReport's 'ignored' list (served >= IGNORED_MIN_SERVES and never cited) then fills about 2x faster. The feed was deliberately made non-logging ('the hooks still log their part 1'), but the brief call was not. Observed: usage.jsonl went from 3222 to 3308 lines after the plugin's brief call and from 3308 to 3386 after part 1. I checked this against C1-C8: C7 explicitly excludes paths ac writes; C4 counts invocations, not logging; C8's fails-if covers brief and hook output, both of which are unchanged.",
+      "phase": "42",
+      "file": "mods/astro-mods/hooks/features/brief-section.js"
+    },
+    {
+      "id": "2026-10-12-sandbox-recipes-override-home-but",
+      "title": "Sandbox recipes override HOME but inherit CLAUDE_CONFIG_DIR, so claude plugin calls land in the real profile",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-12T15:34:12.565Z",
+      "why": "Phase 42's verifier ran ac mods enable in a scratchpad HOME on a machine with CLAUDE_CONFIG_DIR set; the astro-code marketplace (pointing at the sandbox) and astro-mods@astro-code were written into the real /data/claude/accounts/ScaleUpLabs profile. Sandboxes in CRITERIA/ACCEPTANCE recipes and test helpers must unset CLAUDE_CONFIG_DIR (and similar host env).",
+      "phase": "42",
+      "file": "lib/mods.mjs"
+    },
+    {
+      "id": "2026-10-12-witness-a-bash-write-of-the-human",
+      "title": "witness: a Bash write of the human CONTEXT.md marker (printf >, sed -i) is not witnessed",
+      "status": "open",
+      "cost": "medium",
+      "found_at": "2026-10-12T11:38:16.880Z",
+      "why": "C6 covers only Write/Edit; a shell write in an autonomous turn leaves a human marker that ac phase context --author reads as human",
+      "phase": "41",
+      "file": "mods/astro-mods/hooks/features/witness.js"
+    },
+    {
+      "id": "2026-10-12-witness-a-self-supplied-witnessed",
+      "title": "witness: a self-supplied --witnessed composer passes through on a cold (no-turn) call",
+      "status": "open",
+      "cost": "small",
+      "found_at": "2026-10-12T11:38:16.968Z",
+      "why": "After a reload the agent's own --witnessed composer reaches ac and records evidence; C5 mandates untouched, but stripping only a self-supplied --witnessed could never forge evidence",
+      "phase": "41",
+      "file": "mods/astro-mods/hooks/features/witness.js"
+    },
+    {
+      "id": "2026-10-12-witness-assigning-the-gate-verb-to-a",
+      "title": "witness: assigning the gate verb to a variable (V=accept; ac phase $V 41) reads as a plain human accept",
+      "status": "open",
+      "cost": "medium",
+      "found_at": "2026-10-12T11:38:16.793Z",
+      "why": "In an autonomous turn the call passes through unchanged and ac records accepted_kind human; the C2/C3 amendment names this spelling as out of corpus",
+      "phase": "41",
+      "file": "mods/astro-mods/hooks/lib/gates.js"
     }
   ]
 }

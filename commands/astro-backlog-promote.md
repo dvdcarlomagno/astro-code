@@ -45,3 +45,5 @@ idea turns out to be stale. So this command asks before it acts, then does the o
   through here.
 - If the item was already promoted, `ac backlog promote` refuses and names the phase it
   already became — report that and stop, rather than retrying.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

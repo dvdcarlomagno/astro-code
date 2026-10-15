@@ -28,3 +28,5 @@ Begin a new milestone.
 5. Show `ac status` and suggest `/astro-discuss <number>` for the first phase (then
    `/astro-plan <number>`; a trivial phase can skip straight to plan) — always
    reference a phase by its **number** (e.g. `/astro-discuss 1`), never its name.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

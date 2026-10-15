@@ -79,3 +79,5 @@ kits scaffolded before this command existed. New kits also ship their own copy a
 Report exactly what happened — the id/version published and the instance it went
 to — and mention any host command you ran. Never invent success: if the publisher
 exits non-zero, say so and show its message.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.

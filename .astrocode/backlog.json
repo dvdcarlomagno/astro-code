@@ -49,6 +49,44 @@
       "note": "Dropped milestone 10 (phases 28–32, never discussed) on 2026-09-25: a local model already runs under Claude Code. Planned shape: cross-host parity guard → Pi adapter → Pi runtime extension (Workflow surface, structured output, ask-user) → per-host model roles → Pi status/hooks/miner. Prior research: session 8b9eeb49 (2026-09-05, 2026-09-14) and astro-fleet milestone 1 phase 01 notes/spike-pi.md. Snapshot: .astrocode/milestones/10/.",
       "status": "open",
       "captured_at": "2026-09-25T15:13:44.789Z"
+    },
+    {
+      "id": "2026-10-11-astro-mods-slash-command-over-ac-mods",
+      "title": "/astro-mods slash command over ac mods (status/enable/disable)",
+      "note": "phase 38 CONTEXT out-of-scope: principle give-every-user-facing-capability-a-2310",
+      "status": "open",
+      "captured_at": "2026-10-11T16:37:29.656Z"
+    },
+    {
+      "id": "2026-10-11-implement-the-haiku-per-role-adr-let",
+      "title": "Implement the haiku-per-role ADR: let lib/config.mjs and lib/models.mjs accept haiku for any role, update their comments and tests",
+      "note": "Follows the ADR lifting ADR-035's haiku ban (2026-10-11, phase 40 discussion). Today config and models reject haiku everywhere, so the canon and the code disagree until this lands.",
+      "status": "obsolete",
+      "captured_at": "2026-10-11T16:35:41.716Z",
+      "archived_at": "2026-10-14T16:38:16.620Z",
+      "archive_kind": "obsolete",
+      "archive_reason": "ac config already accepted haiku for any role; the stale comments and /astro-config were updated in 5b71ed0 and the following commit. Profiles keep the sonnet floor; the default-integrator question is #125."
+    },
+    {
+      "id": "2026-10-11-re-probe-spawn-isolation-on-a-newer",
+      "title": "Re-probe spawn isolation on a newer Claude Code and build spawn-policy if agent.spawn exposes it",
+      "note": "Phase 40 (2026-10-11) found no isolation signal on 2.1.292: no isolation key, cwd undefined, agent.list empty for workflow agents. PROBE.md in phase 40 has the probe and its method; re-run it, then re-plan phase 40's refusal (C3/C4/C6/C7) if a signal exists.",
+      "status": "open",
+      "captured_at": "2026-10-11T20:49:30.517Z"
+    },
+    {
+      "id": "2026-10-14-targeted-re-verify-after-a-fail-re",
+      "title": "Targeted re-verify after a FAIL: re-check the unmet criteria and only the passed ones the fix can affect, carry the rest over (GitHub #129)",
+      "note": "From #129: 117 verifier runs measured; full re-runs after 1-3 small local failures were 33% of verifier cost, and scoping them would have saved about 26% of all verifier cost. Live example 2026-10-14: astro-forge phase 222 re-verified in full four times on one criterion (C6). The verdict must record which criteria were re-checked and which carried over, so acceptance stays auditable; a full re-verify stays available and is chosen when the fix is broad. Fits milestone 5 (Lean execution path).",
+      "status": "open",
+      "captured_at": "2026-10-14T16:38:21.623Z"
+    },
+    {
+      "id": "2026-10-14-witness-cite-proof-of-a-human-choice",
+      "title": "witness: cite proof of a human choice made elsewhere (an --evidence id or URL stored with the acceptance), and a list of machine-typed prompt prefixes that never count as human (GitHub #132)",
+      "note": "From #132, for setups where the owner answers on a separate decision board and a tool types fixed lines into sessions through tmux. Witness already records rather than refuses (ADR-074), so the asked-for record mode exists. The spawn-policy half of #132 (Haiku refused only for astro-code roles) sits with the existing backlog item on re-probing spawn isolation.",
+      "status": "open",
+      "captured_at": "2026-10-14T16:46:01.017Z"
     }
   ]
 }

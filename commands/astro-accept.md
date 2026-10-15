@@ -36,9 +36,10 @@ human accepts. This is the **human gate** after `/astro-verify` (the AI gate).
    accepting on their behalf without them walking the checklist — you MUST pass
    `ac phase accept <slug> --agent "<your name>"`, which records
    `accepted_kind: "agent"`. This is the ONE gate REQ-006 rests on: `verified` is the
-   machine's verdict, `complete` is supposed to mean a human agreed. astro-code cannot
-   detect which happened — when the operator accepts, their assistant runs this same
-   command — so the record is only honest if the signer declares it. Recording a machine
+   machine's verdict, `complete` is supposed to mean a human agreed. It is declared everywhere; witnessed where the host
+   allows (ADR-074). When the operator accepts, their assistant runs this same
+   command — so the record is only honest if the signer declares it.
+   Declare honestly either way. Recording a machine
    sign-off as human does not just mislabel a field; it makes the two-gate guarantee
    unauditable, which is the whole reason the second gate exists. The same rule extends
    to rejection: a stand-in agent MUST run
@@ -51,7 +52,8 @@ human accepts. This is the **human gate** after `/astro-verify` (the AI gate).
      just recorded.
 4b. **Propose from a human rejection.** Only on the rejection path just above, and only
     when it was recorded WITHOUT `--agent` (a stand-in agent's rejection is not a human
-    judgement — propose nothing from it). Follow
+    judgement — propose nothing from it). Decide from what `ac phase reject` printed:
+    an `AGENT` line means agent-signed, so propose nothing. Follow
     `$(ac path templates)/principle-capture.md` in full: `--from-ref "phase <N>"`,
     excerpt = that `--reason`, verbatim, quoted, never paraphrased. Report the capture
     itself in **one line** per that template's own reporting rule (§7); say nothing when
@@ -64,3 +66,5 @@ human accepts. This is the **human gate** after `/astro-verify` (the AI gate).
    didn't happen (e.g. on reject).
 
 Keep it real — UAT is about "is this what I actually wanted?", not re-running unit tests.
+
+**Asking the user:** whenever this command asks the user anything, follow `$(ac path templates)/asking.md` — frame the round in plain words first, start each question from its visible effect, and keep an "Explain more" option.
