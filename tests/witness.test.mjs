@@ -479,8 +479,19 @@ test('C10: an expansion anywhere in the verb, eval, an xargs slot and a subshell
     "export V=accept; bash -c 'ac phase $V 1'": "export V=accept; bash -c 'ac phase $V 1 --agent claude'",
     'V=accept; bash -lc "ac phase $V 1"': 'V=accept; bash -lc "ac phase $V 1 --agent claude"',
     'V=accept; sh -c "ac phase $V 1"': 'V=accept; sh -c "ac phase $V 1 --agent claude"',
+    // run 4: any shell path or prefix, a compound body, a word after the string
+    'V=accept; /bin/bash -c "ac phase $V 1"': 'V=accept; /bin/bash -c "ac phase $V 1 --agent claude"',
+    'V=accept; bash -c "cd . && ac phase $V 1"': 'V=accept; bash -c "cd . && ac phase $V 1 --agent claude"',
+    'V=accept; env bash -c "ac phase $V 1"': 'V=accept; env bash -c "ac phase $V 1 --agent claude"',
+    'V=accept; bash -c "ac phase $V 1" x': 'V=accept; bash -c "ac phase $V 1 --agent claude" x',
   };
   for (const [cmd, signed] of Object.entries(sh)) assert.equal(signSegments(cmd), signed, cmd);
+  const { onlyQuotedMention } = await gates();
+  assert.equal(onlyQuotedMention('V=accept; /bin/bash -c "ac phase $V 1"'), false, 'a shell by path runs its string');
+  // executed: the inner shell's `ac` (exported by argsOf) receives the signature
+  for (const cmd of ['V=accept; /bin/bash -c "ac phase $V 1"', 'V=accept; bash -c "cd . && ac phase $V 1"', 'V=accept; bash -c "ac phase $V 1" x']) {
+    assert.equal(argsOf(signSegments(cmd)), 'phase accept 1 --agent claude', cmd);
+  }
   assert.equal(argsOf('export V=accept; ' + "bash -c 'ac() { echo \"$*\"; }; ac phase $V 1 --agent claude'"), 'phase accept 1 --agent claude');
 });
 

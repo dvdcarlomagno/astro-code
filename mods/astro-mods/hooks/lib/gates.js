@@ -380,7 +380,7 @@ export const shellText = (s) => String(s).replace(/\\\r?\n/g, ' ').replace(/["'\
 
 // Anything that can run text it was handed: a shell or interpreter, eval, a remote or deferred
 // runner, a substitution. With none of these in the command, quoted text is only ever data.
-const RUNS_TEXT = /(?:^|[\s;&|(])(?:sh|bash|zsh|dash|ksh|fish|eval|exec|source|\.|xargs|env|ssh|host|node|deno|bun|python3?|perl|ruby|php|osascript|watch|timeout|nohup|sudo|parallel)(?=[\s;&|)]|$)|\$\(|`|<<<|<\(/
+const RUNS_TEXT = /(?:^|[\s;&|(])(?:\S*\/)?(?:sh|bash|zsh|dash|ksh|fish|eval|exec|source|\.|xargs|env|ssh|host|node|deno|bun|python3?|perl|ruby|php|osascript|watch|timeout|nohup|sudo|parallel)(?=[\s;&|)]|$)|\$\(|`|<<<|<\(/
 
 /**
  * A command that names a gate only inside quoted text, and holds nothing that could run that
@@ -421,9 +421,41 @@ export function dropWitnessed(command) {
   return out === command ? null : out
 }
 
+// Every `<shell> … -c '<body>'` in a command, wherever the shell stands (`/bin/bash`, `env bash`,
+// `x=1 sh -lc`) and whatever follows the string: [{ start, end }] of the body, quotes excluded.
+const SHELL_C = /(?:^|[\s;&|(])(?:\S*\/)?(?:bash|sh|zsh|dash|ksh)((?:\s+-[A-Za-z]+)+)\s+(["'])/g
+function shellBodies(command) {
+  const out = []
+  for (const m of command.matchAll(SHELL_C)) {
+    if (!/c/.test(m[1].replace(/\s+-/g, ''))) continue
+    const q = m[2]
+    const start = m.index + m[0].length
+    let i = start
+    while (i < command.length && command[i] !== q) i += q === '"' && command[i] === '\\' ? 2 : 1
+    if (i >= command.length || out.some((b) => start < b.end)) continue
+    out.push({ start, end: i })
+  }
+  return out
+}
+
 export function signSegments(command, name = AGENT_NAME) {
-  const parts = String(command).split(/(&&|\|\||;|\||(?<!\\)\n)/) // a backslash-newline continues the segment
+  // A shell `-c` string first: the signature goes inside it (after it, it is the inner shell's $0),
+  // and the string is kept whole while the outer command is split (`bash -c "cd . && ac phase $V 1"`).
+  let text = String(command)
   let changed = false
+  const held = []
+  for (const b of shellBodies(text).reverse()) {
+    const body = text.slice(b.start, b.end)
+    const signed = signSegments(body, name)
+    if (signed !== null) changed = true
+    held.unshift(signed ?? body)
+    text = text.slice(0, b.start) + `\u0000${held.length - 1}\u0000` + text.slice(b.end)
+  }
+  // placeholders were numbered back to front; renumber them front to back to match `held`
+  let k = 0
+  text = text.replace(/\u0000\d+\u0000/g, () => `\u0000${k++}\u0000`)
+  const restore = (s) => s.replace(/\u0000(\d+)\u0000/g, (_, j) => held[Number(j)])
+  const parts = text.split(/(&&|\|\||;|\||(?<!\\)\n)/) // a backslash-newline continues the segment
   const out = parts.map((p, i) => {
     if (i % 2 === 1) return p
     // a pure assignment (`export V="phase accept"`) runs nothing: the `ac $V` segment carries the signature --agent claude
@@ -435,12 +467,6 @@ export function signSegments(command, name = AGENT_NAME) {
     const q = dropped ?? p
     if (/(^|\s)--agent(=|\s|$)/.test(shellText(q))) return q
     changed = true
-    // `bash -c "ac phase $V 1"`: a word after the string would be the inner shell's $0, so sign inside it
-    const sh = /^(\s*(?:[A-Za-z_]\w*=\S*\s+)*(?:\S*\/)?(?:bash|sh|zsh|dash|ksh)\s+(?:-[A-Za-z]+\s+)*)(["'])([\s\S]*)\2(\s*)$/.exec(q)
-    if (sh && /c/.test(q.slice(0, sh[1].length).match(/\s-([A-Za-z]+)/g)?.join('') ?? '')) {
-      const inner = signSegments(sh[3], name)
-      if (inner !== null) return sh[1] + sh[2] + inner + sh[2] + sh[4]
-    }
     // `(ac phase $V 41)`, `(cd x; ac phase $V 41)`: the signature goes inside the subshell, before the
     // closing parens that belong to a leading `(` or to one opened in an earlier segment
     const n = (re) => (q.match(re) || []).length
@@ -450,7 +476,7 @@ export function signSegments(command, name = AGENT_NAME) {
     if (move) { let k = 0, at = q.length; while (k < move) if (q[--at] === ')') k++; tail = q.slice(at) }
     return q.slice(0, q.length - tail.length) + ` --agent ${name}` + tail
   })
-  return changed ? out.join('') : null
+  return changed ? restore(out.join('')) : null
 }
 const RAW_GATE = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)(?:\s+--(?:evidence|reason|agent|witnessed)(?:=(?:"[^"]*"|'[^']*'|[^\s;&|)]+)|\s+(?:"[^"]*"|'[^']*'|[^\s'"`;&|()<>-][^\s;&|)]*))|\s+--?[A-Za-z][\w-]*(?:=[^\s;&|)]*)?)*\s+(?:\$\{?\w+\}?|[^\s'"`;&|()$<>-][^\s'"`;&|()$<>]*)/g
 
