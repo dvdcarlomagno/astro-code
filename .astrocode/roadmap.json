@@ -17,8 +17,12 @@
       "number": 46,
       "name": "witness: cite proof of a human choice made elsewhere (an --evidence id or URL stored with the acceptance), and a list of machine-typed prompt prefixes that never count as human (GitHub #132)",
       "slug": "46-witness-cite-proof-of-a-human-choice",
-      "status": "verified",
-      "milestone": 5
+      "status": "complete",
+      "milestone": 5,
+      "accepted_by": "matteo.alvazzi@gmail.com",
+      "accepted_kind": "human",
+      "accepted_at": "2026-10-15T15:17:28.943Z",
+      "accepted_evidence": "composer"
     }
   ]
 }
