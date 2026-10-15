@@ -1,15 +1,15 @@
 // Unit tests for the model-tier profiles in lib/models.mjs.
 //
 // These lock in the speed-switch contract: the opus→sonnet-only ladder for every
-// JUDGEMENT role (no haiku among them — a hard project preference), the sole
-// documented exception being `integrator` (ADR-027 — mechanical git bookkeeping,
+// JUDGEMENT role (no haiku among them), the sole exception being `integrator`
+// (haiku 5.5 under balanced and fast — #125; mechanical git bookkeeping,
 // not judgement), and that the `fast` profile keeps the verify gate on opus so
 // "go faster" can never silently cost correctness.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { profileModels, MODEL_PROFILES, PROFILE_NAMES } from '../lib/models.mjs';
 
-// Judgement roles only — `integrator` is deliberately excluded (ADR-027) or
+// Judgement roles only — `integrator` is deliberately excluded, or
 // "max is every role on opus" below would wrongly demand integrator === 'opus'.
 const ROLES = ['planner', 'researcher', 'executor', 'verifier', 'discover'];
 
@@ -41,25 +41,22 @@ test('no profile uses haiku for a judgement role (sonnet is the floor)', () => {
   }
 });
 
-// ADR-035 reverts ADR-027: no role runs haiku, integrator included. The carve-out argued
-// the integrator was "mechanical git with no quality-critical decision left to get wrong".
-// Benchmark #2 inverted that premise — haiku's cherry-pick JUDGEMENT was sound, but it ran
-// a bare `git stash -u` in the shared working tree and never popped it (destroying a
-// completed phase plan), and filled `branches` with the target instead of the sources
-// (aborting a phase whose work had integrated fine). It is the role with the largest
-// destructive surface, not the smallest. And it bought nothing: `executor` is already
-// sonnet under balanced and fast.
-test('ADR-035: NO profile uses haiku for any role, integrator included', () => {
-  for (const name of PROFILE_NAMES) {
-    const tiers = Object.values(profileModels(name));
-    assert.ok(!tiers.includes('haiku'), `${name} must not use haiku for ANY role (ADR-035)`);
-  }
+// ADR-035 dropped the haiku 4.5 integrator after benchmark #2 (a bare `git stash -u` in the
+// shared tree, `branches` filled with the target). Haiku 5.5 is a different model at about a
+// twentieth of sonnet's price: 20/20 correct on that scenario against sonnet's 19/20, no
+// destructive git in any run, provided the integrator prompt keeps ADR-035's prohibition
+// paragraph. So haiku is allowed for the integrator ONLY; every judgement role stays opus
+// or sonnet.
+test('haiku appears in the profiles for the integrator only (balanced and fast)', () => {
+  const haiku = PROFILE_NAMES.flatMap((n) =>
+    Object.entries(profileModels(n)).filter(([, t]) => t === 'haiku').map(([r]) => `${n}.${r}`));
+  assert.deepEqual(haiku.sort(), ['balanced.integrator', 'fast.integrator']);
 });
 
-test('integrator tier per profile: sonnet everywhere (ADR-035)', () => {
+test('integrator tier per profile: haiku under balanced and fast, sonnet under max', () => {
   assert.equal(profileModels('max').integrator, 'sonnet');
-  assert.equal(profileModels('balanced').integrator, 'sonnet');
-  assert.equal(profileModels('fast').integrator, 'sonnet');
+  assert.equal(profileModels('balanced').integrator, 'haiku');
+  assert.equal(profileModels('fast').integrator, 'haiku');
 });
 
 test('max is every role on opus', () => {
@@ -76,7 +73,7 @@ test('balanced keeps opus only for planner and verifier', () => {
   assert.equal(p.discover, 'sonnet');
 });
 
-test('fast keeps opus ONLY for the verify gate; everything else sonnet', () => {
+test('fast keeps opus ONLY for the verify gate; every other judgement role sonnet', () => {
   const p = profileModels('fast');
   assert.equal(p.verifier, 'opus', 'the verify gate must stay opus so speed cannot cost correctness');
   for (const role of ['planner', 'researcher', 'executor', 'discover']) {

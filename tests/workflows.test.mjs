@@ -2843,7 +2843,7 @@ test('t2 (phase 14, C1): the wave integrator floors to sonnet when models.integr
   }
 
   const { calls } = await runWorkflow(baseArgs, { discoverTasks, integ })
-  assert.strictEqual(byLabel(calls, 'integrate:w1').opts.model, 'sonnet', 'no models.integrator key -> the integrate call must floor to sonnet (ADR-035 — no role runs haiku)')
+  assert.strictEqual(byLabel(calls, 'integrate:w1').opts.model, 'sonnet', 'no models.integrator key -> the integrate call must floor to sonnet (an unset key is never moved to haiku)')
   assert.strictEqual(byLabel(calls, 'heal:t2').opts.model, 'sonnet', 'heal re-runs must stay at models.executor')
   assert.strictEqual(byLabel(calls, 'testgate').opts.model, 'sonnet', 'the post-heal test gate must stay at models.executor')
   assert.strictEqual(byLabel(calls, 'teardown:w1').opts.model, 'sonnet', 'teardown must stay at models.executor')
@@ -2855,6 +2855,24 @@ test('t2 (phase 14, C1): the wave integrator floors to sonnet when models.integr
   const emptyArgs = { ...baseArgs, models: {} }
   const { calls: emptyCalls } = await runWorkflow(emptyArgs, { discoverTasks, integ })
   assert.strictEqual(byLabel(emptyCalls, 'integrate:w1').opts.model, 'sonnet', 'models:{} (project predating the key) must still floor to sonnet')
+})
+
+test('integrator on haiku (balanced/fast profile, #125): the integrate call runs haiku at its low reasoning, and no other call in the run is haiku', async () => {
+  const discoverTasks = threeIndependentTasks()
+  const integ = { integrated: true, branches: ['worktree-t1', 'worktree-t2', 'worktree-t3'] }
+  const args = {
+    root: '/tmp/proj',
+    phase: PHASE14_SLUG,
+    strategy: 'parallel',
+    models: { planner: 'opus', researcher: 'sonnet', executor: 'sonnet', verifier: 'opus', discover: 'sonnet', integrator: 'haiku' },
+    reasoning: { executor: 'medium', integrator: 'low' },
+  }
+  const { calls } = await runWorkflow(args, { discoverTasks, integ })
+  const integrate = byLabel(calls, 'integrate:w1')
+  assert.strictEqual(integrate.opts.model, 'haiku', 'models.integrator haiku must reach the integrate call')
+  assert.strictEqual(integrate.opts.effort, 'low')
+  const haikuCalls = calls.filter((c) => c.opts && c.opts.model === 'haiku').map((c) => c.opts.label)
+  assert.deepEqual(haikuCalls, ['integrate:w1'], 'haiku is allowed for the integrator ONLY')
 })
 
 test('t2 (phase 14, C2): one bad branch does not cost the wave — exactly one integrate call, one data-driven heal call, the clean peers are left alone, and the wave reaches Verify', async () => {
