@@ -784,7 +784,7 @@ test('C11 an ADR title quoting a gate with escaped quotes is byte-identical; a r
 });
 
 test('C8 a Bash write of the human marker becomes the agent marker outside a typed discuss of that phase', async () => {
-  const { AGENT_MARKER } = await import('../mods/astro-mods/hooks/lib/gates.js');
+  const { AGENT_MARKER, effectGuard } = await import('../mods/astro-mods/hooks/lib/gates.js');
   const ctx = '.astrocode/phases/41-x/CONTEXT.md';
   const forms = [
     `printf '${HUMAN}\\nbody\\n' > ${ctx}`,
@@ -795,7 +795,8 @@ test('C8 a Bash write of the human marker becomes the agent marker outside a typ
     for (const cmd of forms) {
       const eng = await armed();
       const out = await turnThen(eng, events, bash(cmd));
-      assert.equal(out.command, cmd.replace(HUMAN, AGENT_MARKER));
+      // the text is rewritten, then the call is judged by its effect on line 1 (phase 46 C8)
+      assert.equal(out.command, effectGuard(cmd.replace(HUMAN, AGENT_MARKER)));
       assert.equal(eng.toasts.length, 1);
       assert.match(eng.toasts[0], /CONTEXT\.md marker/);
     }
@@ -806,4 +807,13 @@ test('C8 a Bash write of the human marker becomes the agent marker outside a typ
   const cold = await armed();
   assert.deepEqual(await cold.invoke('tool.call', call), call, 'no known turn: left as declared');
   assert.match(cold.toasts[0], /could not tell/);
+  // a write whose text shows no marker is still guarded by its effect; a read is not touched
+  const sneaky = bash(`sed -i '1d' ${ctx}`);
+  const e2 = await armed();
+  assert.equal((await turnThen(e2, sdkAccept(41), sneaky)).command, effectGuard(sneaky.command));
+  const e3 = await armed();
+  assert.deepEqual(await turnThen(e3, typedDiscuss(41), sneaky), sneaky, 'the typed discuss of that phase: no guard');
+  const read = bash(`cat ${ctx}`);
+  const e4 = await armed();
+  assert.deepEqual(await turnThen(e4, sdkAccept(41), read), read);
 });

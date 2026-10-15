@@ -399,10 +399,78 @@ test('C8/C10 remediation: cd, variable-path and printf-format marker writes, and
   const b = bashMarkerRewrite(`P=.astrocode/phases/41-x/CONTEXT.md; printf '${H}\\nbody\\n' > $P`);
   assert.deepStrictEqual(b.phases, [41]);
   const c = bashMarkerRewrite(`printf '<!-- astro-discuss: %s -->\\n' captured > .astrocode/phases/41-x/CONTEXT.md`);
-  assert.strictEqual(c.command, `printf '<!-- astro-discuss: %s -->\\n' 'captured by agent: claude' > .astrocode/phases/41-x/CONTEXT.md`);
+  assert.strictEqual(c.command, `printf '<!-- astro-discuss: %s -->\\n' captured\\ by\\ agent:\\ claude > .astrocode/phases/41-x/CONTEXT.md`);
   assert.strictEqual(bashMarkerRewrite(`printf '${H}' > notes/CONTEXT.md`), null);
   assert.ok(VAR_VERB.test('ac $P $V 1'));
   assert.strictEqual(signSegments('V=accept; P=phase; ac $P $V 1'), 'V=accept; P=phase; ac $P $V 1 --agent claude');
   assert.strictEqual(signSegments('export V="phase accept" --agent claude; ac $V 1'), 'export V="phase accept" --agent claude; ac $V 1 --agent claude');
   assert.strictEqual(signSegments('declare V="phase accept" --agent claude; ac $V 1'), 'declare V="phase accept" --agent claude; ac $V 1 --agent claude');
+});
+
+// Phase 46 re-verify (C8/C10, narrowed by the user to plain spellings): each command below ran in a
+// real shell. The marker cases are judged by EFFECT (effectGuard), so the spelling no longer matters.
+test('C8: a Bash write judged by its effect on line 1: sed -i 1d, an escaped marker, a copy from /tmp end with the agent marker', async () => {
+  const { effectGuard, bashMarkerRewrite, AGENT_MARKER } = await gates();
+  const { mkdtempSync, mkdirSync, writeFileSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { spawnSync } = await import('node:child_process');
+  const H = '<!-- astro-discuss: captured -->';
+  const ctx = '.astrocode/phases/41-x/CONTEXT.md';
+  const run = (seed, cmd) => {
+    const d = mkdtempSync(join(tmpdir(), 'w46-'));
+    mkdirSync(join(d, '.astrocode/phases/41-x'), { recursive: true });
+    if (seed !== null) writeFileSync(join(d, ctx), seed);
+    const r = spawnSync('bash', ['-c', cmd], { cwd: d, encoding: 'utf8' });
+    return { status: r.status, text: readFileSync(join(d, ctx), 'utf8') };
+  };
+  const agentLine1 = (text) => text.split('\n')[0] === AGENT_MARKER;
+  for (const [seed, cmd] of [
+    [`x\n${H}\nbody\n`, `sed -i '1d' ${ctx}`],
+    [`<!-- astro-discuss: captured by agent: seed -->\nbody\n`, `sed -i 's/ by agent: seed//' ${ctx}`],
+    ['old\n', `printf '<!-- astro-discuss: capt\\x75red -->\\nbody\\n' > ${ctx}`],
+    ['old\n', `printf '<!-- astro-discuss: capt''ured -->\\nbody\\n' > ${ctx}`],
+    ['old\n', `echo -e '<!-- astro-discuss: capt\\x75red -->' > ${ctx}`],
+    [null, `printf '${H}\\nbody\\n' > m.md; cp m.md ${ctx}`],
+  ]) {
+    const g = effectGuard(cmd);
+    assert.ok(g, cmd);
+    const r = run(seed, g);
+    assert.equal(r.status, 0, cmd);
+    assert.ok(agentLine1(r.text), `${cmd} -> ${JSON.stringify(r.text)}`);
+    assert.ok(r.text.includes('body') || seed?.includes('body') === false, cmd);
+  }
+  // a file that already carried the human marker stays human after an agent's body edit (no false demotion)
+  assert.equal(run(`${H}\nbody\n`, effectGuard(`sed -i 's/body/text/' ${ctx}`)).text, `${H}\ntext\n`);
+  // the exit status is the command's own
+  assert.equal(run('x\n', effectGuard(`printf y > ${ctx}; false`)).status, 1);
+  // a read names the file but cannot write it: left alone
+  assert.equal(effectGuard(`cat ${ctx}`), null);
+  // printf with inner quotes: the rewrite keeps the format one word, so the body survives
+  const q = bashMarkerRewrite(`printf "<!-- astro-discuss: "captured" -->\\nbody\\n" > ${ctx}`);
+  const r = run('old\n', q.command);
+  assert.equal(r.text, `${AGENT_MARKER}\nbody\n`);
+});
+
+test('C10: an expansion anywhere in the verb, eval, an xargs slot and a subshell are signed, and the command still runs', async () => {
+  const { VAR_VERB, signSegments } = await gates();
+  const { spawnSync } = await import('node:child_process');
+  const cases = {
+    'V=ept; ac phase acc$V 41': 'V=ept; ac phase acc$V 41 --agent claude',
+    'V=ept; ac phase "acc$V" 41': 'V=ept; ac phase "acc$V" 41 --agent claude',
+    'V=accept; eval "ac phase $V 41"': 'V=accept; eval "ac phase $V 41" --agent claude',
+    'V=accept; xargs -I{} ac phase {} 41 <<< $V': 'V=accept; xargs -I{} ac phase {} 41 <<< $V --agent claude',
+    'V=accept; (ac phase $V 41)': 'V=accept; (ac phase $V 41 --agent claude)',
+    '(cd x; ac phase $V 41)': '(cd x; ac phase $V 41 --agent claude)',
+  };
+  for (const [cmd, signed] of Object.entries(cases)) {
+    assert.ok(VAR_VERB.test(cmd), cmd);
+    assert.equal(signSegments(cmd), signed, cmd);
+  }
+  // what ac receives, with `ac` a function that prints its arguments
+  const argsOf = (cmd) => spawnSync('bash', ['-c', `ac() { echo "$*"; }; export -f ac; ${cmd}`], { encoding: 'utf8' }).stdout.trim();
+  assert.equal(argsOf(signSegments('V=accept; (ac phase $V 41)')), 'phase accept 41 --agent claude');
+  assert.equal(argsOf(signSegments('V=accept; eval "ac phase $V 41"')), 'phase accept 41 --agent claude');
+  assert.equal(argsOf(signSegments('V=ept; ac phase acc$V 41')), 'phase accept 41 --agent claude');
+  assert.ok(!VAR_VERB.test('ac phase show 41') && !VAR_VERB.test('ac phase show $N'));
 });

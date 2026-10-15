@@ -262,13 +262,16 @@ already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces i
 - A `--witnessed` with no known turn (a fresh session, a reload, a typed gate with no id) is dropped; the call
   is otherwise left as declared. A gate verb held in a shell variable (`V=accept; ac phase $V 41`) and a Bash
   write of the human CONTEXT.md marker (`printf … >`, `sed -i`, a heredoc) are judged like their direct forms.
+  A Bash call that can write a phase CONTEXT.md it names is also judged by its effect: if line 1 becomes the
+  human marker during it, witness sets line 1 to the agent marker afterwards (the call's exit status is kept).
 - Fail open: an unknown turn, an empty typed id or a command it cannot parse is left declared, with
   one notice.
 - Known gaps: a typed `! ac phase accept <n>` line (the host shows it to no hook, so it is never
   witnessed; use the slash command), MCP shell tools (`ctx_shell`), an `ac` alias or script, a subagent's call (never
   witnessed), and Remote Control (`bridge`, counts as no signal so it is recorded as agent). The UAT
-  question's answer is not attestable (phase 41 `PROBE.md`). A CONTEXT.md path held in a variable, a `cd`
-  followed by a bare `CONTEXT.md`, and a marker split across quoting are not read in a Bash write.
+  question's answer is not attestable (phase 41 `PROBE.md`). A CONTEXT.md path held in a variable or reached by
+  a `cd` and a bare `CONTEXT.md` gets no effect check, and a verb fed through `xargs` stdin or a script is not
+  read: witness is a record, not a sandbox (ADR-074).
 
 **phase-band** draws a quiet band above the prompt in an astro-code project, and offers ids as you
 type. Optionally, on Claude Code, `ac mods enable phase-band` (off by default; headless `-p` and any

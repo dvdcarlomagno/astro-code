@@ -358,9 +358,11 @@ export const RAW_SEES = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\s+[^\s'"`;
 export const GATE_VERBS = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\b/
 // What the shell will see once quotes and line continuations are gone: `phase "accept" 41` and
 // `phase \\<newline>accept` are the same gate (phase 41 verify, C2/C3).
-// A gate verb held in a shell variable: `ac phase $V 41`, `ac fix "$G" id`, `ac $X accept 41`. witness
-// cannot know which verb runs, so such a call is signed as the agent (phase 46, ADR-081 hole closed).
-export const VAR_VERB = /(?:^|[\s;&|(])(?:\S*\/)?(?:ac|ac\.mjs)\s+(?:(?:phase|fix)\s+["']?[$`]|["']?[$`])/
+// A gate verb held in a shell variable: `ac phase $V 41`, `ac fix "$G" id`, `ac $X accept 41`, an expansion
+// anywhere in the verb word (`ac phase acc$V 41`), an xargs slot (`ac phase {} 41`), or the same inside a
+// quoted `eval "…"` body. witness cannot know which verb runs, so such a call is signed as the agent
+// (phase 46, ADR-081 hole closed).
+export const VAR_VERB = /(?:^|[\s;&|("'])(?:\S*\/)?(?:ac|ac\.mjs)\s+(?:(?:phase|fix)\s+[^\s;&|()]*[$`{]|["']?[$`])/
 export const shellText = (s) => String(s).replace(/\\\r?\n/g, ' ').replace(/["'\\]/g, '')
 
 // Anything that can run text it was handed: a shell or interpreter, eval, a remote or deferred
@@ -420,8 +422,14 @@ export function signSegments(command, name = AGENT_NAME) {
     const q = dropped ?? p
     if (/(^|\s)--agent(=|\s|$)/.test(shellText(q))) return q
     changed = true
-    const trail = /\s*$/.exec(q)[0]
-    return q.slice(0, q.length - trail.length) + ` --agent ${name}` + trail
+    // `(ac phase $V 41)`, `(cd x; ac phase $V 41)`: the signature goes inside the subshell, before the
+    // closing parens that belong to a leading `(` or to one opened in an earlier segment
+    const n = (re) => (q.match(re) || []).length
+    const lead = n(/^\s*\(+/g) && /^\s*(\(+)/.exec(q)[1].length
+    const move = Math.min(n(/(?:\)\s*)+$/g) && /((?:\)\s*)+)$/.exec(q)[1].split(')').length - 1, lead + Math.max(0, n(/\)/g) - n(/\(/g)))
+    let tail = /\s*$/.exec(q)[0]
+    if (move) { let k = 0, at = q.length; while (k < move) if (q[--at] === ')') k++; tail = q.slice(at) }
+    return q.slice(0, q.length - tail.length) + ` --agent ${name}` + tail
   })
   return changed ? out.join('') : null
 }
@@ -475,8 +483,58 @@ export function bashMarkerRewrite(command) {
     else if (/^(?:\.\/)?CONTEXT\.md$/i.test(tok) || (/\$/.test(tok) && /CONTEXT\.md$/i.test(tok))) unknown = true
   }
   if (!phases.size && !unknown) return null
-  const out = inline
-    ? command.replace(HUMAN_INLINE, AGENT_MARKER)
-    : command.replace(/(["']?)\bcaptured\b\1/i, (m, q) => (q ? `${q}captured by agent: ${AGENT_NAME}${q}` : `'captured by agent: ${AGENT_NAME}'`))
+  const out = inline ? command.replace(HUMAN_INLINE, AGENT_MARKER) : signCapturedWord(command)
   return { command: out, phases: [...phases].sort((x, y) => x - y), unknown }
+}
+
+// The bare word `captured` (printf's format split) turned into the agent claim, quoted for where it
+// stands: inside quotes the spaces are literal; outside them they are escaped, so the claim stays ONE
+// shell word. `printf "<!-- astro-discuss: "captured" -->\nbody\n"`: the inner quotes close and reopen
+// the outer string, and an unescaped space there used to split the format and lose the body.
+function signCapturedWord(command) {
+  const re = /\bcaptured\b(?! by agent)/gi
+  let m
+  while ((m = re.exec(command)) !== null) {
+    let q = null
+    for (let i = 0; i < m.index; i++) {
+      const c = command[i]
+      if (q === "'") { if (c === "'") q = null }
+      else if (c === '\\') i++
+      else if (q === '"') { if (c === '"') q = null }
+      else if (c === "'" || c === '"') q = c
+    }
+    const claim = q ? `captured by agent: ${AGENT_NAME}` : `captured\\ by\\ agent:\\ ${AGENT_NAME}`
+    return command.slice(0, m.index) + claim + command.slice(m.index + m[0].length)
+  }
+  return command
+}
+
+/** Every phase CONTEXT.md path a Bash command names (split on whitespace, quotes and `;&|<>()=`). */
+export function contextPathsIn(command) {
+  const out = new Set()
+  for (const tok of String(command).split(/[\s'"`;&|<>()=]+/)) if (isPhaseContextPath(tok) !== null) out.add(tok)
+  return [...out]
+}
+
+// A command that can change a file: a redirect, an in-place editor, a copier, an interpreter, git.
+const MAY_WRITE = /(?:^|[^<0-9&])>|\b(?:sed|perl|ruby)\b[^;&|\n]*\s(?:-[a-zA-Z]*i|--in-place)|\b(?:tee|cp|mv|install|dd|rsync|ln|truncate|ed|ex|vim?|node|deno|bun|python3?|php|git|patch|awk|gawk)\b/
+
+/**
+ * A Bash call judged by its EFFECT on line 1 of each phase CONTEXT.md it names (phase 46 C8): line 1 is
+ * read before the command runs; if the command leaves the human marker there and it was not there
+ * before, line 1 becomes the agent marker. Text matching cannot see `sed -i '1d'`, `capt\x75red` or a
+ * file copied in from /tmp; the effect check can. The command's own exit status is kept. Null when
+ * the command names no such path or cannot write.
+ */
+export function effectGuard(command) {
+  if (typeof command !== 'string' || !MAY_WRITE.test(command)) return null
+  const paths = contextPathsIn(command)
+  if (!paths.length) return null
+  const at = (p) => (p.startsWith('/') ? `'${p}'` : `"$__ww"/'${p}'`)
+  const before = paths.map((p, i) => `__w${i}=$(head -n 1 ${at(p)} 2>/dev/null)`).join('; ')
+  const js = `const fs=require("fs");const H=/^<!--\\s*astro-discuss:\\s*captured\\s*-->$/i;const a=process.argv.slice(1);` +
+    `for(let i=0;i<a.length;i+=2){try{const t=fs.readFileSync(a[i],"utf8");const n=t.search(/\\r?\\n/);const l=n<0?t:t.slice(0,n);` +
+    `if(H.test(l.trim())&&!H.test(String(a[i+1]).trim()))fs.writeFileSync(a[i],${JSON.stringify(AGENT_MARKER)}+(n<0?"":t.slice(n)))}catch{}}`
+  const args = paths.map((p, i) => `${at(p)} "$__w${i}"`).join(' ')
+  return `__ww=$PWD; ${before}\n${command}\n__ws=$?; node -e '${js}' ${args} 2>/dev/null; (exit $__ws)`
 }

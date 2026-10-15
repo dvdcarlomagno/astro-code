@@ -46,7 +46,7 @@
 // helper (the plugin validator follows `$` only through functions declared in the file).
 import { isOn, getPrefixes } from '../lib/switches.js'
 import { isMachineTyped, commandText } from '../lib/machine.js'
-import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath, GATE_VERBS, shellText, signSegments, RAW_SEES, onlyQuotedMention, VAR_VERB, dropWitnessed, bashMarkerRewrite } from '../lib/gates.js'
+import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath, GATE_VERBS, shellText, signSegments, RAW_SEES, onlyQuotedMention, VAR_VERB, dropWitnessed, bashMarkerRewrite, effectGuard, contextPathsIn } from '../lib/gates.js'
 
 const NOTICE = {
   agent: 'witness: no typed /astro-accept|/astro-fix-accept for this id this turn — recorded as agent (--agent claude). ADR-074, ADR-033.',
@@ -141,7 +141,15 @@ function decideBash(e) {
     }
   }
   const g = decideGateBash(cur)
-  return { out: g.out, say: markSay ?? g.say }
+  // Then the effect: whatever the text says, a call that leaves the human marker on line 1 of a phase
+  // CONTEXT.md the human did not discuss in this turn ends with the agent marker there (phase 46 C8).
+  let out = g.out
+  if (turn !== null && !undeterminedFor('discuss marker')) {
+    const phases = contextPathsIn(out.command).map(isPhaseContextPath)
+    const guarded = phases.every((n) => witnessed('discuss marker', String(n), e)) ? null : effectGuard(out.command)
+    if (guarded !== null) out = { ...out, command: guarded }
+  }
+  return { out, say: markSay ?? g.say }
 }
 
 function decideGateBash(e) {
