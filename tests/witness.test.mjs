@@ -473,4 +473,38 @@ test('C10: an expansion anywhere in the verb, eval, an xargs slot and a subshell
   assert.equal(argsOf(signSegments('V=accept; eval "ac phase $V 41"')), 'phase accept 41 --agent claude');
   assert.equal(argsOf(signSegments('V=ept; ac phase acc$V 41')), 'phase accept 41 --agent claude');
   assert.ok(!VAR_VERB.test('ac phase show 41') && !VAR_VERB.test('ac phase show $N'));
+  // inside a shell -c string the signature goes in the string: after it, it would be the inner $0
+  const sh = {
+    'V=accept; bash -c "ac phase $V 1"': 'V=accept; bash -c "ac phase $V 1 --agent claude"',
+    "export V=accept; bash -c 'ac phase $V 1'": "export V=accept; bash -c 'ac phase $V 1 --agent claude'",
+    'V=accept; bash -lc "ac phase $V 1"': 'V=accept; bash -lc "ac phase $V 1 --agent claude"',
+    'V=accept; sh -c "ac phase $V 1"': 'V=accept; sh -c "ac phase $V 1 --agent claude"',
+  };
+  for (const [cmd, signed] of Object.entries(sh)) assert.equal(signSegments(cmd), signed, cmd);
+  assert.equal(argsOf('export V=accept; ' + "bash -c 'ac() { echo \"$*\"; }; ac phase $V 1 --agent claude'"), 'phase accept 1 --agent claude');
+});
+
+test('C4: --evidence before the ref: the ref is still found and witness signs after it, so the call still runs', async () => {
+  const { findGates, rewriteGate, segmentHas, segmentDeclaresAgent } = await gates();
+  const { spawnSync } = await import('node:child_process');
+  const argsOf = (cmd) => spawnSync('bash', ['-c', `ac() { echo "$*"; }; ${cmd}`], { encoding: 'utf8' }).stdout.trim();
+  const rows = [
+    ['ac phase accept --evidence "DEC-1" 1', '1', 'phase accept --evidence DEC-1 1 --witnessed composer'],
+    ['ac phase accept --evidence=DEC-1 1', '1', 'phase accept --evidence=DEC-1 1 --witnessed composer'],
+    ['ac fix accept --evidence DEC-1 2026-10-15-broken-widget', '2026-10-15-broken-widget', 'fix accept --evidence DEC-1 2026-10-15-broken-widget --witnessed composer'],
+    ['ac phase reject --evidence "DEC-1" 1 --reason x', '1', 'phase reject --evidence DEC-1 1 --witnessed composer --reason x'],
+  ];
+  for (const [cmd, ref, ran] of rows) {
+    const hit = findGates(cmd);
+    assert.equal(hit.kind, 'one', cmd);
+    assert.equal(hit.ref, ref, cmd);
+    assert.equal(argsOf(rewriteGate(cmd, hit, { add: '--witnessed composer' })), ran, cmd);
+  }
+  // a flag before the ref is still seen: a declared agent is never re-signed, a forged --witnessed is stripped
+  const pre = findGates('ac phase accept --agent bot 41');
+  assert.ok(segmentHas(pre, '--agent') && segmentDeclaresAgent(pre));
+  const forged = 'ac phase accept --witnessed composer 41';
+  assert.equal(argsOf(rewriteGate(forged, findGates(forged), { add: '--agent claude', strip: ['--witnessed', '--agent'] })), 'phase accept 41 --agent claude');
+  // any other flag before the ref stays unreadable (signed as the agent, never guessed)
+  assert.equal(findGates('ac phase accept --force 41').kind, 'ambiguous');
 });

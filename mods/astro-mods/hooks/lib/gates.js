@@ -144,12 +144,19 @@ function readGate(words) {
   if (((a === 'phase' || a === 'fix') && dyn(b)) || (dyn(a) && (b === 'accept' || b === 'reject'))) return { bad: true }
   const gate = a === 'phase' && (b === 'accept' || b === 'reject') ? `phase ${b}` : a === 'fix' && b === 'accept' ? 'fix accept' : null
   if (!gate) return null
-  const ref = words[at + 2]
+  // flags may come before the ref (`ac phase accept --evidence "DEC-1" 41`): a value flag eats its value
+  let r = at + 2
+  // (only the known value flags: any other flag before the ref, `--force` included, stays unreadable)
+  while (words[r] && (VALUE_FLAGS.has(words[r].text) || VALUE_FLAGS.has(words[r].text.split('=')[0]))) r += words[r].text.includes('=') ? 1 : 2
+  const ref = words[r]
   if (!ref) return null
   const ok = (GATES.kinds[gate] === 'phase' ? PHASE_REF : FIX_REF).test(ref.text)
   if (!ok || ref.text.startsWith('-') || /[$`]/.test(ref.text)) return { bad: true }
-  return { gate, ref: ref.text, refIndex: at + 2 }
+  return { gate, ref: ref.text, refIndex: r, verbIndex: at + 1 }
 }
+
+// The gate flags that take a separate value word; ac's own parser reads them the same way.
+const VALUE_FLAGS = new Set(['--evidence', '--reason', '--agent', '--witnessed'])
 
 /**
  * Find the `ac` gate call in a Bash command.
@@ -178,7 +185,7 @@ export function findGates(command) {
     refEnd: f.words[f.refIndex].end,
     segStart: f.words[0].start,
     segEnd: f.words[f.words.length - 1].end,
-    words: f.words.map((w, ix) => ({ ...w, ref: ix === f.refIndex })),
+    words: f.words.map((w, ix) => ({ ...w, ref: ix === f.refIndex, verb: ix === f.verbIndex })),
   }
 }
 
@@ -188,21 +195,23 @@ export function findGates(command) {
  * byte of the command is returned unchanged.
  */
 export function rewriteGate(command, hit, { add, strip = [] } = {}) {
-  const refAt = hit.words.findIndex((w) => w.ref)
-  const tail = command.slice(hit.refEnd)
-  const cuts = []
-  for (let i = refAt + 1; i < hit.words.length; i++) {
+  // flags are stripped wherever they stand after the verb, before or after the ref
+  const verbAt = hit.words.findIndex((w) => w.verb)
+  const from = verbAt >= 0 ? verbAt + 1 : hit.words.findIndex((w) => w.ref) + 1
+  const edits = add ? [[hit.refEnd, hit.refEnd, ` ${add}`]] : []
+  for (let i = from; i < hit.words.length; i++) {
     const w = hit.words[i]
+    if (w.ref) continue
     const name = strip.find((s) => w.text === s || w.text.startsWith(`${s}=`))
     if (!name) continue
     let end = w.end
     const next = hit.words[i + 1]
-    if (w.text === name && next && !next.text.startsWith('-')) { end = next.end; i++ }
-    cuts.push([w.start - 1 - hit.refEnd, end - hit.refEnd])
+    if (w.text === name && next && !next.ref && !next.text.startsWith('-')) { end = next.end; i++ }
+    edits.push([w.start - 1, end, ''])
   }
-  let kept = tail
-  for (const [from, to] of cuts.reverse()) kept = kept.slice(0, from) + kept.slice(to)
-  return command.slice(0, hit.refEnd) + (add ? ` ${add}` : '') + kept
+  let out = command
+  for (const [a, b, text] of edits.sort((x, y) => y[0] - x[0] || y[1] - x[1])) out = out.slice(0, a) + text + out.slice(b)
+  return out
 }
 
 // ── typed forms ───────────────────────────────────────────────────────────────
@@ -326,23 +335,27 @@ export function editRewrite(current, { old_string, new_string, replace_all } = {
 }
 
 /** Does the gate segment already carry a word starting with `prefix` (e.g. `--agent`)? */
+// The gate's flag words: everything after the verb except the ref, so a flag before the ref counts too.
+function flagWords(hit) {
+  const verbAt = hit.words.findIndex((w) => w.verb)
+  const from = verbAt >= 0 ? verbAt + 1 : hit.words.findIndex((w) => w.ref) + 1
+  return hit.words.slice(from).filter((w) => !w.ref)
+}
+
 export function segmentHas(hit, prefix) {
-  const refAt = hit.words.findIndex((w) => w.ref)
-  return hit.words.slice(refAt + 1).some((w) => w.text.startsWith(prefix))
+  return flagWords(hit).some((w) => w.text.startsWith(prefix))
 }
 
 /** The value word after `flag` in the gate segment, or undefined. */
 export function segmentValue(hit, flag) {
-  const refAt = hit.words.findIndex((w) => w.ref)
-  const rest = hit.words.slice(refAt + 1)
+  const rest = flagWords(hit)
   const i = rest.findIndex((w) => w.text === flag)
   return i === -1 ? undefined : rest[i + 1]?.text
 }
 
 /** Does the gate segment declare an agent with a real name (`--agent claude`, `--agent=claude`)? */
 export function segmentDeclaresAgent(hit) {
-  const refAt = hit.words.findIndex((w) => w.ref)
-  const rest = hit.words.slice(refAt + 1)
+  const rest = flagWords(hit)
   return rest.some((w, i) => {
     if (w.text.startsWith('--agent=')) return w.text.length > 8
     if (w.text !== '--agent') return false
@@ -422,6 +435,12 @@ export function signSegments(command, name = AGENT_NAME) {
     const q = dropped ?? p
     if (/(^|\s)--agent(=|\s|$)/.test(shellText(q))) return q
     changed = true
+    // `bash -c "ac phase $V 1"`: a word after the string would be the inner shell's $0, so sign inside it
+    const sh = /^(\s*(?:[A-Za-z_]\w*=\S*\s+)*(?:\S*\/)?(?:bash|sh|zsh|dash|ksh)\s+(?:-[A-Za-z]+\s+)*)(["'])([\s\S]*)\2(\s*)$/.exec(q)
+    if (sh && /c/.test(q.slice(0, sh[1].length).match(/\s-([A-Za-z]+)/g)?.join('') ?? '')) {
+      const inner = signSegments(sh[3], name)
+      if (inner !== null) return sh[1] + sh[2] + inner + sh[2] + sh[4]
+    }
     // `(ac phase $V 41)`, `(cd x; ac phase $V 41)`: the signature goes inside the subshell, before the
     // closing parens that belong to a leading `(` or to one opened in an earlier segment
     const n = (re) => (q.match(re) || []).length
@@ -433,7 +452,7 @@ export function signSegments(command, name = AGENT_NAME) {
   })
   return changed ? out.join('') : null
 }
-const RAW_GATE = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\s+(?:\$\{?\w+\}?|[^\s'"`;&|()$<>]+)/g
+const RAW_GATE = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)(?:\s+--(?:evidence|reason|agent|witnessed)(?:=(?:"[^"]*"|'[^']*'|[^\s;&|)]+)|\s+(?:"[^"]*"|'[^']*'|[^\s'"`;&|()<>-][^\s;&|)]*))|\s+--?[A-Za-z][\w-]*(?:=[^\s;&|)]*)?)*\s+(?:\$\{?\w+\}?|[^\s'"`;&|()$<>-][^\s'"`;&|()$<>]*)/g
 
 /**
  * For a call findGates cannot read (`bash -c`, two gates, a variable ref): splice
@@ -451,7 +470,7 @@ export function rewriteRaw(command, name = AGENT_NAME, keep = () => false) {
   const out = bare.replace(RAW_GATE, (m, at) => {
     if (keep(m.trim().split(/\s+/).pop())) return m
     const after = bare.slice(at + m.length).split(/[;&|\n"')]/)[0]
-    if (/(^|\s)--agent(=|\s|$)/.test(after)) return m // any declared --agent, even bare or empty, is left alone
+    if (/(^|\s)--agent(=|\s|$)/.test(after) || /\s--agent(=|\s|$)/.test(m)) return m // any declared --agent, even bare or empty, is left alone
     changed = true
     return `${m} --agent ${name}`
   })
