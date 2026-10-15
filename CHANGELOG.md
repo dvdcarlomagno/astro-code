@@ -4,6 +4,16 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+## v0.45.0
+
+- `--evidence "<id or URL>"` on `ac phase accept`, `ac phase reject` and `ac fix accept` cites a decision made elsewhere. It is stored as `cited_evidence` beside the record, shown by `ac phase show` and the new `ac fix list --all`, and never makes the signer human (ADR-081, #132)
+- `mods.machinePrefixes` in `~/.astro/config.json` lists strings your own tools type at the head of a prompt: witness signs a gate in such a turn as the agent and live-capture never reads it. A malformed list means no prefixes and one warning in `ac mods status` (ADR-081, #132)
+- witness closes four holes: a quoted gate with escaped quotes behind an `ac` head is left alone, a gate verb in a shell variable is signed as the agent, a Bash write of the human CONTEXT.md marker is rewritten like a Write, and a `--witnessed` with no known turn is dropped (ADR-081, #132)
+- `ac fix accept` on a slug that matches several fixes says it is ambiguous and names them, instead of "no such fix" (ADR-081, #132)
+- witness judges a Bash write of a phase CONTEXT.md by its effect: if line 1 becomes the human marker during an unwitnessed turn, it is set to the agent marker afterwards, whatever the spelling (`sed -i '1d'`, escapes, a copy from /tmp)
+- witness no longer breaks the commands it signs: `--agent` goes inside a subshell or a `bash -c` string, after the ref when `--evidence` comes first, and a printf format split by quotes stays one word. It used to corrupt a CONTEXT.md body, turn a subshell into a syntax error, and break your own typed accept with `--evidence` before the id
+- `ac` reads `ASTRO_SIGNER_AGENT=<name>` as `--agent <name>` and `ASTRO_WITNESS_DROP=1` as "ignore `--witnessed`" when a gate call declares no signer. witness exports them in front of calls it cannot read fully (a variable verb, a nested shell, backticks, `eval`, `xargs`), so a nested `ac` is signed as the agent however it is quoted. Neither can make a record human
+
 ## v0.44.0
 
 - A re-verify after a FAIL re-checks the criteria that failed first and stops with FAIL while any is still unmet, so a still-failing phase no longer pays a full verifier run each time. A pass still checks every criterion in that same run. The verdict is saved and committed as `VERDICT.json` beside CRITERIA.md (written only by `ac verdict record`, protected by canon-guard), `ac phase verify` refuses without a full recorded pass, and a full run is forced when many criteria are unmet, CRITERIA.md changed, history moved, the fix is broad, or with `/astro-verify <n> --full` (ADR-079, #129)

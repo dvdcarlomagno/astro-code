@@ -651,3 +651,256 @@ test('event order: classic.SessionStart before session.start yields section-and-
   const hasSection = (await composeOf(eng)).sections.some((x) => x.id === 'astro-mods:brief');
   assert.equal(droppedAny, hasSection, `dropped=${droppedAny} section=${hasSection}`);
 });
+
+// ── phase 46 (ADR-081): machine-typed prefixes, a cold --witnessed, variable verbs, Bash marker writes ──
+
+async function armedWith(machinePrefixes, over = { witness: true }) {
+  const eng = await boot(answer({ ...switches(over), machinePrefixes }));
+  await eng.invoke('session.start', { ...SESSION_START });
+  return eng;
+}
+const PFX = ['[relay] ', '/astro-accept', '.*'];
+const sdkAccept = (n) => [run('astro-accept', String(n), 'sdk'), submit(`/astro-accept ${n}`, 'sdk')];
+const EV = '--evidence "https://board.example/d/42?x=1&y=2"';
+
+test('C5a a composer prompt starting with a machine-typed prefix never unlocks a gate, leading spaces included', async () => {
+  for (const text of ['[relay] /astro-accept 41', '   [relay] ! ac phase accept 41']) {
+    const eng = await armedWith(PFX);
+    const out = await turnThen(eng, [submit(text)], bash('ac phase accept 41'));
+    assert.equal(out.command, `ac phase accept 41${A}`, text);
+    assert.doesNotMatch(out.command, /--witnessed/);
+  }
+});
+
+test('C5b a typed slash command matching a prefix is a machine turn: the gate is agent-signed, the marker is the agent marker', async () => {
+  const { AGENT_MARKER } = await import('../mods/astro-mods/hooks/lib/gates.js');
+  const eng = await armedWith(PFX);
+  const out = await turnThen(eng, typedAccept(41), bash('ac phase accept 41'));
+  assert.equal(out.command, `ac phase accept 41${A}`);
+  const eng2 = await armedWith(['/astro-discuss']);
+  const w = await turnThen(eng2, typedDiscuss(41), write(`${HUMAN}\nbody\n`));
+  assert.equal(w.content, `${AGENT_MARKER}\nbody\n`);
+});
+
+test('C5c controls: a narrower list, a different case, a mid-text prefix and a .* entry leave a typed accept witnessed', async () => {
+  const cases = [
+    [['[relay] '], typedAccept(41)],
+    [['[relay] '], [submit('[RELAY] /astro-accept 41'), ...[]]],
+    [['[relay] '], [run('astro-accept', '41'), submit('hi [relay] /astro-accept 41')]],
+    [['.*'], typedAccept(41)],
+  ];
+  const eng0 = await armedWith(['[relay] ']);
+  assert.equal((await turnThen(eng0, typedAccept(41), bash('ac phase accept 41'))).command, `ac phase accept 41${W}`);
+  for (const [list, events] of cases.slice(1)) {
+    const eng = await armedWith(list);
+    const out = await turnThen(eng, events, bash('ac phase accept 41'));
+    if (events === cases[1][1]) assert.equal(out.command, `ac phase accept 41${A}`, 'a non-gate composer turn is still the agent');
+    else assert.equal(out.command, `ac phase accept 41${W}`);
+  }
+});
+
+test('C6 a missing or malformed prefix list changes nothing: typed accept witnessed, sdk accept agent, no hook throws, no toast', async () => {
+  for (const bad of [undefined, 'x', [1], ['ok', 2], {}]) {
+    const eng = await armedWith(bad);
+    assert.equal((await turnThen(eng, typedAccept(41), bash('ac phase accept 41'))).command, `ac phase accept 41${W}`);
+    assert.equal((await turnThen(eng, sdkAccept(41), bash('ac phase accept 41'))).command, `ac phase accept 41${A}`);
+    assert.deepEqual(eng.toasts.filter((t) => /prefix/i.test(t)), []);
+  }
+});
+
+test('C4 a citation never earns --witnessed and is left byte-identical by every rewrite', async () => {
+  const call = bash(`ac phase accept 41 ${EV}`);
+  const eng = await armed();
+  assert.equal((await turnThen(eng, typedAccept(41), call)).command, `ac phase accept 41${W} ${EV}`);
+  for (const events of [sdkAccept(41), [submit('hi')]]) {
+    const e2 = await armed();
+    const out = await turnThen(e2, events, call);
+    assert.equal(out.command, `ac phase accept 41${A} ${EV}`);
+    assert.doesNotMatch(out.command, /--witnessed/);
+  }
+  const fix = bash('ac fix accept 2026-10-01-foo --evidence "DEC-1"');
+  const e3 = await armed();
+  assert.equal((await turnThen(e3, typedFixAccept('2026-10-01-foo'), fix)).command, `ac fix accept 2026-10-01-foo${W} --evidence "DEC-1"`);
+  const e4 = await armed();
+  assert.equal((await turnThen(e4, [submit('hi')], fix)).command, `ac fix accept 2026-10-01-foo${A} --evidence "DEC-1"`);
+});
+
+test('C9 a cold --witnessed is dropped, never denied, with one undetermined toast', async () => {
+  const eng = await armed();
+  const wants = [
+    ['ac phase accept 41 --witnessed composer', 'ac phase accept 41'],
+    ['ac phase reject 41 --witnessed composer --reason x', 'ac phase reject 41 --reason x'],
+    ['ac fix accept 2026-10-01-foo --witnessed composer', 'ac fix accept 2026-10-01-foo'],
+    ['bash -c "ac phase accept 41 --witnessed composer"', 'bash -c "ac phase accept 41"'],
+  ];
+  for (const [cmd, want] of wants) {
+    const out = await eng.invoke('tool.call', bash(cmd));
+    assert.equal(out.command, want);
+    assert.equal(out.deny, undefined);
+  }
+  assert.equal(eng.toasts.length, 1);
+  assert.match(eng.toasts[0], /could not tell/);
+});
+
+test('C9 the same holds after a typed accept and a reload, and for a typed gate with no id', async () => {
+  const eng = await armed();
+  for (const ev of typedAccept(41)) await eng.invoke(ev.name, ev.e);
+  await eng.invoke('session.start', { ...SESSION_START });
+  assert.equal((await eng.invoke('tool.call', bash('ac phase accept 41 --witnessed composer'))).command, 'ac phase accept 41');
+  const e2 = await armed();
+  const out = await turnThen(e2, [run('astro-accept', ''), submit('/astro-accept')], bash('ac phase accept 41 --witnessed composer'));
+  assert.equal(out.command, 'ac phase accept 41');
+});
+
+test('C10 a gate verb held in a shell variable is agent-signed on the ac segment in every unlocking-less turn', async () => {
+  // a variable verb is signed through the environment and can never carry a witnessed claim (C9)
+  const E = 'export ASTRO_WITNESS_DROP=1; export ASTRO_SIGNER_AGENT=claude; ';
+  const cases = [
+    ['V=accept; ac phase $V 41', `${E}V=accept; ac phase $V 41${A}`],
+    ['V=accept && ac phase "$V" 41', `${E}V=accept && ac phase "$V" 41${A}`],
+    ['export V=reject; ac phase $V 41 --reason x', `${E}export V=reject; ac phase $V 41 --reason x${A}`],
+    ['G=accept; ac fix $G 2026-10-01-foo', `${E}G=accept; ac fix $G 2026-10-01-foo${A}`],
+  ];
+  for (const events of [sdkAccept(40), [submit('hi')], typedAccept(40)]) {
+    for (const [cmd, want] of cases) {
+      const eng = await armed();
+      assert.equal((await turnThen(eng, events, bash(cmd))).command, want, cmd);
+    }
+    // run 5: a nested shell however quoted gets the signer in the environment every nested ac inherits
+    for (const cmd of ['V=accept; bash --norc -c "ac phase $V 41"', 'V=accept; bash -c -- "ac phase $V 41"', "V=accept; bash -c 'ac phase '\"$V\"' 41'"]) {
+      const eng = await armed();
+      assert.ok((await turnThen(eng, events, bash(cmd))).command.startsWith(E), cmd);
+    }
+  }
+});
+
+test('C9 run 7: a quoted --witnessed in an unreadable call never yields a witnessed record, cold or in an sdk turn; executed against the real ac', async () => {
+  const { git } = await import('../lib/git.mjs');
+  const { initPlanning } = await import('../lib/planning.mjs');
+  const { addPhase, setPhaseStatus, loadRoadmap } = await import('../lib/roadmap.mjs');
+  const AC = join(ROOT, 'bin', 'ac.mjs');
+  const HOME = mkdtempSync(join(tmpdir(), 'w46h-'));
+  const forms = [
+    'V=accept; ac phase $V 1 "--witnessed" composer',
+    'bash -c "ac phase accept 1 \\"--witnessed\\" composer"',
+    "V=accept; ac phase $V 1 '--witnessed' composer",
+    'V=accept; ac phase $V 1 "--witnessed=composer"',
+    'V=accept; x=`ac phase $V 1 "--witnessed" composer`',
+    // run 8: the claim held in a variable behind a readable gate
+    'W=--witnessed; ac phase accept 1 $W composer',
+    'export W=--witnessed; ac phase accept 1 ${W} composer',
+    'W=--witnessed; ac phase reject 1 --reason x $W composer',
+    // run 9: the claim split into the ref word, or by quote concatenation behind a variable ref
+    'A="1 --witn"; ac phase accept ${A}essed composer',
+    'A="--witn"; ac phase accept 1${A:+ }${A}essed composer',
+    "ac phase accept $(printf '1 --witn%s' essed) composer",
+    'R=1; ac phase accept $R --witn""essed composer',
+    // no trace of the word at all: built from escapes inside a substitution
+    "ac phase accept $(printf '1 \\x2d\\x2dwi\\x74nessed') composer",
+  ];
+  for (const when of ['cold', 'sdk']) {
+    for (const form of forms) {
+      const eng = await armed();
+      const out = when === 'cold' ? (await eng.invoke('tool.call', bash(form))).command : (await turnThen(eng, sdkAccept(2), bash(form))).command;
+      const dir = mkdtempSync(join(tmpdir(), 'w46p-'));
+      git(['init', '--quiet'], { cwd: dir });
+      git(['config', 'user.email', 't@t'], { cwd: dir });
+      git(['config', 'user.name', 't'], { cwd: dir });
+      initPlanning(dir, { name: 'p' });
+      await addPhase(dir, { number: 1, name: 'alpha', milestone: 1 });
+      await setPhaseStatus(dir, loadRoadmap(dir).phases[0].slug, 'verified');
+      const shim = `ac() { "${process.execPath}" "${AC}" "$@"; }; export -f ac; `;
+      const r = spawnSync('bash', ['-c', shim + out], { cwd: dir, encoding: 'utf8', env: { ...process.env, HOME } });
+      assert.equal(r.status, 0, `${when} ${form} -> ${out}: ${r.stderr}`);
+      const ph = loadRoadmap(dir).phases[0];
+      assert.equal(ph.accepted_evidence, undefined, `${when} ${form} -> ${out}`);
+      assert.ok(!JSON.stringify(ph.rejections ?? []).includes('composer'), `${when} ${form} -> ${out}`);
+      if (when === 'sdk') assert.equal(ph.accepted_kind ?? ph.rejections?.at(-1)?.kind, 'agent', `${when} ${form} -> ${out}`);
+    }
+  }
+});
+
+test('C10 run 6: backticks and a here-string are signed through the environment and still run; executed against the real ac', async () => {
+  const { git } = await import('../lib/git.mjs');
+  const { initPlanning } = await import('../lib/planning.mjs');
+  const { addPhase, setPhaseStatus, loadRoadmap } = await import('../lib/roadmap.mjs');
+  const AC = join(ROOT, 'bin', 'ac.mjs');
+  const HOME = mkdtempSync(join(tmpdir(), 'w46h-'));
+  const forms = [
+    'V=accept; x=`ac phase $V 1`',
+    'V=accept; echo `ac phase $V 1`',
+    'V=accept; bash <<< "ac phase $V 1"',
+    'V=accept; bash --norc -c "ac phase $V 1"',
+    'V=reject; x=`ac phase $V 1 --reason x`',
+  ];
+  for (const events of [sdkAccept(2), [submit('hi')], typedAccept(2)]) {
+    for (const form of forms) {
+      const eng = await armed();
+      const out = (await turnThen(eng, events, bash(form))).command;
+      const dir = mkdtempSync(join(tmpdir(), 'w46p-'));
+      git(['init', '--quiet'], { cwd: dir });
+      git(['config', 'user.email', 't@t'], { cwd: dir });
+      git(['config', 'user.name', 't'], { cwd: dir });
+      initPlanning(dir, { name: 'p' });
+      await addPhase(dir, { number: 1, name: 'alpha', milestone: 1 });
+      await setPhaseStatus(dir, loadRoadmap(dir).phases[0].slug, 'verified');
+      const shim = `ac() { "${process.execPath}" "${AC}" "$@"; }; export -f ac; `;
+      const r = spawnSync('bash', ['-c', shim + out], { cwd: dir, encoding: 'utf8', env: { ...process.env, HOME } });
+      assert.equal(r.status, 0, `${form} -> ${out}: ${r.stderr}`);
+      const ph = loadRoadmap(dir).phases[0];
+      const kind = ph.accepted_kind ?? ph.rejections?.at(-1)?.kind;
+      assert.equal(kind, 'agent', `${form} -> ${out}`);
+    }
+  }
+});
+
+test('C11 an ADR title quoting a gate with escaped quotes is byte-identical; a real gate after escaped quotes is still signed', async () => {
+  const adr = 'ac decision add "A human gate (phase accept/reject, fix accept) may cite a decision made elsewhere with --evidence \\"<id or URL>\\", stored beside the record; a citation never makes the signer human"';
+  const commit = 'git commit -m "docs: say \\"ac phase accept 41\\" in the manual"';
+  for (const events of [sdkAccept(41), [submit('hi')]]) {
+    for (const cmd of [adr, commit]) {
+      const eng = await armed();
+      const call = bash(cmd);
+      assert.deepEqual(await turnThen(eng, events, call), call);
+      assert.deepEqual(eng.toasts, []);
+    }
+  }
+  const eng = await armed();
+  const out = await turnThen(eng, sdkAccept(41), bash('echo "say \\"hi\\"" && ac phase accept 41'));
+  assert.equal(out.command, `echo "say \\"hi\\"" && ac phase accept 41${A}`);
+});
+
+test('C8 a Bash write of the human marker becomes the agent marker outside a typed discuss of that phase', async () => {
+  const { AGENT_MARKER, effectGuard } = await import('../mods/astro-mods/hooks/lib/gates.js');
+  const ctx = '.astrocode/phases/41-x/CONTEXT.md';
+  const forms = [
+    `printf '${HUMAN}\\nbody\\n' > ${ctx}`,
+    `sed -i '1s/.*/${HUMAN}/' ${ctx}`,
+    `cat > ${ctx} <<'EOF'\n${HUMAN}\nbody\nEOF`,
+  ];
+  for (const events of [sdkAccept(41), [run('astro-autonomous', ''), submit('/astro-autonomous')], typedDiscuss(40)]) {
+    for (const cmd of forms) {
+      const eng = await armed();
+      const out = await turnThen(eng, events, bash(cmd));
+      // the text is rewritten, then the call is judged by its effect on line 1 (phase 46 C8)
+      assert.equal(out.command, effectGuard(cmd.replace(HUMAN, AGENT_MARKER)));
+      assert.equal(eng.toasts.length, 1);
+      assert.match(eng.toasts[0], /CONTEXT\.md marker/);
+    }
+  }
+  const eng = await armed();
+  const call = bash(forms[0]);
+  assert.deepEqual(await turnThen(eng, typedDiscuss(41), call), call, 'a typed discuss of that phase stays human');
+  const cold = await armed();
+  assert.deepEqual(await cold.invoke('tool.call', call), call, 'no known turn: left as declared');
+  assert.match(cold.toasts[0], /could not tell/);
+  // a write whose text shows no marker is still guarded by its effect; a read is not touched
+  const sneaky = bash(`sed -i '1d' ${ctx}`);
+  const e2 = await armed();
+  assert.equal((await turnThen(e2, sdkAccept(41), sneaky)).command, effectGuard(sneaky.command));
+  const e3 = await armed();
+  assert.deepEqual(await turnThen(e3, typedDiscuss(41), sneaky), sneaky, 'the typed discuss of that phase: no guard');
+  const read = bash(`cat ${ctx}`);
+  const e4 = await armed();
+  assert.deepEqual(await turnThen(e4, sdkAccept(41), read), read);
+});
