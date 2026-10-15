@@ -1,39 +1,74 @@
 {
   "version": 1,
-  "run": 1,
-  "mode": "full",
+  "run": 2,
+  "mode": "narrowed",
   "broad": false,
-  "commit": "97e4046265fe7771ff488e4fa326af7fd1292a0a",
+  "commit": "d98af10056c4c00848acd84f8f725053fb61b1d5",
   "criteria_sha": "sha256:650bc0000becdf355ca3ba2604ee0269f8c00b444a6c214ff7e948af3bfa0be8",
-  "at": "2026-10-15T11:13:25.853Z",
+  "at": "2026-10-15T11:22:34.797Z",
   "criteria": [
     {
       "id": "C1",
-      "status": "passed"
+      "status": "carried",
+      "last": "passed",
+      "from": {
+        "run": 1,
+        "commit": "97e4046265fe7771ff488e4fa326af7fd1292a0a"
+      }
     },
     {
       "id": "C2",
-      "status": "passed"
+      "status": "carried",
+      "last": "passed",
+      "from": {
+        "run": 1,
+        "commit": "97e4046265fe7771ff488e4fa326af7fd1292a0a"
+      }
     },
     {
       "id": "C3",
-      "status": "passed"
+      "status": "carried",
+      "last": "passed",
+      "from": {
+        "run": 1,
+        "commit": "97e4046265fe7771ff488e4fa326af7fd1292a0a"
+      }
     },
     {
       "id": "C4",
-      "status": "passed"
+      "status": "carried",
+      "last": "passed",
+      "from": {
+        "run": 1,
+        "commit": "97e4046265fe7771ff488e4fa326af7fd1292a0a"
+      }
     },
     {
       "id": "C5",
-      "status": "passed"
+      "status": "carried",
+      "last": "passed",
+      "from": {
+        "run": 1,
+        "commit": "97e4046265fe7771ff488e4fa326af7fd1292a0a"
+      }
     },
     {
       "id": "C6",
-      "status": "passed"
+      "status": "carried",
+      "last": "passed",
+      "from": {
+        "run": 1,
+        "commit": "97e4046265fe7771ff488e4fa326af7fd1292a0a"
+      }
     },
     {
       "id": "C7",
-      "status": "passed"
+      "status": "carried",
+      "last": "passed",
+      "from": {
+        "run": 1,
+        "commit": "97e4046265fe7771ff488e4fa326af7fd1292a0a"
+      }
     },
     {
       "id": "C8",
@@ -41,7 +76,12 @@
     },
     {
       "id": "C9",
-      "status": "passed"
+      "status": "carried",
+      "last": "passed",
+      "from": {
+        "run": 1,
+        "commit": "97e4046265fe7771ff488e4fa326af7fd1292a0a"
+      }
     },
     {
       "id": "C10",
@@ -49,11 +89,21 @@
     },
     {
       "id": "C11",
-      "status": "passed"
+      "status": "carried",
+      "last": "passed",
+      "from": {
+        "run": 1,
+        "commit": "97e4046265fe7771ff488e4fa326af7fd1292a0a"
+      }
     },
     {
       "id": "C12",
-      "status": "passed"
+      "status": "carried",
+      "last": "passed",
+      "from": {
+        "run": 1,
+        "commit": "97e4046265fe7771ff488e4fa326af7fd1292a0a"
+      }
     }
   ]
 }
