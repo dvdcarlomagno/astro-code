@@ -413,6 +413,11 @@ export function onlyQuotedMention(command) {
 // A runner that hands text to another ac call: where splicing --agent into the text can miss.
 // A command substitution (`$(…)`, backticks) and a here-string count too.
 export const NESTS = /(?:^|[\s;&|("'`])(?:\S*\/)?(?:bash|sh|zsh|dash|ksh|eval|xargs)(?=[\s;&|)`]|$)|\$\(|`|<<</
+/** Text a shell could turn into something else: an expansion, a quote, a backslash, or a --witn prefix. */
+export const notLiteral = (s) => /[$`\\]|witn/i.test(String(s))
+/** Any trace of a witnessed claim, however it is split or quoted (`--witn""essed`, `A="1 --witn"`). */
+export const claimTrace = (s) => /witn/i.test(String(s))
+
 /** The command with `ASTRO_WITNESS_DROP=1` exported in front: ac ignores any --witnessed in it (C9). */
 export function withDropEnv(command) {
   const s = String(command)
@@ -498,7 +503,7 @@ export function signSegments(command, name = AGENT_NAME) {
   })
   return changed ? restore(out.join('')) : null
 }
-const RAW_GATE = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)(?:\s+--(?:evidence|reason|agent|witnessed)(?:=(?:"[^"]*"|'[^']*'|[^\s;&|)]+)|\s+(?:"[^"]*"|'[^']*'|[^\s'"`;&|()<>-][^\s;&|)]*))|\s+--?[A-Za-z][\w-]*(?:=[^\s;&|)]*)?)*\s+(?:\$\{?\w+\}?|[^\s'"`;&|()$<>-][^\s'"`;&|()$<>]*)/g
+const RAW_GATE = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)(?:\s+--(?:evidence|reason|agent|witnessed)(?:=(?:"[^"]*"|'[^']*'|[^\s;&|)]+)|\s+(?:"[^"]*"|'[^']*'|[^\s'"`;&|()<>-][^\s;&|)]*))|\s+--?[A-Za-z][\w-]*(?:=[^\s;&|)]*)?)*\s+(?:\$\{?\w+\}?|[^\s'"`;&|()$<>-][^\s'"`;&|()$<>]*)(?![^\s;&|)'"])/g
 
 /**
  * For a call findGates cannot read (`bash -c`, two gates, a variable ref): splice

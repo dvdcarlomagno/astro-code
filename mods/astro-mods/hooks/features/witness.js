@@ -46,7 +46,7 @@
 // helper (the plugin validator follows `$` only through functions declared in the file).
 import { isOn, getPrefixes } from '../lib/switches.js'
 import { isMachineTyped, commandText } from '../lib/machine.js'
-import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath, GATE_VERBS, shellText, signSegments, RAW_SEES, onlyQuotedMention, VAR_VERB, dropWitnessed, bashMarkerRewrite, effectGuard, contextPathsIn, withSignerEnv, withDropEnv, NESTS } from '../lib/gates.js'
+import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath, GATE_VERBS, shellText, signSegments, RAW_SEES, onlyQuotedMention, VAR_VERB, dropWitnessed, bashMarkerRewrite, effectGuard, contextPathsIn, withSignerEnv, withDropEnv, notLiteral, claimTrace, NESTS } from '../lib/gates.js'
 
 const NOTICE = {
   agent: 'witness: no typed /astro-accept|/astro-fix-accept for this id this turn — recorded as agent (--agent claude). ADR-074, ADR-033.',
@@ -152,6 +152,10 @@ function decideBash(e) {
   return { out, say: markSay ?? g.say }
 }
 
+// A gate whose verb or arguments a shell will build (`ac phase $V 1`, `ac phase accept $(printf …)`,
+// `${A}essed`): what reaches ac cannot be read here, so it can never be a witnessed claim (phase 46 C9).
+const dynGate = (s) => VAR_VERB.test(s) || /\b(?:phase|fix)\s+(?:accept|reject)\s+[^;&|\n]*[$`\\]/.test(s)
+
 function decideGateBash(e) {
   const hit = findGates(e.command)
   // findGates found no gate, yet the gate verbs are there (`node --no-warnings bin/ac.mjs phase accept`,
@@ -169,8 +173,10 @@ function decideGateBash(e) {
     // Only when the text drop left one behind, so the plain spellings keep their exact rewrite.
     const forged = (s) => /--witnessed/.test(s)
     if (turn === null) {
+      // cold: nothing here can be witnessed, so anything not plainly literal gets the drop (phase 46 C9)
       const dropped = dropWitnessed(e.command)
-      return undetermined(e, forged(dropped ?? e.command) ? withDropEnv(dropped ?? e.command) : dropped)
+      const rest = dropped ?? e.command
+      return undetermined(e, claimTrace(rest) || dynGate(e.command) ? withDropEnv(rest) : dropped)
     }
     const typed = turn.origin === 'composer' && turn.typed ? turn.typed : null
     const keep = (ref) => typed !== null && idsMatch(typed.kind, typed.id, ref)
@@ -182,13 +188,15 @@ function decideGateBash(e) {
     // --norc -c`, `-c --`, adjacent quotes, backticks, xargs, a script): text splicing cannot reach all
     // of those. Only where splicing can miss: a variable verb, or a nested shell, substitution, eval or
     // xargs. A typed gate in the same command keeps its declared form unless a verb is held in a variable.
-    const viaEnv = VAR_VERB.test(e.command) || (typed === null && NESTS.test(e.command))
+    // (a gate word built from an expansion, `ac phase accept ${A}essed`, counts as nested too)
+    const viaEnv = VAR_VERB.test(e.command) || (typed === null && (NESTS.test(e.command) || dynGate(e.command)))
     // A nested form signed through the environment gets no segment splice: appended after a
     // here-string or a substitution it breaks the command (`bash <<< "…" --agent claude`).
     const nested = viaEnv && NESTS.test(e.command)
     if (!nested && ((GATE_VERBS.test(shellText(c)) && !RAW_SEES.test(c)) || VAR_VERB.test(c))) command = signSegments(c) ?? command
     if (viaEnv) command = withSignerEnv(command ?? e.command)
-    if (forged(command ?? e.command)) command = withDropEnv(command ?? e.command)
+    // nothing on this path is witnessed: a claim left behind, or arguments a shell could rebuild into one
+    if (forged(command ?? e.command) || claimTrace(command ?? e.command) || dynGate(e.command)) command = withDropEnv(command ?? e.command)
     return command === null ? { out: e, say: 'undetermined' } : { out: { ...e, command }, say: 'agent' }
   }
   // Any --agent word, even bare or empty, already DECLARES agent provenance (ac's own reject code):
@@ -201,7 +209,12 @@ function decideGateBash(e) {
   const guardForged = (s) => (dynFlag || /--witnessed/.test(s) ? withDropEnv(s) : s)
   if (turn === null || undeterminedFor(hit.gate)) {
     const dropped = segmentHas(hit, '--witnessed') ? rewriteGate(e.command, hit, { strip: ['--witnessed'] }) : null
-    const out = guardForged(dropped ?? e.command)
+    // Nothing on a cold or undetermined turn is witnessed, so any argument that is not a plain literal
+    // (an expansion, a quote, a backslash: `${A}essed`, `--witn""essed`) gets the drop as well.
+    const verbEnd = hit.words.find((w) => w.verb)?.end ?? hit.refEnd
+    const rest = dropped ?? e.command
+    const after = dropped === null ? e.command.slice(verbEnd, hit.segEnd) : (() => { const h = findGates(dropped); return h.kind === 'one' ? dropped.slice(h.words.find((w) => w.verb)?.end ?? h.refEnd, h.segEnd) : dropped })()
+    const out = notLiteral(after) ? withDropEnv(rest) : guardForged(rest)
     return undetermined(e, out === e.command ? null : out)
   }
   if (witnessed(hit.gate, hit.ref, e)) {

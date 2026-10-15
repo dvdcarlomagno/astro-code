@@ -753,7 +753,8 @@ test('C9 the same holds after a typed accept and a reload, and for a typed gate 
 });
 
 test('C10 a gate verb held in a shell variable is agent-signed on the ac segment in every unlocking-less turn', async () => {
-  const E = 'export ASTRO_SIGNER_AGENT=claude; ';
+  // a variable verb is signed through the environment and can never carry a witnessed claim (C9)
+  const E = 'export ASTRO_WITNESS_DROP=1; export ASTRO_SIGNER_AGENT=claude; ';
   const cases = [
     ['V=accept; ac phase $V 41', `${E}V=accept; ac phase $V 41${A}`],
     ['V=accept && ac phase "$V" 41', `${E}V=accept && ac phase "$V" 41${A}`],
@@ -789,6 +790,13 @@ test('C9 run 7: a quoted --witnessed in an unreadable call never yields a witnes
     'W=--witnessed; ac phase accept 1 $W composer',
     'export W=--witnessed; ac phase accept 1 ${W} composer',
     'W=--witnessed; ac phase reject 1 --reason x $W composer',
+    // run 9: the claim split into the ref word, or by quote concatenation behind a variable ref
+    'A="1 --witn"; ac phase accept ${A}essed composer',
+    'A="--witn"; ac phase accept 1${A:+ }${A}essed composer',
+    "ac phase accept $(printf '1 --witn%s' essed) composer",
+    'R=1; ac phase accept $R --witn""essed composer',
+    // no trace of the word at all: built from escapes inside a substitution
+    "ac phase accept $(printf '1 \\x2d\\x2dwi\\x74nessed') composer",
   ];
   for (const when of ['cold', 'sdk']) {
     for (const form of forms) {
