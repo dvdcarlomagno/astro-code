@@ -138,6 +138,14 @@ Conventions used by the Observe steps:
   and does not record the signer as a witnessed human.
 - **Fails if:** on a cold or reloaded turn a model-supplied `--witnessed composer` passes through and
   yields a witnessed record, or the call is denied outright (witness records, never refuses: ADR-074).
+  Also in scope (added during runs 7–10): the claim quoted (`"--witnessed"`, `'--witnessed'`,
+  `"--witnessed=composer"`), inside a nested shell string or backticks, or held in a variable
+  (`W=--witnessed; … $W composer`).
+- **Out of scope (narrowed by the user, 2026-10-15, after run 10):** witness is a provenance record,
+  not a sandbox (ADR-074). A claim assembled by shell expansion built to hide it from witness is not a
+  failure of this criterion: brace expansion (`--wit{n,n}essed`), a filename glob, escape sequences,
+  a claim split across words or variables (`A="1 --witn"; … ${A}essed`), or one fed through `xargs`
+  stdin, a script file or a function.
 
 ### C10 — A gate verb hidden in a shell variable never reads as a plain human accept
 - **Observe:** Drive the plugin in a turn that does not unlock the gate (an sdk turn, a composer `hi`, or
