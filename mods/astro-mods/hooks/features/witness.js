@@ -171,12 +171,16 @@ function decideGateBash(e) {
     let command = rewriteRaw(e.command, AGENT_NAME, keep)
     // a gate verb held in a variable cannot be read at all (VAR_VERB): sign it too, never leave it human
     const c = command ?? e.command
-    if ((GATE_VERBS.test(shellText(c)) && !RAW_SEES.test(c)) || VAR_VERB.test(c)) command = signSegments(c) ?? command
     // and in the environment, which every nested ac inherits however the command is quoted (`bash
-    // --norc -c`, `-c --`, adjacent quotes, xargs, a script): text splicing cannot reach all of those.
-    // Only where splicing can miss: a variable verb, or a nested shell, eval or xargs. A typed gate in
-    // the same command keeps its declared form unless a verb is held in a variable.
-    if (VAR_VERB.test(e.command) || (typed === null && NESTS.test(e.command))) command = withSignerEnv(command ?? e.command)
+    // --norc -c`, `-c --`, adjacent quotes, backticks, xargs, a script): text splicing cannot reach all
+    // of those. Only where splicing can miss: a variable verb, or a nested shell, substitution, eval or
+    // xargs. A typed gate in the same command keeps its declared form unless a verb is held in a variable.
+    const viaEnv = VAR_VERB.test(e.command) || (typed === null && NESTS.test(e.command))
+    // A nested form signed through the environment gets no segment splice: appended after a
+    // here-string or a substitution it breaks the command (`bash <<< "…" --agent claude`).
+    const nested = viaEnv && NESTS.test(e.command)
+    if (!nested && ((GATE_VERBS.test(shellText(c)) && !RAW_SEES.test(c)) || VAR_VERB.test(c))) command = signSegments(c) ?? command
+    if (viaEnv) command = withSignerEnv(command ?? e.command)
     return command === null ? { out: e, say: 'undetermined' } : { out: { ...e, command }, say: 'agent' }
   }
   // Any --agent word, even bare or empty, already DECLARES agent provenance (ac's own reject code):

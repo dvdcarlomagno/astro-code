@@ -773,6 +773,40 @@ test('C10 a gate verb held in a shell variable is agent-signed on the ac segment
   }
 });
 
+test('C10 run 6: backticks and a here-string are signed through the environment and still run; executed against the real ac', async () => {
+  const { git } = await import('../lib/git.mjs');
+  const { initPlanning } = await import('../lib/planning.mjs');
+  const { addPhase, setPhaseStatus, loadRoadmap } = await import('../lib/roadmap.mjs');
+  const AC = join(ROOT, 'bin', 'ac.mjs');
+  const HOME = mkdtempSync(join(tmpdir(), 'w46h-'));
+  const forms = [
+    'V=accept; x=`ac phase $V 1`',
+    'V=accept; echo `ac phase $V 1`',
+    'V=accept; bash <<< "ac phase $V 1"',
+    'V=accept; bash --norc -c "ac phase $V 1"',
+    'V=reject; x=`ac phase $V 1 --reason x`',
+  ];
+  for (const events of [sdkAccept(2), [submit('hi')], typedAccept(2)]) {
+    for (const form of forms) {
+      const eng = await armed();
+      const out = (await turnThen(eng, events, bash(form))).command;
+      const dir = mkdtempSync(join(tmpdir(), 'w46p-'));
+      git(['init', '--quiet'], { cwd: dir });
+      git(['config', 'user.email', 't@t'], { cwd: dir });
+      git(['config', 'user.name', 't'], { cwd: dir });
+      initPlanning(dir, { name: 'p' });
+      await addPhase(dir, { number: 1, name: 'alpha', milestone: 1 });
+      await setPhaseStatus(dir, loadRoadmap(dir).phases[0].slug, 'verified');
+      const shim = `ac() { "${process.execPath}" "${AC}" "$@"; }; export -f ac; `;
+      const r = spawnSync('bash', ['-c', shim + out], { cwd: dir, encoding: 'utf8', env: { ...process.env, HOME } });
+      assert.equal(r.status, 0, `${form} -> ${out}: ${r.stderr}`);
+      const ph = loadRoadmap(dir).phases[0];
+      const kind = ph.accepted_kind ?? ph.rejections?.at(-1)?.kind;
+      assert.equal(kind, 'agent', `${form} -> ${out}`);
+    }
+  }
+});
+
 test('C11 an ADR title quoting a gate with escaped quotes is byte-identical; a real gate after escaped quotes is still signed', async () => {
   const adr = 'ac decision add "A human gate (phase accept/reject, fix accept) may cite a decision made elsewhere with --evidence \\"<id or URL>\\", stored beside the record; a citation never makes the signer human"';
   const commit = 'git commit -m "docs: say \\"ac phase accept 41\\" in the manual"';

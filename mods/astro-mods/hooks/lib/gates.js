@@ -375,7 +375,7 @@ export const GATE_VERBS = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\b/
 // anywhere in the verb word (`ac phase acc$V 41`), an xargs slot (`ac phase {} 41`), or the same inside a
 // quoted `eval "…"` body. witness cannot know which verb runs, so such a call is signed as the agent
 // (phase 46, ADR-081 hole closed).
-export const VAR_VERB = /(?:^|[\s;&|("'])(?:\S*\/)?(?:ac|ac\.mjs)\s+(?:(?:phase|fix)\s+[^\s;&|()]*[$`{]|["']?[$`])/
+export const VAR_VERB = /(?:^|[\s;&|("'`])(?:\S*\/)?(?:ac|ac\.mjs)\s+(?:(?:phase|fix)\s+[^\s;&|()]*[$`{]|["']?[$`])/
 export const shellText = (s) => String(s).replace(/\\\r?\n/g, ' ').replace(/["'\\]/g, '')
 
 // Anything that can run text it was handed: a shell or interpreter, eval, a remote or deferred
@@ -411,10 +411,11 @@ export function onlyQuotedMention(command) {
  * xargs, a script) is signed as the agent too (phase 46, C10). Exported once; never a human claim.
  */
 // A runner that hands text to another ac call: where splicing --agent into the text can miss.
-export const NESTS = /(?:^|[\s;&|("'])(?:\S*\/)?(?:bash|sh|zsh|dash|ksh|eval|xargs)(?=[\s;&|)]|$)/
+// A command substitution (`$(…)`, backticks) and a here-string count too.
+export const NESTS = /(?:^|[\s;&|("'`])(?:\S*\/)?(?:bash|sh|zsh|dash|ksh|eval|xargs)(?=[\s;&|)`]|$)|\$\(|`|<<</
 export function withSignerEnv(command, name = AGENT_NAME) {
   const s = String(command)
-  if (/(?:^|[\s;&|])export ASTRO_SIGNER_AGENT=/.test(s)) return s
+  if (s.startsWith(`export ASTRO_SIGNER_AGENT=${name}; `)) return s
   return `export ASTRO_SIGNER_AGENT=${name}; ${s}`
 }
 
