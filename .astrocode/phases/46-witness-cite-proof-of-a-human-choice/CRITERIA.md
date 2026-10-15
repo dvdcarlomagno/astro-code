@@ -152,6 +152,9 @@ Conventions used by the Observe steps:
 - **Out of scope (narrowed by the user, 2026-10-15, after run 2):** witness is a provenance record,
   not a sandbox (ADR-074). A verb fed through a runner witness cannot read (`xargs` reading it from
   stdin or a here-string, a script file, a function defined earlier) is not a failure of this criterion.
+  Neither is a command that clears or overrides the signer variable witness exports
+  (`unset ASTRO_SIGNER_AGENT`, `ASTRO_SIGNER_AGENT= …`, `env -i`/`env -u`): it targets witness itself, the
+  same "built to hide" class (added after run 6, under the rule the user approved after run 2).
 
 ### C11 — A quoted mention containing escaped quotes is left byte-identical, and escaped quotes are not a hiding place
 - **Observe:** Drive the plugin (sdk turn, and composer non-gate turn) with the exact Bash
