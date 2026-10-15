@@ -91,6 +91,15 @@ test('ADR-029: a typo\'d `ac decision add` flag rejects and writes NO decision',
   assert.doesNotMatch(decisions, /Some choice/, 'the decision must NOT have been appended');
 });
 
+test('ADR-029: `ac verdict plan --fulll` (typo) exits non-zero instead of silently narrowing', async () => {
+  const dir = mkWorkdir(null);
+  await addPhase(dir, { number: 1, name: 'Do a thing' });
+  const res = run(['verdict', 'plan', '1', '--fulll'], dir);
+  assert.notStrictEqual(res.status, 0);
+  assert.match(res.stderr, /unknown flag/i);
+  assert.match(res.stderr, /--fulll/);
+});
+
 test('ADR-029: a typo\'d `ac phase accept --forse` rejects and leaves the phase unaccepted', async () => {
   const dir = mkWorkdir(null);
   await addPhase(dir, { number: 1, name: 'Do a thing' });
