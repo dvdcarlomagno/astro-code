@@ -4,7 +4,7 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
-- OpenCode is a supported host: `ac install` publishes every command to `~/.config/opencode/commands` and every agent to `~/.config/opencode/agents` as a registered subagent, so `/astro-plan`, `/astro-execute` and the rest run natively, dispatching `astro-executor`, `astro-verifier`, … by name. Map astro's tiers to your provider's model ids once with `opencode.models` in `~/.astro/config.json`, and each agent runs on its role's model.
+- OpenCode is a supported host: `ac install` publishes every command to `~/.config/opencode/commands` and every agent to `~/.config/opencode/agents` as a registered subagent, so `/astro-plan`, `/astro-execute` and the rest run natively, dispatching `astro-executor`, `astro-verifier`, … by name. Pick each role's model with `ac opencode map <tier> <provider/model>` (what a tier means on your provider) and `ac opencode set <role> <provider/model>` (pin a role to any model, e.g. DeepSeek for the executor); `ac opencode models` shows the result. The controller passes each role's model at dispatch, as obra/superpowers does, so project tiers and `--fast` apply without a reinstall.
 
 ## v0.43.0
 

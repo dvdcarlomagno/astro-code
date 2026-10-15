@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { getHost } from '../lib/hosts/index.mjs';
 import { parseFrontmatter } from '../lib/hosts/render.mjs';
-import { resolveAgentModel, AGENT_ROLE } from '../lib/hosts/opencode.mjs';
+import { resolveAgentModel, resolveRoleModels, setOpencodeModel, AGENT_ROLE } from '../lib/hosts/opencode.mjs';
 
 const FRAMEWORK = join(dirname(fileURLToPath(import.meta.url)), '..');
 const AC = join(FRAMEWORK, 'bin', 'ac.mjs');
@@ -42,6 +42,8 @@ test('an OpenCode command keeps description + $ARGUMENTS, drops Claude-only keys
   assert.match(body, /^> \*\*Running on OpenCode\.\*\*/);
   assert.match(body, /`subagent`/);
   assert.match(body, /`question`/);
+  assert.match(body, /always pass `model`/, 'like superpowers: the model is chosen explicitly at dispatch');
+  assert.match(body, /ac opencode models --json/);
   assert.ok(body.includes('$ARGUMENTS'), '$ARGUMENTS is left for OpenCode to substitute');
   assert.ok(body.endsWith(parseFrontmatter(readCommand('astro-plan')).body), 'source body verbatim');
 });
@@ -120,4 +122,56 @@ test('uninstall removes only astro-* entries and leaves the user\'s own files', 
   assert.equal(res.status, 0, res.stderr);
   assert.deepEqual(readdirSync(join(oc, 'commands')), ['mine.md']);
   assert.deepEqual(readdirSync(join(oc, 'agents')), []);
+});
+
+// --- per-role models at dispatch time ------------------------------------------
+
+test('resolveRoleModels: a project tier beats the user tier; an opencode.roles pin beats both; --fast uses the fast preset', () => {
+  const T = mkdtempSync(join(tmpdir(), 'ac-oc-rr-'));
+  const P = join(T, 'proj');
+  mkdirSync(join(P, '.astrocode'), { recursive: true });
+  writeFileSync(join(P, '.astrocode', 'config.json'), JSON.stringify({ models: { executor: 'sonnet' } }));
+  writeUserConfig(T, {
+    models: { planner: 'opus', executor: 'haiku', verifier: 'opus' },
+    opencode: { models: { opus: 'p/opus', sonnet: 'p/sonnet', haiku: 'p/haiku' }, roles: { verifier: 'deepseek/v4.1-flash' } },
+  });
+  const user = resolveRoleModels({ home: T });
+  assert.equal(user.models.executor, 'p/haiku');
+  const proj = resolveRoleModels({ root: P, home: T });
+  assert.equal(proj.models.executor, 'p/sonnet', 'the project tier wins over the user tier');
+  assert.equal(proj.models.planner, 'p/opus');
+  assert.equal(proj.models.verifier, 'deepseek/v4.1-flash', 'a pin wins whatever the tier');
+  assert.equal(proj.sources.verifier, 'opencode.roles');
+  assert.equal(proj.models.researcher, null, 'unset role → session model');
+  const fast = resolveRoleModels({ root: P, home: T, fast: true });
+  assert.equal(fast.models.planner, 'p/sonnet', 'fast puts the planner on sonnet');
+});
+
+test('setOpencodeModel keeps other keys, validates tier/role/id, and unset removes a pin', () => {
+  const T = mkdtempSync(join(tmpdir(), 'ac-oc-s-'));
+  writeUserConfig(T, { agent_tools: { '*': ['x'] } });
+  assert.equal(setOpencodeModel({ home: T, kind: 'roles', key: 'executor', id: 'openrouter/deepseek/deepseek-v4.1-flash' }).ok, true);
+  assert.equal(setOpencodeModel({ home: T, kind: 'models', key: 'opus', id: 'p/opus' }).ok, true);
+  const cfg = JSON.parse(readFileSync(join(T, '.astro', 'config.json'), 'utf8'));
+  assert.deepEqual(cfg.agent_tools, { '*': ['x'] });
+  assert.deepEqual(cfg.opencode, { roles: { executor: 'openrouter/deepseek/deepseek-v4.1-flash' }, models: { opus: 'p/opus' } });
+  assert.equal(setOpencodeModel({ home: T, kind: 'models', key: 'gpt', id: 'a/b' }).ok, false);
+  assert.equal(setOpencodeModel({ home: T, kind: 'roles', key: 'boss', id: 'a/b' }).ok, false);
+  assert.equal(setOpencodeModel({ home: T, kind: 'roles', key: 'executor', id: 'no-provider' }).ok, false);
+  setOpencodeModel({ home: T, kind: 'roles', key: 'executor', id: null });
+  assert.deepEqual(JSON.parse(readFileSync(join(T, '.astro', 'config.json'), 'utf8')).opencode.roles, {});
+});
+
+test('`ac opencode set` pins a role and re-stamps the installed agent at once; `models --json` reports it', () => {
+  const T = mkdtempSync(join(tmpdir(), 'ac-oc-cli-'));
+  mkdirSync(join(T, '.config', 'opencode'), { recursive: true });
+  assert.equal(run(T, ['install']).status, 0);
+  const res = run(T, ['opencode', 'set', 'executor', 'openrouter/deepseek/deepseek-v4.1-flash']);
+  assert.equal(res.status, 0, res.stderr);
+  const fm = parseFrontmatter(readFileSync(join(T, '.config', 'opencode', 'agents', 'astro-executor.md'), 'utf8')).frontmatter;
+  assert.equal(fm.model, 'openrouter/deepseek/deepseek-v4.1-flash');
+  const out = run(T, ['opencode', 'models', '--json']);
+  assert.equal(out.status, 0, out.stderr);
+  assert.equal(JSON.parse(out.stdout).executor, 'openrouter/deepseek/deepseek-v4.1-flash');
+  assert.notEqual(run(T, ['opencode', 'set', 'executor', 'not-an-id']).status, 0);
 });

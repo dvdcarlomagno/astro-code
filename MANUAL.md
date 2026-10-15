@@ -418,12 +418,26 @@ how your provider spells each tier, in `~/.astro/config.json`:
 }
 ```
 
-Each agent file is stamped with the model its role's **user-level** tier maps to
-(criteria-author follows the planner, mapper the researcher); a role set to a full
-`provider/id` is used as is. A role with no mapping, or `inherit`, gets no `model:` and runs
-on the session's model. Re-run `ac install` after changing either map — per-project
-overrides in `.astrocode/config.json` do not reach these global files. Hooks and the status
-line are not wired on OpenCode yet. Headless: `opencode run "/astro-status"`.
+Or set those from the CLI, and pin any role to any model your provider serves, whatever its
+tier — e.g. DeepSeek for execution:
+
+```bash
+ac opencode map opus openrouter/anthropic/claude-opus-5.5     # what a tier means here
+ac opencode set executor openrouter/deepseek/deepseek-v4.1-flash   # pin one role
+ac opencode unset executor                                     # back to its tier
+ac opencode models                                             # what each role runs on
+```
+
+Per role: the `opencode.roles` pin, else the role's tier (this project's
+`.astrocode/config.json`, then your default) through `opencode.models`, else the session's
+model. Like obra/superpowers, the model is chosen **at dispatch time**: each command tells
+the controller to run `ac opencode models --json` and pass the role's id as the subagent's
+`model`, so a project's own tiers, `ac models <profile>` and `--fast` all apply on the next
+run with no reinstall. The agent files are also stamped with your user-level result, as a
+fallback (`ac opencode map|set|unset` re-stamps them at once). Both keys are user-level on
+purpose — never put a provider id in `.astrocode/config.json`, which Claude teammates share.
+`/astro-config` walks all of this on OpenCode. Hooks and the status line are not wired on
+OpenCode yet. Headless: `opencode run "/astro-status"`.
 
 ---
 
