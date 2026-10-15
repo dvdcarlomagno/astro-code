@@ -46,7 +46,7 @@
     {
       "id": "2026-10-12-astro-execute-clears-the-live-activity",
       "title": "/astro-execute clears the live activity on an early stop even when it stopped because a workflow is already running, and a resumed workflow never sets the activity again",
-      "status": "open",
+      "status": "verified",
       "opened_at": "2026-10-12T06:48:45.088Z"
     },
     {
