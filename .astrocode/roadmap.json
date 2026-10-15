@@ -6,7 +6,7 @@
       "number": 45,
       "name": "Targeted re-verify after a FAIL: re-check the unmet criteria and only the passed ones the fix can affect, carry the rest over (GitHub #129)",
       "slug": "45-targeted-re-verify-after-a-fail-re",
-      "status": "pending",
+      "status": "verified",
       "milestone": 5
     },
     {
