@@ -121,6 +121,7 @@ test('a slug or fragment that names more than one fix resolves to nothing, never
   const mine = await addFix(root, { title: 'sample bug', now: NOW });
   const other = await addFix(root, { title: 'other sample bug', now: NOW });
   assert.equal(findFix(root, 'sample-bug'), null, 'ends both ids: ambiguous');
+  assert.equal(findFix(root, 'sample-bug'), null, 'findFix still returns null when ambiguous (phase 46: resolveFix reports why)');
   assert.equal(findFix(root, mine.id)?.id, mine.id, 'the full id still works');
   assert.equal(findFix(root, 'other-sample-bug')?.id, other.id, 'a slug unique to one fix still works');
 });
