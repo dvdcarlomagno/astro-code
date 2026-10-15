@@ -4,6 +4,8 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+- OpenCode is a supported host: `ac install` publishes every command to `~/.config/opencode/commands` and every agent to `~/.config/opencode/agents` as a registered subagent, so `/astro-plan`, `/astro-execute` and the rest run natively, dispatching `astro-executor`, `astro-verifier`, … by name. Map astro's tiers to your provider's model ids once with `opencode.models` in `~/.astro/config.json`, and each agent runs on its role's model.
+
 ## v0.43.0
 
 - The balanced and fast profiles run the wave integrator on Haiku 5.5 at low reasoning (ADR-078, amends ADR-035; #125, thanks @luigi-lauro). `max` keeps sonnet, an unset `models.integrator` still floors to sonnet, and no profile puts haiku on a judgement role. Opt out with `ac config set models.integrator sonnet`.

@@ -392,6 +392,39 @@ present, Cursor imports its hooks itself, so astro-code leaves Cursor's files al
 runs there through that import instead — `ac install`/`ac update` say which branch was
 taken. Headless: `cursor-agent -p --trust "/astro-status"`.
 
+### Using it on OpenCode
+
+OpenCode counts as present when `$OPENCODE_CONFIG_DIR` (else
+`$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode`) exists, or `opencode` is on `PATH`.
+`ac install` copies commands to `commands/` and agents to `agents/` there. Commands keep
+their `/astro-plan 3` form and carry a short host note mapping Claude Code's tools onto
+OpenCode's (`subagent`/`task`, `question`, `shell`/`bash`); there is no Workflow tool, so
+orchestration falls to subagents, else inline work. Unlike on Cursor, the astro agents are
+installed as real subagents (`mode: subagent`) and are dispatched by name.
+
+OpenCode names models `<provider>/<id>`, not `opus`/`sonnet`/`haiku`, so tell astro-code
+how your provider spells each tier, in `~/.astro/config.json`:
+
+```json
+{
+  "models": { "planner": "opus", "researcher": "sonnet", "executor": "haiku", "verifier": "opus" },
+  "opencode": {
+    "models": {
+      "opus": "openrouter/anthropic/claude-opus-5.5",
+      "sonnet": "openrouter/anthropic/claude-sonnet-5.5",
+      "haiku": "openrouter/anthropic/claude-haiku-5.5"
+    }
+  }
+}
+```
+
+Each agent file is stamped with the model its role's **user-level** tier maps to
+(criteria-author follows the planner, mapper the researcher); a role set to a full
+`provider/id` is used as is. A role with no mapping, or `inherit`, gets no `model:` and runs
+on the session's model. Re-run `ac install` after changing either map — per-project
+overrides in `.astrocode/config.json` do not reach these global files. Hooks and the status
+line are not wired on OpenCode yet. Headless: `opencode run "/astro-status"`.
+
 ---
 
 ## The loop
