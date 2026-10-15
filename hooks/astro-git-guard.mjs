@@ -8,13 +8,13 @@
 // --hard`, or a whole-tree `git checkout`/`git restore` (ADR-071). The refused set is ONE
 // exported constant, REFUSED, and a drift test ties it to NO_BROAD_STASH.
 //
-// ## Ask on Claude, deny on Cursor
+// ## Deny, never ask (ADR-082)
 //
-// On Claude Code 2.1.292 a hook `ask` was probed live (F1): under bypassPermissions and `-p` it
-// is never auto-approved, a non-interactive agent treats it as a refusal, nothing hangs, and it
-// beats an explicit allow rule. So the user can approve a deliberate reset in their own session
-// and a background agent is simply refused. Cursor's tool-execution path only acts on `deny`
-// from `preToolUse` (F3), so there it denies. The per-host verdict is stated once, in
+// Phase 38 asked on Claude Code, on the strength of a `-p` probe (F1) where an ask behaved as a
+// refusal. A Workflow agent inside an interactive session is not `-p`: its ask is put to the
+// user and the whole run waits for them, so an unattended run stalled on every hit. A deny
+// reaches the agent at once with the reason and the scoped form to use instead, and nothing
+// waits. Cursor only acts on `deny` anyway (F3). The per-host verdict is stated once, in
 // `lib/hosts/guards.mjs` GUARD_HOOKS; a test pins VERDICT/CURSOR_VERDICT to it.
 //
 // ## It never reads the switch
@@ -23,7 +23,7 @@
 // (ADR-072: the switch IS the registration). Being registered means being on, so this script has
 // no config to consult and cannot disagree with `ac mods status`.
 //
-// ## Ask when unsure
+// ## Refuse when unsure, run what it cannot read
 //
 // Compound commands (`&&`, `||`, `;`, `|`, newlines), `cd`/env/`command`/`exec`/`sudo`/`env`/
 // `nice`/`timeout`/`stdbuf` prefixes, `git -C/-c/--git-dir` global options and one-level
@@ -36,9 +36,11 @@
 // flipped (decided with the user, phase 38): when a git word reaches stash/clean/reset/
 // checkout/restore and the guard cannot PROVE the call scoped — an expansion (`$…`, `$(…)`,
 // backticks), an unknown git global option, an unknown wrapper in front of `git`, a pathspec
-// that is magic, a glob, or resolves to `cwd` or above — it asks. One extra prompt on an odd
-// but safe command is the price; the user approves it, an agent is refused. Aliases, scripts
-// and lean-ctx's MCP `ctx_shell` (not a Bash tool call) stay out of reach.
+// that is magic, a glob, or resolves to `cwd` or above — it refuses. What it cannot read at all
+// (the subcommand is an expansion, a script fed to a shell on stdin, nesting three shells deep)
+// runs: matching the text for a git word and a destructive word anywhere in it refused a test
+// script whose comment said "restore" (ADR-082). Aliases, scripts and lean-ctx's MCP
+// `ctx_shell` (not a Bash tool call) stay out of reach.
 //
 // Why it also unwraps `lean-ctx -c '<cmd>'`: Claude runs matching hooks on the ORIGINAL
 // tool_input, so a sibling's rewrite never reaches us (F2). An agent that types the wrapper
@@ -57,7 +59,7 @@
 // reads nothing but stdin; only a call already judged destructive asks git, read-only, whether
 // anything is at stake (below).
 //
-// ## Nothing at stake, nothing to ask (ADR-076)
+// ## Nothing at stake, nothing to refuse (ADR-076)
 //
 // A prompt the user always approves teaches them to approve without reading. So a refused call
 // is let through when it can lose nothing, which two read-only git calls settle:
@@ -70,27 +72,21 @@
 //     checkout, restore and -f; no untracked file for clean (no ignored file either with -x/-X).
 // Only the plainest shape qualifies: one segment starting with the word `git` and its subcommand
 // (no prefixes, global options or wrappers), optionally after a `cd <literal path>` segment.
-// Anything else, an `unsure` hit, or git failing to answer, keeps the ask.
+// Anything else, an `unsure` hit, or git failing to answer, keeps the refusal.
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const VERDICT = 'ask';
+export const VERDICT = 'deny';
 export const CURSOR_VERDICT = 'deny';
 
 // ---------------------------------------------------------------- the refused set
 
 // The subcommands whose unscoped form destroys work. A git call reaching one of these that the
-// guard cannot read fully is asked about (see "Ask when unsure").
+// guard cannot read fully is refused (see "Refuse when unsure").
 const DANGER = new Set(['stash', 'clean', 'reset', 'checkout', 'restore', 'switch']);
-
-// The whole command line being judged, set per call by decide(). A shell fed from stdin or a
-// variable used as the command can carry a git command the parser never sees as words; when the
-// text mentions git together with a destructive subcommand, that is enough to ask.
-let TEXT = '';
-const mentionsDanger = () => /\bgit\b/.test(TEXT) && /\b(stash|clean|reset|checkout|restore|switch)\b/.test(TEXT);
 
 // An expansion the guard cannot resolve: `$VAR`, `$(…)`, backticks.
 const dynamic = (w) => /[$`]/.test(w);
@@ -100,7 +96,7 @@ let CWD = null;
 
 // A pathspec that may name the whole tree: `.`-style literals, any pathspec magic (`:/`, `:!x`,
 // `:(top)`), any glob, any expansion, or a path that resolves to `cwd` or one of its ancestors
-// (`"$PWD"`, the absolute repo root, `src/..`). Conservative on purpose: unsure means ask.
+// (`"$PWD"`, the absolute repo root, `src/..`). Conservative on purpose: unsure means refuse.
 function wholeTree(w) {
   if (w === '.' || /^(\.\/)+\.?$/.test(w) || w.startsWith(':') || dynamic(w)) return true;
   // A glob reaches only below its literal directory (`src/components/*.css`): judge that directory.
@@ -133,8 +129,8 @@ const STASH_SAFE = new Set(['pop', 'apply', 'list', 'show', 'drop', 'branch', 'c
 
 // `git stash push` and bare `git stash <flags>`: only a pathspec after `--` makes it scoped.
 // `-m`/`--message` take a value, so in `git stash -m -- -u` the `--` is the message and `-u` a
-// flag: the separator is the first `--` not eaten as a value. (--pathspec-from-file is asked
-// about before this runs; see judgeGit.)
+// flag: the separator is the first `--` not eaten as a value. (--pathspec-from-file is refused
+// before this runs; see judgeGit.)
 function pushUnscoped(args) {
   let dd = -1;
   for (let i = 0; i < args.length; i++) {
@@ -366,7 +362,7 @@ function judgeGit(words, depth) {
   while (i < words.length) {
     const t = words[i];
     // An inline alias or autocorrect turns any word into stash/reset/clean (`git -c alias.x=stash x`,
-    // `-c help.autocorrect=immediate stsh`); the guard can't know what runs, so it asks.
+    // `-c help.autocorrect=immediate stsh`); the guard can't know what runs, so it refuses.
     const cfg = t === '-c' || t === '--config-env' ? words[i + 1] : t.startsWith('-c') ? t.slice(2) : t.startsWith('--config-env=') ? t.slice(13) : null;
     if (cfg != null && /^(alias\.|help\.autocorrect)/i.test(cfg)) return { ...UNSURE, segment: words.join(' ') };
     if (GIT_VALUE_OPTS.has(t) || GIT_VALUE_LONG.includes(t)) i += 2;
@@ -376,7 +372,7 @@ function judgeGit(words, depth) {
   }
   const sub = words[i];
   if (!sub) return null;
-  if (dynamic(sub)) return { ...UNSURE, segment: words.join(' ') }; // could be any subcommand
+  if (dynamic(sub)) return null; // could be any subcommand: unread, so it runs (ADR-082)
   const args = words.slice(i + 1);
   // Paths read from a file or stdin can name the whole tree; the guard can't see them.
   if (DANGER.has(sub) && args.some((a) => a.startsWith('--pathspec-from'))) return { ...UNSURE, segment: words.join(' ') };
@@ -397,12 +393,10 @@ function judgeSegment(raw, depth) {
     const ci = words.findIndex((a, k) => k > 0 && (cmd === 'lean-ctx' ? a === '-c' : /^-[A-Za-z]*c[A-Za-z]*$/.test(a)));
     const body = ci > 0 ? (words[ci + 1] === '--' ? words[ci + 2] : words[ci + 1]) : undefined; // `bash -c -- '<cmd>'`
     if (typeof body === 'string') return judgeCommand(body, depth + 1);
-    // A shell with no -c and no script reads its commands from stdin (`echo '…' | bash`).
-    if (ci < 0 && SHELLS.has(cmd) && !words.slice(1).some((w) => !w.startsWith('-')) && mentionsDanger()) return { ...UNSURE, segment: words.join(' ') };
   }
   if (cmd === 'eval') return judgeCommand(words.slice(1).join(' '), depth + 1);
   // `$GIT stash -u`, `"$(which git)" reset --hard`: the command word itself is an expansion.
-  if (dynamic(words[0])) return unsure(words.slice(1)) ?? (mentionsDanger() ? { ...UNSURE, segment: words.join(' ') } : null);
+  if (dynamic(words[0])) return unsure(words.slice(1));
   // An unknown wrapper in front of a bare `git` word (`xargs git clean -f`, `watch git reset
   // --hard`): judge from that word. A git command quoted inside one argument is one word, not `git`.
   const gi = words.findIndex((w, k) => k > 0 && base(w) === 'git');
@@ -411,7 +405,7 @@ function judgeSegment(raw, depth) {
 }
 
 function judgeCommand(command, depth = 0) {
-  if (depth >= 3) return mentionsDanger() ? { ...UNSURE, segment: command } : null; // too deep to read: ask, don't allow
+  if (depth >= 3) return null; // too deep to read: unread, so it runs (ADR-082)
   for (const seg of segments(command)) {
     const hit = judgeSegment(seg, depth);
     if (hit) return hit;
@@ -476,15 +470,28 @@ const within = (p, root) => p === root || p.startsWith(root.endsWith(sep) ? root
 const hasFlag = (args, short, long) => args.some((a) => long.includes(a) || (/^-[A-Za-z]+$/.test(a) && [...a.slice(1)].some((c) => short.includes(c))));
 
 // The directory the git call runs in, when the command is plain enough to know it, else null.
+// Before the git call only literal assignments and `cd <literal path>` segments may run; one
+// `lean-ctx -c '…'` or `bash -c '…'` around the whole command is unwrapped first. `tail` holds
+// the segments after it, which count only in a scratch repo (see nothingAtStake).
 function plainGitDir(command) {
-  const segs = segments(command);
-  if (!CWD || segs.length < 1 || segs.length > 2) return null;
-  const g = segs[segs.length - 1];
-  if (g[0] !== 'git' || !DANGER.has(g[1]) || g.some((w) => typeof w !== 'string' || dynamic(w))) return null;
-  if (segs.length === 1) return { dir: CWD, words: g };
-  const c = segs[0];
-  if (c.length !== 2 || c[0] !== 'cd' || typeof c[1] !== 'string' || dynamic(c[1]) || /^[~-]/.test(c[1])) return null;
-  return { dir: resolve(CWD, c[1]), words: g };
+  let segs = segments(command);
+  const w = segs.length === 1 ? segs[0] : null;
+  if (w && w.length === 3 && w[1] === '-c' && typeof w[2] === 'string' && (base(w[0]) === 'lean-ctx' || SHELLS.has(base(w[0])))) {
+    segs = segments(resolveLiterals(w[2]));
+  }
+  if (!CWD || !segs.length) return null;
+  let dir = CWD;
+  let i = 0;
+  for (; i < segs.length; i++) {
+    const c = segs[i];
+    if (c.every((x) => typeof x === 'string' && /^[A-Za-z_]\w*=/.test(x) && !dynamic(x))) continue;
+    if (c[0] !== 'cd') break;
+    if (c.length !== 2 || typeof c[1] !== 'string' || dynamic(c[1]) || /^[~-]/.test(c[1])) return null;
+    dir = resolve(dir, c[1]);
+  }
+  const g = segs[i];
+  if (!g || g[0] !== 'git' || !DANGER.has(g[1]) || g.some((x) => typeof x !== 'string' || dynamic(x))) return null;
+  return { dir, words: g, tail: segs.slice(i + 1) };
 }
 
 /** True when the refused call provably loses nothing (see header); any doubt answers false. */
@@ -492,13 +499,15 @@ export function nothingAtStake(hit, command) {
   if (!hit || hit.id === 'unsure') return false;
   const plain = plainGitDir(command);
   if (!plain) return false;
-  const { dir, words } = plain;
+  const { dir, words, tail } = plain;
   const args = words.slice(2);
   try {
     const common = gitOut(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir']).trim();
     if (!isAbsolute(common)) return false;
     const real = realpathSync(common);
-    if (within(real, realpathSync(tmpdir())) || existsSync(join(real, 'astrocode-scratch'))) return true;
+    // A probe in a scratch copy goes on to run its test: what follows may not be refused itself.
+    if (within(real, realpathSync(tmpdir())) || existsSync(join(real, 'astrocode-scratch'))) return tail.every((t) => !judgeSegment(t, 0));
+    if (tail.length) return false;
     if (hit.id === 'reset' && args.some((a) => !a.startsWith('-') && a !== 'HEAD')) return false;
     const x = hit.id === 'clean' ? hasFlag(args, ['x', 'X'], []) : hit.id === 'stash' && hasFlag(args, ['a'], ['--all']);
     const lines = gitOut(dir, ['-c', 'core.fsmonitor=false', 'status', '--porcelain=v1', '--branch',
@@ -516,7 +525,7 @@ export function nothingAtStake(hit, command) {
 // A variable set ONCE in the same command, as a segment of its own, to one plain word (no
 // expansion, glob, quote or space) is replaced by that word after the assignment, so the
 // pathspec is judged as written. A variable also set any other way (a second assignment, an
-// env prefix `F=x cmd`, `for F in`, `read F`) stays an expansion, and an expansion asks.
+// env prefix `F=x cmd`, `for F in`, `read F`) stays an expansion, and an expansion is refused.
 export function resolveLiterals(command) {
   let out = command;
   for (const seg of segments(command)) {
@@ -569,7 +578,6 @@ export function decide(input, { cursor = false } = {}) {
   const resolved = resolveLiterals(command);
   let hit = null;
   for (const variant of expandLoops(resolved)) {
-    TEXT = variant;
     hit = judgeCommand(variant);
     if (hit && !nothingAtStake(hit, variant)) break;
     hit = null;

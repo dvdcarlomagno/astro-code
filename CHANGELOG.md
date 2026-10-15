@@ -4,6 +4,8 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+- `git-guard` never asks any more: a destructive git call it cannot show to be scoped is denied, so the agent gets the reason and the scoped form at once instead of an unattended workflow waiting on a prompt until you come back. A call it cannot read at all (a subcommand that is an expansion, a script fed to a shell on stdin) runs; it no longer refuses a script just because its text mentions git and a word like "restore" (ADR-082)
+
 ## v0.43.0
 
 - The balanced and fast profiles run the wave integrator on Haiku 5.5 at low reasoning (ADR-078, amends ADR-035; #125, thanks @luigi-lauro). `max` keeps sonnet, an unset `models.integrator` still floors to sonnet, and no profile puts haiku on a judgement role. Opt out with `ac config set models.integrator sonnet`.
