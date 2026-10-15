@@ -273,14 +273,14 @@ function gitGuarded(profiles = {}) {
   assert.equal(b.ac(['mods', 'enable', 'git-guard']).status, 0);
   return { b, writeReg };
 }
-// exactly one git-guard entry in `dir`, and it asks on `git stash -u`
+// exactly one git-guard entry in `dir`, and it denies `git stash -u`
 function gitWorks(b, dir) {
   const g = gitEntries(jread(settingsOf(dir)));
   assert.equal(g.length, 1, `${dir}: exactly one git-guard entry`);
   const cmd = g[0].hooks.find((h) => h.command.includes(GGUARD)).command;
   const ev = { hook_event_name: 'PreToolUse', cwd: b.T, tool_name: 'Bash', tool_input: { command: 'git stash -u' } };
   const r = spawnSync('/bin/sh', ['-c', cmd], { input: JSON.stringify(ev), encoding: 'utf8', env: { HOME: b.T, PATH: b.PATH } });
-  assert.match(r.stdout, /"permissionDecision":\s*"ask"/, `${dir}: the entry asks — ${r.stdout}${r.stderr}`);
+  assert.match(r.stdout, /"permissionDecision":\s*"deny"/, `${dir}: the entry denies — ${r.stdout}${r.stderr}`);
 }
 
 test('git-guard: a profile added after enable gets one working entry on the next install', () => {

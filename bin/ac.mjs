@@ -125,6 +125,7 @@ import {
 import { inForceText } from '../lib/decisions.mjs';
 import { completeMilestone, belongsToMilestone } from '../lib/milestone.mjs';
 import { recordSurprise } from '../lib/surprises.mjs';
+import { planReverify, recordVerdict, verifiedGate } from '../lib/verdict.mjs';
 import { milestoneHarvest } from '../lib/harvest.mjs';
 import { flowInit, flowBranch, flowPR, flowRelease, flowTag, flowHotfixStart, flowHotfixFinish } from '../lib/flow.mjs';
 import { installClaude, uninstallClaude, installStatusline, baseConfigDir, ASTRO_HOME, refreshAgents, agentNames } from '../lib/install.mjs';
@@ -224,6 +225,13 @@ const ALLOWED_FLAGS = {
   // ADR-074 — `witnessed` is the optional witness mod TELLING ac what it saw; ac never detects.
   'phase accept': ['by', 'force', 'agent', 'witnessed'],
   'phase show': ['json'],
+  // Phase 45 (ADR-079) — `--force` is the escape from the full-verdict gate, mirroring
+  // `phase accept`; a typo'd flag must not silently verify without the gate's say.
+  'phase verify': ['force'],
+  // `--full` forces a full re-verify; a typo (`--fulll`) must not degrade into a narrowed run.
+  'verdict plan': ['full', 'json'],
+  // `--result` is the verifier's checked criteria; a typo must not record an empty verdict.
+  'verdict record': ['result'],
   // Phase 23 (P2) — a stand-in agent rejects on the human's behalf; `agent` is the
   // declared signer, mirroring `phase accept --agent` (ADR-033, now symmetric).
   'phase reject': ['reason', 'agent', 'witnessed'],
@@ -491,7 +499,9 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac phase check "<name>"             see if a phase with a similar name exists
   ac phase context <phase>            discuss-gate status: missing | stub | ready
   ac phase context <phase> --author   who captured it: human | agent <name> | none
-  ac phase verify <phase>             mark a phase verified (AI gate passed)
+  ac phase verify <phase> [--force]   mark a phase verified (AI gate passed; needs a full recorded verdict)
+  ac verdict plan <phase> [--full] [--json]  should the next verify narrow? (ADR-079)
+  ac verdict record <phase> --result '<json>'  save + commit a verify verdict
   ac phase accept <phase> [--by N]    UAT sign-off → complete (requires verified)
   ac phase accept <p> --agent <name>  machine-signed sign-off (records accepted_kind=agent)
   ac phase accept <p> --witnessed composer  record that a human typed the gate command (set by the witness mod, ADR-074)
@@ -2263,7 +2273,14 @@ async function main() {
         }
         console.log(phaseContextStatus(r, ph.slug));
       } else if (sub === 'verify') {
-        if (!ph) die('usage: ac phase verify <phase>');
+        if (!ph) die('usage: ac phase verify <phase> [--force]');
+        checkFlags('phase verify', flags);
+        // ADR-079 — a phase is verified only by a full run. Enforced here in code, so a
+        // carried or narrowed verdict cannot reach `verified` however the prose reads.
+        const gate = verifiedGate(r, ph.slug);
+        if (!gate.ok && !flags.force) {
+          die(`phase ${ph.number}: ${gate.reason} — run /astro-verify ${ph.number} (or pass --force)`);
+        }
         await setPhaseStatus(r, ph.slug, 'verified');
         // `verified` is the AI verifier's verdict by definition (REQ-006), so by: agent.
         reportFleetOutcome(r, { kind: 'phase_verified', ref: ph.number, title: ph.name, by: 'agent' });
@@ -2479,6 +2496,31 @@ async function main() {
       } else {
         die('usage: ac phase <add|check|context|show|verify|accept|reject|surprise|effort|note|milestone> …');
       }
+      return;
+    }
+
+    case 'verdict': {
+      const r = root();
+      const sub = pos[0];
+      if (sub !== 'plan' && sub !== 'record') die('usage: ac verdict <plan|record> <phase> …');
+      checkFlags(`verdict ${sub}`, flags);
+      const ph = findPhase(r, pos[1]);
+      if (!ph) die(`usage: ac verdict plan <phase> [--full] [--json] | ac verdict record <phase> --result '<json>'`);
+      if (sub === 'plan') {
+        const plan = planReverify(r, ph.slug, { full: flags.full !== undefined });
+        if (flags.json) json(plan);
+        else if (plan.mode === 'narrowed') {
+          console.log(`• narrowed: re-check ${plan.first.join(', ')} first (run ${plan.saved.run} @ ${String(plan.saved.commit).slice(0, 7)})`);
+        } else console.log(`• full: ${plan.reason}`);
+        return;
+      }
+      if (typeof flags.result !== 'string') die(`usage: ac verdict record <phase> --result '<json>'`);
+      let result;
+      try { result = JSON.parse(flags.result); } catch { die('--result is not valid JSON'); }
+      let out;
+      try { out = await recordVerdict(r, ph.slug, result); } catch (e) { die(e.message); }
+      if (out.ignored) console.error(`⚠ ${out.ignored} reported criterion id(s) are not in CRITERIA.md and were ignored`);
+      json(out);
       return;
     }
 

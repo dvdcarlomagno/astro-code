@@ -1,0 +1,1 @@
+{"at":"2026-10-15T09:45:07.503Z","phase":"45-targeted-re-verify-after-a-fail-re","signals":["remediation"],"note":"first verify failed C10 (no test proved the code-side coverage guard alone withdraws a narrowed PASS); the old installed workflow records no verdict, so the full PASS was recorded by hand through ac verdict record"}

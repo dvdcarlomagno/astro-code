@@ -1,0 +1,58 @@
+# Phase 45 — Success criteria (pre-registered, plan-blind)
+
+Derived from the phase goal, CONTEXT.md decisions 1-6 and its planner defaults, and ADR-079
+(which amends ADR-031). Scenarios below use a throwaway project: `mktemp -d`, `git init`,
+`ac init`, `ac phase add`, a CRITERIA.md with N criteria (C1…CN) in that phase folder, and
+commits made with plain git. The verdict-recording and mode-choosing surface is whatever
+`ac help` and the two verify paths (the verify→remediate loop in the execute workflow, and
+hand-run `/astro-verify`) actually use. The verifier finds it; these criteria do not name it.
+Where an agent's behaviour is involved, drive the real workflow script with a stub `agent()`
+that returns scripted verifier verdicts and records every prompt and spawn. This is the
+extract-and-run pattern `tests/workflows.test.mjs` already uses.
+
+### C1 — Every verify run leaves a saved, committed verdict in the phase folder, written by `ac`, that the next run can narrow from
+- **Observe:** In a scratch project with a 6-criterion CRITERIA.md, record a FAIL verdict (C2 and C5 failed, the rest passed) through the `ac` surface that the verify paths use. Then inspect what was saved. It must be a machine-readable file inside that phase's folder, beside CRITERIA.md. `git check-ignore` must not ignore it, and `git status` must show it as committable (or it is already committed). It must hold an outcome per criterion (passed / failed / carried) for all six ids, the commit it ran on (equal to `git rev-parse HEAD` at record time), a fingerprint of the CRITERIA.md it graded against, the mode (full or narrowed), and a timestamp. Edit one character of CRITERIA.md and record again: the fingerprint changes. Record again without editing: the fingerprint stays the same. Run the same scenario through a second verify run: the second run reads this saved verdict, as C2 shows.
+- **Fails if:** No verdict persists between runs. Or it lives outside the repo, in a gitignored path, or only in memory or a workflow return. Or it lacks any of these: per-criterion outcomes, the HEAD commit, the CRITERIA.md fingerprint, the mode. Or the fingerprint does not track CRITERIA.md content. Or the only way to produce it is a hand-written file, with no `ac` path.
+
+### C2 — A re-verify after a FAIL with few unmet criteria narrows to those criteria first
+- **Observe:** In the scratch project (9 criteria), save a full FAIL verdict with C3 and C7 failed, on commit A. Make one more commit B on top of A, leaving CRITERIA.md untouched, and start a re-verify (no `--full`). The mode chosen is narrowed, and the set to check first is exactly {C3, C7}. In the workflow loop, drive one remediation cycle after a first-pass FAIL of {C3, C7}. The re-verify prompt sent to the verifier names C3 and C7 as the criteria to re-check first, from scratch and against their own `Observe:` lines. It also carries the saved verdict's run and commit.
+- **Fails if:** The re-verify still runs as a plain full run with nothing checked first. Or the first-check set differs from the previously failed ids: extra ids, missing ids, or ids taken from the remediation diff rather than the saved verdict. Or the re-verify never reads the saved verdict.
+
+### C3 — Every automatic fallback, and `--full`, forces a full run
+- **Observe:** Start from C2's narrowable setup and vary one condition at a time. Each variant must give mode full, with no narrowed first pass:
+  (a) no saved verdict for the phase;
+  (b) more than 3 criteria unmet, e.g. 4 of 20;
+  (c) more than a third unmet, e.g. 2 of 5. If the planner tuned these thresholds, use the value the phase states once and test both sides of it;
+  (d) CRITERIA.md edited after the verdict was saved;
+  (e) the saved verdict's commit is not an ancestor of HEAD. Check out a branch from A's parent, add a commit, and re-verify there. Or set the saved commit to an unreachable sha;
+  (f) `--full` passed to `/astro-verify`, and the equivalent workflow argument passed to the execute workflow.
+  The control case (C2's setup unchanged) still narrows.
+- **Fails if:** Any of (a)-(f) still produces a narrowed run. Or the control case does not narrow, which would make the whole feature inert behind always-full. Or a missing, unreadable or malformed saved verdict crashes the run instead of falling back to full. Or `--full` is rejected as an unknown flag on either path.
+
+### C4 — A phase reaches `verified` only from a run that checked every criterion, never from carried evidence
+- **Observe:** (1) Workflow loop, stub verifier. The first pass FAILs {C3}. On the re-verify, the stub returns `passed: true` with C3 passed and every other criterion marked carried, or simply absent, rather than re-checked. The loop must not report the phase as passed or verified, and must not run the transition to verified. (2) Repeat with a stub that, in the same run, re-checks C3 and then observes every other criterion as passed. Now the loop reports passed. The saved verdict's mode is full, every id in CRITERIA.md is passed (none carried, none missing), and its commit equals HEAD. (3) In the scratch project, try to move the phase to `verified` through `ac` while the latest saved verdict has any criterion carried, failed or missing, or is narrowed. The phase status must stay unverified. Either the attempt is refused, or the documented path that /astro-verify and the workflow follow never reaches the transition in that state. Read `ac phase show`.
+- **Fails if:** Any path ends with the phase `verified` while the verdict it rests on has a carried, missing or failed criterion, was a narrowed run, or ran on a commit other than HEAD at that time. That is the false-PASS ADR-031/079 exist to prevent.
+
+### C5 — A narrowed FAIL reports every previously unmet criterion, and cites the verdict behind each carried one
+- **Observe:** Stub-verifier loop, or a hand-run `/astro-verify` followed on the scratch project. The prior FAIL was {C2, C5, C8} on commit A. On the narrowed re-verify, C2 is still unmet and C5 and C8 now pass. The run ends FAIL. The saved verdict for this run is mode narrowed. It shows C2 failed and C5 and C8 passed: all three were checked, and none was skipped after the first failure. Every other criterion is carried, and each carried entry names the run and the commit (A) of the verdict it rests on. The human-facing FAIL report lists the still-unmet criterion (C2) and makes clear that the others were carried, not re-checked. The narrowed-mode instruction actually sent to the verifier (captured from the stub) tells it to check all previously unmet criteria before stopping.
+- **Fails if:** The run stops at the first still-unmet criterion and leaves later previously-unmet ones unchecked or marked carried. Or a carried criterion is reported as passed or re-checked in this run. Or carried entries lack the source run and commit. Or a narrowed FAIL with all previously unmet criteria passing ends there as a FAIL or PASS without continuing, which is C6's case.
+
+### C6 — When all previously unmet criteria now pass, the same run continues to full coverage: a PASS costs one verifier run, not two
+- **Observe:** Workflow loop with a stub `agent()` that counts verifier spawns. The first pass FAILs {C4}. Remediation commits, and the re-verify is narrowed. The stub reports C4 passing first, then every remaining criterion passing within that same invocation. Exactly one verifier spawn happens for the re-verify, i.e. two for the whole phase including the first pass. The loop ends passed. The saved verdict is mode full with every criterion checked. In a variant, the continuation finds a different criterion (C6) newly failing. The result is FAIL, C6 is reported as failed, not carried, and the phase is not verified. The same holds for hand-run `/astro-verify`: its documented flow makes one verifier invocation per re-verify, which narrows first and then continues.
+- **Fails if:** A passing narrowed re-verify spawns a second, separate full verifier run. Or the continuation is skipped, so a PASS rests on carried criteria; see C4. Or a regression found in the continuation is dropped or reported as carried.
+
+### C7 — The loop's no-progress bail still compares the complete failing set across cycles
+- **Observe:** Effort deep, or any setting with at least 2 remediation cycles, with a stub verifier. Cycle 0 is a full FAIL of {C2, C5}. In cycle 1 the remediation commits, and the narrowed re-verify finds C2 and C5 both still unmet. The loop stops with the no-progress reason and does not run another cycle. In a second scenario, cycle 1's narrowed re-verify finds C2 fixed and C5 still unmet, so the set shrank to {C5}. The loop continues to the next cycle. Carried criteria count as their last-seen outcome in both comparisons. A carried criterion last seen passing does not count as failing, and a narrowed run does not make the failing set look smaller by leaving criteria out.
+- **Fails if:** A narrowed FAIL with an unchanged failing set does not bail. Or the comparison treats unchecked or carried criteria as fixed, so the failing set looks smaller and another cycle runs. Or a shrunken set wrongly bails. Or the loop ever sets the phase passed on a no-progress bail.
+
+### C8 — A broad fix is the verifier's call to widen to full, and it is given the diff it needs to make it
+- **Observe:** Stub-verifier loop, or the `/astro-verify` flow, on a narrowable re-verify (C2's setup). The input the narrowed verifier run receives includes the change since the saved verdict, either the diff itself or the exact commit range `<saved commit>..HEAD` to inspect. It also includes an explicit instruction that a fix touching what many criteria rest on must be checked as a full run. When the stub's return declares the fix broad, the run's saved verdict is mode full with every criterion checked, not narrowed with carried entries.
+- **Fails if:** The narrowed verifier gets no diff and no commit range. Or it has no way to declare the fix broad. Or a run that declared the fix broad still saves a narrowed verdict with carried criteria.
+
+### C9 — The saved verdict is protected from hand edits like the other `ac`-owned files when canon-guard is on
+- **Observe:** Pipe a synthetic PreToolUse payload into the canon-guard hook script on stdin, the same way phase 37's checks drive it. A `Write` or `Edit` targeting a phase folder's verdict file is denied, and the deny message names the `ac` verb that writes it. A `Bash` command that redirects into that file (`echo {} > .astrocode/phases/<slug>/<verdict file>`) is denied. The `ac` command that records a verdict is allowed. Writing an ordinary file in the same folder (e.g. a scratch note) is not denied by this rule.
+- **Fails if:** A hand Write, Edit or shell redirect to the verdict file goes through with canon-guard on. Or the `ac` verb itself is blocked. Or the rule over-matches and blocks unrelated files in phase folders.
+
+### C10 — The repository's own suite passes, with the ADR-031 coverage guard rewritten to the new contract rather than removed
+- **Observe:** `host node --test tests/` (or `node --test tests/` in the container) exits 0. As a mutation probe, make a scratch copy of the repo (`cp -r` to a temp dir) and change the verified path there so that a narrowed run whose previously unmet criteria pass is accepted as passed without the continuation. At least one test in the copy's suite must then fail. Discard the copy afterwards.
+- **Fails if:** The suite is red. Or the mutation that lets a narrowed PASS through leaves the whole suite green, meaning the ADR-031 guard was deleted or weakened instead of updated so that a PASS still requires full coverage.

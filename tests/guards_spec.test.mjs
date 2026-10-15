@@ -47,7 +47,7 @@ test('git-guard spec: script, events, matchers and the per-host verdict', () => 
   assert.equal(g.script, G);
   assert.equal(g.claude.event, 'PreToolUse');
   assert.equal(g.claude.matcher, 'Bash');
-  assert.equal(g.claude.verdict, 'ask');
+  assert.equal(g.claude.verdict, 'deny');
   assert.equal(g.cursor.event, 'preToolUse');
   assert.equal(g.cursor.matcher, 'Shell');
   assert.equal(g.cursor.arg, 'cursor');

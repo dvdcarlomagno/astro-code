@@ -11,7 +11,9 @@ Execute phase `$ARGUMENTS`.
    tell the user to run `/astro-plan <number>` first (reference the phase by its
    number, e.g. `/astro-plan 3`).
 2. Mark the phase active and surface the live status: `ac state set active_phase <slug>`
-   then `ac activity '⚙ executing'` (the statusline/banner pick it up).
+   then `ac activity '⚙ executing'` (the statusline/banner pick it up). Set it again
+   whenever you launch or resume the workflow (a `resumeFromRunId` call included): the
+   status belongs to the run, so a resumed run must show it too.
 2b. **Pre-flight the fork base:** run `ac preflight`. It prints nothing when local `HEAD`
    matches its upstream, and otherwise warns that parallel executor worktrees fork from the
    REMOTE, not from `HEAD` — so a whole wave can come back STALE, be re-run through the heal
@@ -36,6 +38,7 @@ Execute phase `$ARGUMENTS`.
                models: <the JSON object from `ac config get models`>,
                reasoning: <the JSON object from `ac config get reasoning`>,
                effort: <the level from `ac phase effort <slug>` (see the --effort note below)>,
+               full: <true only when the user passed --full; otherwise omit it>,
                useWorktrees: <the boolean from `ac config get use_worktrees`>,
                leanExecution: <the boolean from `ac config get lean_execution`> }
      })
@@ -67,7 +70,10 @@ Execute phase `$ARGUMENTS`.
      verify→remediate loop**: on a mid-phase verify FAIL the workflow re-runs the
      `astro-executor` scoped to only the unmet criteria (up to `light`=0 / `standard`=1 /
      `deep`=3 cycles) and re-verifies, **bailing early to a human-facing FAIL on
-     no-progress** (HEAD didn't move, or the failing-criteria set didn't shrink). It
+     no-progress** (HEAD didn't move, or the failing-criteria set didn't shrink). A
+     re-verify after a FAIL narrows first — it re-checks the previously unmet criteria, then
+     continues to full coverage in the same run (`ac verdict plan` decides; `--full` forces a
+     full run), so a PASS still needs every criterion. It
      reaches `verified` at best — never auto-accepts (REQ-006).
      It discovers the plan's tasks + dependencies, groups them into waves, and
      executes them **on the current working branch**, picking a strategy automatically:
@@ -112,7 +118,10 @@ Execute phase `$ARGUMENTS`.
      use the opus tier for both the `astro-executor` and `astro-verifier` calls — unless
      `ac config get models` returns `inherit` (a local-model session): then spawn every
      agent with no model at all, so it runs on the session's model (in-memory
-     only — never persisted). On a verify FAIL, run the same bounded verify→remediate loop:
+     only — never persisted). Follow `/astro-verify`'s sequence around every verify:
+     `ac verdict plan <slug> --json` (add `--full` when the user passed it), verify, then
+     `ac verdict record <slug> --result '<json>'` — so these tiers record verdicts too.
+     On a verify FAIL, run the same bounded verify→remediate loop:
      re-spawn the existing `astro-executor` scoped to ONLY the unmet criteria (with the
      verifier's failing command + output as evidence, plan-blind — never a new agent type),
      one atomic commit, then re-verify — up to the level's budget (`light`=0 / `standard`=1
@@ -223,15 +232,17 @@ Execute phase `$ARGUMENTS`.
    check **files its own debt** on a finding — do not re-file its output with `ac debt add`,
    that would duplicate step 4d's filing path and fragment the register.
 
-5. Clear the live status (`ac activity clear` — also clear it on any early stop or
-   `integrationFailed`), then report the verdict. `verdict` is now a **structured object**
+5. Clear the live status (`ac activity clear` — also clear it on an early stop or
+   `integrationFailed`, **except** a stop because a workflow for this phase is already
+   running: that run owns the status, so leave it set), then report the verdict. `verdict` is now a **structured object**
    — read `verdict.passed` (boolean) for PASS/FAIL and `verdict.summary` for the
    human-facing reason text (the workflow has returned by now — safe to suggest `/clear`).
    **Lead with one line**: PASS or FAIL plus the one-line cause from `verdict.summary` —
    `verdict.summary` is *summarised here, not relayed verbatim*; the verifier's long-form
    evidence was never the bug. Then the next command, one line.
    - **`verdict.passed` true** → run `ac phase verify <slug>` (marks it **verified** — the
-     AI gate), then tell the user to run **`/astro-accept <number>`** (by number, e.g.
+     AI gate; it refuses without a recorded full verdict, and then you report that in one line
+     and point at `/astro-verify <number>` instead), then tell the user to run **`/astro-accept <number>`** (by number, e.g.
      `/astro-accept 3`) for UAT sign-off, which is what actually closes the phase.
      Optionally add: state is saved to `.astrocode/`, so `/clear` before `/astro-accept`
      (or the next phase) keeps context lean and loses nothing — a suggestion, not a

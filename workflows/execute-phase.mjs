@@ -41,6 +41,10 @@ if (!root || !phaseSlug) throw new Error('execute-phase requires args { root, ph
 // budget (`?? 1`) so a typo can never produce an unbounded or zero-when-meant-more loop (C3).
 const effort = input.effort || 'standard'
 const maxCycles = ({ light: 0, standard: 1, deep: 3 })[effort] ?? 1
+// ADR-079 — `full: true` (the command passes it when the user gave `--full`) forces a FULL
+// verify even when a saved verdict would let a re-verify narrow. Handed to the verdict clerk
+// as `--full`, so the one place that decides narrow-vs-full (`ac verdict plan`) stays in lib/.
+const fullRun = input.full === true
 // Resolve the EFFECTIVE model tiers ONCE, up front, so every agent() call below
 // (Discover, the execute waves, verify, and remediation) reads the same map.  `deep`
 // escalates BOTH the executor and the verifier to opus for THIS phase only — a fresh
@@ -1831,6 +1835,12 @@ const VERIFY_SCHEMA = {
     passed: { type: 'boolean' },
     criteriaFound: { type: 'boolean' },
     summary: { type: 'string' },
+    // ADR-079 — all three optional so a verifier that predates narrowing still validates.
+    // `mode` is what this run actually covered; `broad` declares the fix touched what many
+    // criteria rest on (the run then covers everything); `status` marks a criterion this run
+    // did NOT re-check ('carried') — never a pass.
+    mode: { type: 'string', enum: ['full', 'narrowed'] },
+    broad: { type: 'boolean' },
     criteria: {
       type: 'array',
       items: {
@@ -1839,6 +1849,7 @@ const VERIFY_SCHEMA = {
         properties: {
           id: { type: 'string' },
           passed: { type: 'boolean' },
+          status: { type: 'string', enum: ['passed', 'failed', 'carried'] },
           command: { type: 'string' },
           output: { type: 'string' },
         },
@@ -1998,27 +2009,146 @@ if (integrationFailed) {
   log('skipped goal verification — integration failed')
 }
 
+// ── ADR-079: the verdict clerks ─────────────────────────────────────────────────
+//
+// The script cannot import lib/ or run git/ac (ADR-005, ADR-008), so two mechanical clerk
+// agents (the stamp-audit pattern) run exactly one `ac verdict …` command each and hand its
+// JSON back. NEITHER decides anything: the thresholds, the fingerprint and the narrow-vs-full
+// choice live only in lib/verdict.mjs (`ac verdict plan`), and `passed` is derived by
+// `ac verdict record`. They are not verifier spawns, so a re-verify still costs ONE verifier.
+// A clerk that returns nothing or garbage degrades to a full verify / an unrecorded verdict
+// with one visible line; it never throws.
+const VERDICT_PLAN_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    mode: { type: 'string', enum: ['full', 'narrowed'] },
+    reason: { type: 'string' },
+    first: { type: 'array', items: { type: 'string' } },
+    ids: { type: 'array', items: { type: 'string' } },
+    total: { type: 'integer' },
+    saved: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { run: { type: 'integer' }, commit: { type: 'string' }, mode: { type: 'string' } },
+    },
+    range: { type: 'string' },
+  },
+  required: ['mode', 'first'],
+}
+
+const VERDICT_RECORD_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    recorded: { type: 'boolean' },
+    run: { type: 'integer' },
+    mode: { type: 'string' },
+    passed: { type: 'boolean' },
+    failing: { type: 'array', items: { type: 'string' } },
+    carried: { type: 'integer' },
+    carriedFrom: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { run: { type: 'integer' }, commit: { type: 'string' } },
+    },
+    committed: { type: 'boolean' },
+    note: { type: 'string' },
+  },
+  required: ['recorded'],
+}
+
+const runVerdictPlan = () =>
+  agent(
+    `VERDICT PLAN for phase ${phaseSlug} in ${root}. Purely mechanical — do not fix, judge or edit ` +
+      `anything. Run exactly this ONE command in ${root} and return its fields verbatim:\n` +
+      `  ac verdict plan ${phaseSlug} --json${fullRun ? ' --full' : ''}\n` +
+      `Return mode, reason, first, ids, total, saved (omit it when the output has saved: null) and range ` +
+      `(omit it when null). If the command fails or prints no JSON, return mode="full", first=[] and ` +
+      `put the first stderr line in reason.`,
+    { label: 'verdict:plan', phase: 'Verify', agentType: 'astro-executor', model: models.executor, effort: reasoning.executor, schema: VERDICT_PLAN_SCHEMA },
+  )
+
+const runVerdictRecord = (resultJson) =>
+  agent(
+    `VERDICT RECORD for phase ${phaseSlug} in ${root}. Purely mechanical — do not fix, judge or edit ` +
+      `anything. Run exactly this ONE command in ${root} and return its fields verbatim:\n` +
+      `  ac verdict record ${phaseSlug} --result '${resultJson}'\n` +
+      `Return recorded=true plus run, mode, passed, failing, carried, carriedFrom (omit when null) and ` +
+      `committed from the JSON it prints. If the command exits non-zero, return recorded=false and put ` +
+      `the first stderr line in note.`,
+    { label: 'verdict:record', phase: 'Verify', agentType: 'astro-executor', model: models.executor, effort: reasoning.executor, schema: VERDICT_RECORD_SCHEMA },
+  )
+
+const FULL_PLAN = (reason) => ({ mode: 'full', reason, first: [], ids: [], saved: null, range: null })
+
+// Ask the clerk, validate, never throw. A narrowed plan must carry everything the narrowed
+// prompt cites (first ids, saved run + commit, range); otherwise it is not trusted.
+const getVerdictPlan = async () => {
+  let r = null
+  try { r = await runVerdictPlan() } catch (e) { r = null }
+  if (!r || (r.mode !== 'full' && r.mode !== 'narrowed') || !Array.isArray(r.first)) {
+    log('⚠ verdict plan unavailable — running a full verify')
+    return FULL_PLAN('verdict plan unavailable')
+  }
+  const ids = Array.isArray(r.ids) ? r.ids : []
+  const plan = { mode: r.mode, reason: r.reason || '', first: r.first, ids, saved: r.saved || null, range: r.range || null }
+  if (plan.mode === 'narrowed' && (!plan.first.length || !plan.saved || !plan.range)) {
+    log('⚠ verdict plan incomplete — running a full verify')
+    return { ...plan, mode: 'full', first: [], reason: 'verdict plan incomplete' }
+  }
+  log(plan.mode === 'narrowed'
+    ? `• verify plan: narrowed — re-check ${plan.first.join(', ')} first`
+    : `• verify plan: full — ${plan.reason}`)
+  return plan
+}
+
+// What the loop knows across verify rounds. `lastSeen` is id → passed, updated ONLY from
+// criteria a run actually checked (never a carried one), so the no-progress comparison below
+// always runs on the COMPLETE failing set: carried criteria count as their last-seen outcome,
+// and a narrowed run cannot make the set look smaller by leaving criteria out.
+const lastSeen = new Map()
+const evidence = new Map()
+const seenIds = new Set()
+
 // runVerify — the ADR-021 adversarial, plan-blind goal verification, now returning the
 // structured VERIFY_SCHEMA verdict so ONE call serves the first verify AND every
 // re-verify in the loop (no forked verifier prompt).
-// ADR-031 — `focusIds` REDIRECTS the re-verify's depth; it never narrows its COVERAGE.
+// ADR-031 (amended by ADR-079) — a PASS always needs FULL coverage.
 //
 // The obvious optimization — on a re-verify, only re-check the criteria that failed — is
-// WRONG here, and the loop below depends on it being wrong. The stop-on-no-progress bail
-// compares the COMPLETE failing-criteria set across cycles precisely so that a remediation
+// WRONG for a passing run, and the loop below depends on it being wrong. The stop-on-no-progress
+// bail compares the COMPLETE failing-criteria set across cycles precisely so that a remediation
 // which fixes one criterion while incidentally breaking another reads as net-no-progress
-// and bails. Re-checking only the previously-failing ids would make that regression
-// invisible and could return passed=true on a phase the cycle just broke — the exact
+// and bails. A verdict resting on re-checking only the previously-failing ids would make that
+// regression invisible and could return passed=true on a phase the cycle just broke — the exact
 // false-PASS mode ADR-020/021 exist to prevent.
 //
-// So every criterion is still independently observed on every cycle. `focusIds` only tells
-// the verifier where the remediation actually touched, so it spends its deepest adversarial
-// effort there rather than re-deriving all evidence uniformly from scratch.
-const runVerify = (focusIds = []) =>
+// ADR-079 narrows only the still-FAILING re-verify: `plan.mode === 'narrowed'` makes the verifier
+// check the previously unmet criteria first and stop with a FAIL if any is still unmet. When they
+// all pass, the SAME run continues over every other criterion, so a PASS still costs one run and
+// still observed everything. `focusIds` (full mode) only redirects the verifier's depth.
+const runVerify = (plan = FULL_PLAN(''), focusIds = []) =>
   agent(
     `Verify phase "${phaseSlug}" of the project at ${root}. The work is committed on the ` +
       `CURRENT branch — verify against HEAD/the working tree, NOT a fresh checkout of main.\n\n` +
-      (focusIds.length
+      (plan.mode === 'narrowed'
+        ? `THIS IS A NARROWED RE-VERIFY (ADR-079). The previous verdict (run ${plan.saved.run}, commit ` +
+          `${plan.saved.commit}) left these criteria unmet: ${plan.first.join(', ')}.\n` +
+          `1. FIRST inspect \`git diff ${plan.range}\` (the change since that verdict). If the fix is BROAD — ` +
+          `it touches what many criteria rest on (shared code, config, the test harness) — do not ` +
+          `narrow: run a FULL verify from the start and return broad=true, mode='full'.\n` +
+          `2. Otherwise re-check ${plan.first.join(', ')} first, from scratch and plan-blind, against their ` +
+          `own Observe: lines. Check ALL of them before you stop, so the report names every one still unmet.\n` +
+          `3. If ANY is still unmet, stop: return passed=false, mode='narrowed', every criterion you ` +
+          `checked with status passed/failed, and EVERY other criterion with status 'carried' — you did ` +
+          `not re-check it, so NEVER report a carried criterion as passed.\n` +
+          `4. If they ALL now pass, continue in this SAME run and independently observe EVERY other ` +
+          `criterion (a remediation may have broken one that passed before), then return mode='full' with ` +
+          `every criterion status passed/failed. Never carry forward a previous PASS on trust.\n` +
+          `Run the full test suite only when step 4 applies or a previously unmet criterion's Observe: ` +
+          `needs it; the test-suite instruction further down applies from step 4.\n\n`
+        : focusIds.length
         ? `THIS IS A RE-VERIFY after a remediation pass that targeted: ${focusIds.join(', ')}. ` +
           `Spend your DEEPEST adversarial effort on those criteria — they are the ones just ` +
           `changed and the most likely to be superficially patched. But you MUST still ` +
@@ -2053,7 +2183,10 @@ const runVerify = (focusIds = []) =>
       `human-facing FAIL text (unmet criterion, command, output, what closes it) in summary; and for ` +
       `EACH criterion add an item to criteria[] carrying its EXACT C<n> id (verbatim from CRITERIA.md — ` +
       `never re-worded), passed true/false, and for every FAILING criterion the exact failing command ` +
-      `and its output as evidence (so the remediate loop can scope + compare the failing set).\n\n` +
+      `and its output as evidence (so the remediate loop can scope + compare the failing set). Also set ` +
+      `mode ('narrowed' only for a FAIL that stopped after the previously unmet criteria, otherwise ` +
+      `'full'), broad (true only for a broad fix), and a status on each criteria[] item ` +
+      `(passed | failed | carried).\n\n` +
       `AFTER your verdict is final — never as a substitute for one — you may also report anything real ` +
       `you noticed that NO criterion covers, in findings[]: {title, why, file, cost small|medium|large, ` +
       `outsideCriteria}. These are filed as technical debt, so they do not block this phase. HARD RULE: ` +
@@ -2065,6 +2198,78 @@ const runVerify = (focusIds = []) =>
       VERIFY_RULES,
     { phase: 'Verify', agentType: 'astro-verifier', model: models.verifier, effort: reasoning.verifier, schema: VERIFY_SCHEMA },
   )
+
+// One verify round: plan clerk → ONE verifier → coverage guard → record clerk. `expectFirst`
+// (the loop's in-memory failing set) must equal the plan's `first`, else the saved verdict is not
+// the one this run just produced and the round degrades to full.
+const verifyOnce = async (focusIds = [], expectFirst = null) => {
+  let plan = await getVerdictPlan()
+  if (plan.mode === 'narrowed' && expectFirst) {
+    const a = [...plan.first].sort().join(',')
+    const b = [...expectFirst].sort().join(',')
+    if (a !== b) {
+      log('• verify plan: full — the saved verdict does not match this run\'s failing set')
+      plan = { ...plan, mode: 'full', first: [], reason: 'saved verdict does not match this run' }
+    }
+  }
+  const v = await runVerify(plan, focusIds)
+  const items = Array.isArray(v.criteria) ? v.criteria : []
+  for (const c of items) seenIds.add(c.id)
+  // What this run actually covered. A narrowed plan whose verifier did not say otherwise was
+  // narrowed — the safe reading, since only a declared full run can pass.
+  const mode = v.broad === true && v.mode !== 'narrowed' ? 'full' : (v.mode || (plan.mode === 'narrowed' ? 'narrowed' : 'full'))
+  const known = plan.ids.length ? plan.ids : [...seenIds]
+  const byId = new Map(items.map((c) => [c.id, c]))
+  // CODE-SIDE COVERAGE GUARD (ADR-031/079): a PASS needs the verifier's word AND a full run AND
+  // an independently passed, non-carried item for every known criterion. Prose cannot buy a pass.
+  const covered = known.every((id) => {
+    const c = byId.get(id)
+    return c && c.passed === true && c.status !== 'carried'
+  })
+  if (v.passed && (mode === 'narrowed' || items.some((c) => c.status === 'carried') || !covered)) {
+    v.passed = false
+    log('⚠ verify PASS withdrawn — not every criterion was independently checked in a full run')
+  }
+  v.mode = mode
+  for (const c of items) {
+    if (c.status === 'carried') continue
+    lastSeen.set(c.id, c.passed === true)
+    if (c.passed === true) evidence.delete(c.id)
+    else evidence.set(c.id, { command: c.command, output: c.output })
+  }
+  // Absence of evidence is failure: a criterion this run should have covered but never reported
+  // (and none ever has) stays unmet, so the comparison cannot shrink by omission.
+  for (const id of [...plan.first, ...(mode === 'full' ? known : [])]) {
+    if (!lastSeen.has(id)) lastSeen.set(id, false)
+  }
+
+  if (v.criteriaFound === false) return v
+  const checked = items.filter((c) => c.status !== 'carried' && /^C\d+$/.test(c.id))
+  let rec = null
+  try {
+    rec = await runVerdictRecord(JSON.stringify({
+      mode, broad: v.broad === true,
+      criteria: checked.map((c) => ({ id: c.id, passed: c.passed === true })),
+    }))
+  } catch (e) { rec = null }
+  if (rec && rec.recorded === true) {
+    log(`• verdict run ${rec.run} saved (${rec.mode || mode})`)
+    if (rec.passed === false && v.passed) {
+      v.passed = false
+      log('⚠ verify PASS withdrawn — ac verdict record derived a failing verdict')
+    }
+  } else {
+    log(`⚠ verdict not saved — ${(rec && rec.note) || 'the record clerk returned nothing'}`)
+  }
+  if (!v.passed && mode === 'narrowed') {
+    const n = rec && Number.isInteger(rec.carried) ? rec.carried : Math.max(0, known.length - checked.length)
+    const from = (rec && rec.carriedFrom) || plan.saved
+    if (n > 0 && from) {
+      v.summary = `${v.summary}\ncarried, not re-checked: ${n} criteria (run ${from.run} @ ${String(from.commit).slice(0, 7)})`
+    }
+  }
+  return v
+}
 
 // remediatePrompt is the THIRD executor prompt (sibling to execPrompt/healPrompt): a
 // remediation pass scoped to ONLY the unmet criteria, carrying the verifier's evidence
@@ -2108,7 +2313,7 @@ const runRemediation = (unmet, cycle) =>
 if (!integrationFailed) {
   // ADR-021 — adversarial, plan-blind verification (runVerify, defined above).
   // Phase-10 (ADR-022): the FIRST verify, then the bounded verify→remediate loop.
-  verdict = await runVerify()
+  verdict = await verifyOnce()
 
   // Automated verify→remediate loop.  Fire ONLY when the first verify FAILED against a
   // REAL CRITERIA.md (criteriaFound) and the level's budget is > 0 — light (0 cycles)
@@ -2116,8 +2321,10 @@ if (!integrationFailed) {
   // shrink-comparison decidable (a self-derived bar has no stable id set to compare).
   if (!verdict.passed && verdict.criteriaFound && maxCycles > 0) {
     for (let cycle = 0; cycle < maxCycles && !verdict.passed; cycle++) {
-      const unmet = (verdict.criteria || []).filter((c) => !c.passed)
-      const beforeIds = new Set(unmet.map((c) => c.id))
+      // The COMPLETE failing set (last-seen outcomes), not just this verdict's items: after a
+      // narrowed run the carried criteria are part of it (ADR-031's cross-cycle comparison).
+      const beforeIds = new Set([...lastSeen].filter(([, ok]) => !ok).map(([id]) => id))
+      const unmet = [...beforeIds].map((id) => ({ id, ...(evidence.get(id) || {}) }))
       log(
         `• remediation cycle ${cycle + 1}/${maxCycles}: ${beforeIds.size} unmet criterion/criteria` +
           (beforeIds.size ? ` (${[...beforeIds].join(', ')})` : ''),
@@ -2137,9 +2344,9 @@ if (!integrationFailed) {
       }
 
       // Re-verify with the SAME adversarial, schema'd verifier (no forked prompt).
-      // beforeIds only REDIRECTS depth to what the pass just touched — coverage stays
-      // total, so an incidental regression still surfaces (see runVerify's note).
-      verdict = await runVerify([...beforeIds])
+      // beforeIds REDIRECTS depth (full mode) or is the narrowed run's first-check set (ADR-079);
+      // a PASS still needs full coverage, enforced in verifyOnce (see runVerify's note).
+      verdict = await verifyOnce([...beforeIds], [...beforeIds])
       if (verdict.passed) {
         log(`✓ remediation cycle ${cycle + 1} closed the phase — verified`)
         break
@@ -2149,7 +2356,7 @@ if (!integrationFailed) {
       // A plain cardinality comparison is deliberate — a cycle that fixes one criterion
       // but incidentally breaks a different one is net-no-progress and bails (safe over
       // fast). Fires even with budget remaining; keeps verdict.passed=false.
-      const afterIds = new Set((verdict.criteria || []).filter((c) => !c.passed).map((c) => c.id))
+      const afterIds = new Set([...lastSeen].filter(([, ok]) => !ok).map(([id]) => id))
       if (afterIds.size >= beforeIds.size) {
         stoppedReason = 'no-progress'
         log(
