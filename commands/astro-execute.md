@@ -11,7 +11,9 @@ Execute phase `$ARGUMENTS`.
    tell the user to run `/astro-plan <number>` first (reference the phase by its
    number, e.g. `/astro-plan 3`).
 2. Mark the phase active and surface the live status: `ac state set active_phase <slug>`
-   then `ac activity '⚙ executing'` (the statusline/banner pick it up).
+   then `ac activity '⚙ executing'` (the statusline/banner pick it up). Set it again
+   whenever you launch or resume the workflow (a `resumeFromRunId` call included): the
+   status belongs to the run, so a resumed run must show it too.
 2b. **Pre-flight the fork base:** run `ac preflight`. It prints nothing when local `HEAD`
    matches its upstream, and otherwise warns that parallel executor worktrees fork from the
    REMOTE, not from `HEAD` — so a whole wave can come back STALE, be re-run through the heal
@@ -223,8 +225,9 @@ Execute phase `$ARGUMENTS`.
    check **files its own debt** on a finding — do not re-file its output with `ac debt add`,
    that would duplicate step 4d's filing path and fragment the register.
 
-5. Clear the live status (`ac activity clear` — also clear it on any early stop or
-   `integrationFailed`), then report the verdict. `verdict` is now a **structured object**
+5. Clear the live status (`ac activity clear` — also clear it on an early stop or
+   `integrationFailed`, **except** a stop because a workflow for this phase is already
+   running: that run owns the status, so leave it set), then report the verdict. `verdict` is now a **structured object**
    — read `verdict.passed` (boolean) for PASS/FAIL and `verdict.summary` for the
    human-facing reason text (the workflow has returned by now — safe to suggest `/clear`).
    **Lead with one line**: PASS or FAIL plus the one-line cause from `verdict.summary` —
