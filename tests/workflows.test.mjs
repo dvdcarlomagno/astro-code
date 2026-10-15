@@ -4102,6 +4102,25 @@ test('phase 45 C4(1): a narrowed re-verify that carries criteria is never a PASS
   assert.notEqual(absent.result.stoppedReason, 'passed')
 })
 
+test('phase 45 C10: the code-side coverage guard alone withdraws a carried/absent narrowed PASS (record clerk says passed)', async () => {
+  const recPass = (p, n) => ({ recorded: true, run: n + 1, mode: 'full', passed: true, failing: [] })
+  const carried = await runWorkflow(ARGS45, {
+    discoverTasks: chainTasks(1),
+    verify: [vdict(IDS9, { failed: ['C3'], mode: 'full' }), vdict(IDS9, { carried: IDS9.filter((id) => id !== 'C3'), passed: true, mode: 'narrowed' })],
+    plan: [fullPlan(), narrowPlan(['C3'])], record: recPass, remediate: moving(0),
+  })
+  assert.equal(carried.result.verdict.passed, false)
+  assert.notEqual(carried.result.stoppedReason, 'passed')
+  assert.ok(carried.logs.some((l) => /verify PASS withdrawn — not every criterion/.test(l)), carried.logs.join('\n'))
+  const absent = await runWorkflow(ARGS45, {
+    discoverTasks: chainTasks(1),
+    verify: [vdict(IDS9, { failed: ['C3'], mode: 'full' }), { ...vdict(IDS9, { omit: IDS9.filter((id) => id !== 'C3'), mode: 'full' }), passed: true }],
+    plan: [fullPlan(), narrowPlan(['C3'])], record: recPass, remediate: moving(0),
+  })
+  assert.equal(absent.result.verdict.passed, false)
+  assert.notEqual(absent.result.stoppedReason, 'passed')
+})
+
 test('phase 45 C4(2)+C6: when the unmet criteria now pass the SAME run covers everything: one re-verify spawn, a full record', async () => {
   const { calls, result } = await runWorkflow(ARGS45, {
     discoverTasks: chainTasks(1),
