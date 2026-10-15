@@ -118,9 +118,16 @@ Conventions used by the Observe steps:
   (`ac phase context 41`, or whatever ac uses to tell a human capture from an agent one) does not
   report a human capture. Control: after a typed composer `/astro-discuss 41`, the same `printf` write
   yields a human capture.
+  Also, in the same turns: `sed -i '1d' <ctx>` on a file whose line 2 is the human marker, and a
+  `printf` whose format holds the marker split by inner double quotes
+  (`printf "<!-- astro-discuss: "captured" -->\nbody\n" > <ctx>`).
 - **Fails if:** any of these Bash forms leaves a human-captured CONTEXT.md in an unwitnessed turn, the
   rewrite corrupts the rest of the file or another file, or the control (a typed discuss of that same
   phase) is downgraded to agent.
+- **Out of scope (narrowed by the user, 2026-10-15, after run 2):** witness records and never refuses
+  (ADR-074); it is a provenance record, not a sandbox. A spelling built to hide the marker from it is not
+  a failure of this criterion: escape sequences (`\x75`, `\165`, `$'…'`, `echo -e`), a marker
+  assembled across quotes, or one written elsewhere in one call and copied in by a later call.
 
 ### C9 — A self-supplied `--witnessed composer` with no known turn is not recorded as witnessed
 - **Observe:** Drive the plugin with witness on: `session.start` and no prompt event (also: a typed
@@ -138,8 +145,13 @@ Conventions used by the Observe steps:
   `export V=reject; ac phase $V 41 --reason x` and `G=accept; ac fix $G <id>`. Execute what reaches the
   engine via the `ac` shim in a scratch project (phase verified, fix open). Each resulting record is
   signed as agent (`accepted_kind: agent` or the fix's equivalent), never as the human default.
+  Also: `V=ept; ac phase acc$V 41` (an expansion inside the verb word), `V=accept; eval "ac phase $V 41"`
+  and `V=accept; (ac phase $V 41)` (a subshell).
 - **Fails if:** any variable-verb form reaches ac unchanged and records a human signer, or the rewrite
   produces a command that no longer runs or targets a different phase or fix.
+- **Out of scope (narrowed by the user, 2026-10-15, after run 2):** witness is a provenance record,
+  not a sandbox (ADR-074). A verb fed through a runner witness cannot read (`xargs` reading it from
+  stdin or a here-string, a script file, a function defined earlier) is not a failure of this criterion.
 
 ### C11 — A quoted mention containing escaped quotes is left byte-identical, and escaped quotes are not a hiding place
 - **Observe:** Drive the plugin (sdk turn, and composer non-gate turn) with the exact Bash
