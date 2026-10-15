@@ -194,14 +194,21 @@ function decideGateBash(e) {
   // Any --agent word, even bare or empty, already DECLARES agent provenance (ac's own reject code):
   // never add --witnessed to it, never rename it (phase 41 verify, C4).
   if (segmentHas(hit, '--agent')) return { out: e, say: null }
+  // Outside a witnessed gate, a claim may still hide in a variable (`W=--witnessed; ac phase accept 1 $W
+  // composer`): when --witnessed text survives the strip, or a flag word is an expansion, ac is told to
+  // ignore the flag too (ASTRO_WITNESS_DROP, phase 46 C9).
+  const dynFlag = hit.words.some((w) => !w.ref && !w.verb && /[$`]/.test(w.text) && hit.words.indexOf(w) > hit.words.findIndex((x) => x.verb))
+  const guardForged = (s) => (dynFlag || /--witnessed/.test(s) ? withDropEnv(s) : s)
   if (turn === null || undeterminedFor(hit.gate)) {
-    return undetermined(e, segmentHas(hit, '--witnessed') ? rewriteGate(e.command, hit, { strip: ['--witnessed'] }) : null)
+    const dropped = segmentHas(hit, '--witnessed') ? rewriteGate(e.command, hit, { strip: ['--witnessed'] }) : null
+    const out = guardForged(dropped ?? e.command)
+    return undetermined(e, out === e.command ? null : out)
   }
   if (witnessed(hit.gate, hit.ref, e)) {
     const command = segmentHas(hit, '--witnessed') ? e.command : rewriteGate(e.command, hit, { add: '--witnessed composer' })
     return { out: command === e.command ? e : { ...e, command }, say: null }
   }
-  const command = rewriteGate(e.command, hit, { add: `--agent ${AGENT_NAME}`, strip: ['--witnessed', '--agent'] })
+  const command = guardForged(rewriteGate(e.command, hit, { add: `--agent ${AGENT_NAME}`, strip: ['--witnessed', '--agent'] }))
   return { out: { ...e, command }, say: 'agent' }
 }
 

@@ -785,6 +785,10 @@ test('C9 run 7: a quoted --witnessed in an unreadable call never yields a witnes
     "V=accept; ac phase $V 1 '--witnessed' composer",
     'V=accept; ac phase $V 1 "--witnessed=composer"',
     'V=accept; x=`ac phase $V 1 "--witnessed" composer`',
+    // run 8: the claim held in a variable behind a readable gate
+    'W=--witnessed; ac phase accept 1 $W composer',
+    'export W=--witnessed; ac phase accept 1 ${W} composer',
+    'W=--witnessed; ac phase reject 1 --reason x $W composer',
   ];
   for (const when of ['cold', 'sdk']) {
     for (const form of forms) {
@@ -802,7 +806,8 @@ test('C9 run 7: a quoted --witnessed in an unreadable call never yields a witnes
       assert.equal(r.status, 0, `${when} ${form} -> ${out}: ${r.stderr}`);
       const ph = loadRoadmap(dir).phases[0];
       assert.equal(ph.accepted_evidence, undefined, `${when} ${form} -> ${out}`);
-      if (when === 'sdk') assert.equal(ph.accepted_kind, 'agent', `${when} ${form} -> ${out}`);
+      assert.ok(!JSON.stringify(ph.rejections ?? []).includes('composer'), `${when} ${form} -> ${out}`);
+      if (when === 'sdk') assert.equal(ph.accepted_kind ?? ph.rejections?.at(-1)?.kind, 'agent', `${when} ${form} -> ${out}`);
     }
   }
 });
