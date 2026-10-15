@@ -2302,8 +2302,8 @@ test('t5 (phase 10): the remediate loop runs ONLY after a verify FAIL, gated on 
   assert.ok(gate, 'the remediate loop must be gated on `!verdict.passed && verdict.criteriaFound && maxCycles > 0`')
 
   // The FIRST verify must happen BEFORE that gate (loop runs only after a verify FAIL).
-  const firstVerifyIdx = wfSrc.indexOf('verdict = await runVerify()')
-  assert.ok(firstVerifyIdx !== -1, 'the first `verdict = await runVerify()` must exist')
+  const firstVerifyIdx = wfSrc.indexOf('verdict = await verifyOnce()')
+  assert.ok(firstVerifyIdx !== -1, 'the first `verdict = await verifyOnce()` must exist')
   assert.ok(gate.index > firstVerifyIdx, 'the remediate loop gate must come AFTER the first runVerify() (only remediate on a FAIL)')
 
   // The for-loop must be bounded by maxCycles AND stop as soon as it passes.
@@ -2318,16 +2318,16 @@ test('t5 (phase 10): stop-on-no-progress — HEAD-unchanged check precedes the r
 
   const loopIdx = wfSrc.indexOf('for (let cycle = 0; cycle < maxCycles')
   assert.ok(loopIdx !== -1, 'remediate loop not found')
-  const loopWindow = wfSrc.slice(loopIdx, loopIdx + 2200)
+  const loopWindow = wfSrc.slice(loopIdx, loopIdx + 3600)
 
   // Ordering: the HEAD-moved (no-progress #1) check must precede the re-verify so a
   // no-commit pass bails BEFORE consuming another verify + more budget (C6).
   const headMovedIdx = loopWindow.indexOf('headMoved')
-  // ADR-031 gave runVerify a focusIds argument (depth redirect, NOT a coverage narrowing),
-  // so match the call rather than its exact old zero-arg form.
-  const reVerifyIdx = loopWindow.search(/verdict = await runVerify\(/)
+  // ADR-031 gave runVerify a focusIds argument (depth redirect, NOT a coverage narrowing);
+  // ADR-079 wrapped it in verifyOnce (plan → verify → guard → record), so match that call.
+  const reVerifyIdx = loopWindow.search(/verdict = await verifyOnce\(/)
   assert.ok(headMovedIdx !== -1, 'the loop must compute a headMoved / HEAD-unchanged signal')
-  assert.ok(reVerifyIdx !== -1, 'the loop must re-verify with runVerify(…)')
+  assert.ok(reVerifyIdx !== -1, 'the loop must re-verify with verifyOnce(…)')
   assert.ok(headMovedIdx < reVerifyIdx, 'the HEAD-unchanged (no-progress) check must precede the re-verify — bail before spending more budget')
 
   // Both no-progress bails set stoppedReason and break.
@@ -2644,12 +2644,22 @@ function chainTasks(n, doneIds = []) {
  *   behavior is unchanged).
  * @returns {Promise<{ calls: Array<object>, logs: Array<string>, result: object }>}
  */
-async function runWorkflow(args, { discoverTasks, batchCommitted, integ, gate, audit, teardown, execReports } = {}) {
+// Phase 45 — scripted answers for the verify path. Each option is a function (prompt, n),
+// an array (the n-th call gets the n-th entry, the last repeats), or a plain object.
+const pick = (opt, prompt, n) => (typeof opt === 'function' ? opt(prompt, n) : Array.isArray(opt) ? opt[Math.min(n, opt.length - 1)] : opt)
+
+async function runWorkflow(args, { discoverTasks, batchCommitted, integ, gate, audit, teardown, execReports, verify, plan, record, remediate } = {}) {
   const calls = []
   const logs = []
+  const seen = { verify: 0, plan: 0, record: 0, remediate: 0 }
   const agent = async (prompt, opts = {}) => {
     calls.push({ prompt, opts })
     const props = (opts.schema && opts.schema.properties) || {}
+    // Phase 45: these fingerprints go BEFORE the generic 'passed' fallback below.
+    if ('first' in props && plan !== undefined) return pick(plan, prompt, seen.plan++)
+    if ('recorded' in props) return record !== undefined ? pick(record, prompt, seen.record++) : {}
+    if ('headBefore' in props && remediate !== undefined) return pick(remediate, prompt, seen.remediate++)
+    if ('criteriaFound' in props && verify !== undefined) return pick(verify, prompt, seen.verify++)
     if ('tasks' in props) return { tasks: discoverTasks }
     if ('committed' in props) {
       const ids = idsFromPrompt(prompt)
@@ -2687,6 +2697,10 @@ async function runWorkflow(args, { discoverTasks, batchCommitted, integ, gate, a
   const result = await fn(phase, agent, parallel, log, args)
   return { calls, logs, result }
 }
+
+// Phase 45 — verifier spawns only (the verdict clerks are astro-executor calls).
+const verifierCalls = (calls) => calls.filter((c) => c.opts && c.opts.agentType === 'astro-verifier')
+const clerkCalls = (calls, label) => calls.filter((c) => c.opts && c.opts.label === label)
 
 // "task-implementation executor call" per the Harness note: an Execute-phase,
 // astro-executor agent() call whose LABEL starts with 'exec:' — the batch call
@@ -3337,10 +3351,10 @@ test('ADR-031: the bar is NOT appended to non-implementer prompts', () => {
   assert.ok(!CRITERIA_RE.test(obey), 'the acceptance bar must not be folded into OBEY')
 })
 
-test('ADR-031: re-verify redirects depth but never narrows coverage', async () => {
+test('ADR-031/079: a re-verify narrows only its first check; a PASS still needs every criterion', async () => {
   const wfSrc = readFileSync(WF_FILE, 'utf8')
   const i = wfSrc.indexOf('const runVerify =')
-  const body = wfSrc.slice(i, i + 2200)
+  const body = wfSrc.slice(i, i + 5200)
   assert.ok(/focusIds/.test(body), 'runVerify must accept a focus list')
   // The load-bearing half: coverage must stay total, or a remediation that fixes one
   // criterion while breaking another returns passed=true on a phase it just broke.
@@ -3352,6 +3366,11 @@ test('ADR-031: re-verify redirects depth but never narrows coverage', async () =
     /never carry forward a previous PASS|on trust/i.test(body),
     'the re-verify branch must forbid carrying a previous PASS forward on trust',
   )
+  // ADR-079: the narrowed preamble checks ALL unmet first, never reports carried as passed,
+  // and continues to every other criterion in the SAME run when they all pass.
+  assert.ok(/check ALL/i.test(body), 'the narrowed preamble must check ALL previously unmet criteria before stopping')
+  assert.ok(/carried/.test(body), 'the narrowed preamble must define carried criteria')
+  assert.ok(/continue[^.]*EVERY other[\s'`+]*criterion/is.test(body), 'the narrowed preamble must continue to EVERY other criterion in the same run')
 })
 
 test('ADR-031: a clean first-pass verify is unchanged (no focus preamble)', async () => {
@@ -4003,4 +4022,179 @@ test('#22: the instructions no longer collide — the pipelined plan holds its c
   const plan = readFileSync(join(root, 'commands', 'astro-plan.md'), 'utf8')
   assert.match(exec, /Hold the pipelined plan's commit until this execution returns/)
   assert.match(plan, /unless an `\/astro-execute` run is in flight on this working\s+branch/)
+})
+
+
+// ── Phase 45 (ADR-079): narrowed re-verify after a FAIL ─────────────────────────────────────────
+
+const IDS9 = Array.from({ length: 9 }, (_, i) => `C${i + 1}`)
+// Items for a verdict: `failed` fail, `carried` are carried (passed:true is what a careless
+// verifier would say, which the guard must still refuse), everything else passes.
+const items = (ids, failed = [], carried = []) => ids
+  .map((id) => (carried.includes(id)
+    ? { id, passed: true, status: 'carried' }
+    : { id, passed: !failed.includes(id), status: failed.includes(id) ? 'failed' : 'passed', ...(failed.includes(id) ? { command: `cmd-${id}`, output: `out-${id}` } : {}) }))
+const vdict = (ids, { failed = [], carried = [], mode, passed, broad, omit = [] } = {}) => ({
+  passed: passed ?? (failed.length === 0 && carried.length === 0),
+  criteriaFound: true,
+  summary: failed.length ? `FAIL ${failed.join(',')}` : 'ok',
+  ...(mode ? { mode } : {}),
+  ...(broad !== undefined ? { broad } : {}),
+  criteria: items(ids.filter((id) => !omit.includes(id)), failed, carried),
+})
+const fullPlan = (reason = 'no saved verdict') => ({ mode: 'full', reason, first: [], ids: IDS9, total: 9 })
+const narrowPlan = (first, run = 1, commit = 'aaa1111') => ({
+  mode: 'narrowed', reason: `${first.length} of 9 unmet`, first, ids: IDS9, total: 9,
+  saved: { run, commit, mode: 'full' }, range: `${commit}..HEAD`,
+})
+const moving = (n) => ({ headBefore: `h${n}`, headAfter: `h${n + 1}`, summary: 'fixed' })
+const ARGS45 = { root: '/tmp/proj', phase: '45-x', strategy: 'sequential' }
+const recOk = (extra = {}) => (prompt, n) => ({ recorded: true, run: n + 1, mode: 'full', passed: false, failing: [], ...extra })
+
+test('phase 45 C2: a re-verify after a first-pass FAIL names the saved failing ids, run, commit and range', async () => {
+  const { calls } = await runWorkflow(ARGS45, {
+    discoverTasks: chainTasks(1),
+    verify: [vdict(IDS9, { failed: ['C3', 'C7'], mode: 'full' }), vdict(IDS9, { mode: 'full' })],
+    plan: [fullPlan(), narrowPlan(['C3', 'C7'])],
+    record: recOk(), remediate: moving(0),
+  })
+  const v = verifierCalls(calls)
+  assert.equal(v.length, 2)
+  assert.doesNotMatch(v[0].prompt, /NARROWED RE-VERIFY/)
+  assert.match(v[1].prompt, /NARROWED RE-VERIFY/)
+  assert.match(v[1].prompt, /C3, C7/)
+  assert.match(v[1].prompt, /aaa1111/)
+  assert.match(v[1].prompt, /run 1/)
+  assert.match(v[1].prompt, /aaa1111\.\.HEAD/)
+  assert.match(v[1].prompt, /BROAD/)
+})
+
+test('phase 45 C3f: args.full puts --full in the plan-clerk prompt; without it there is none', async () => {
+  const on = await runWorkflow({ ...ARGS45, full: true }, { discoverTasks: chainTasks(1), plan: fullPlan('--full passed') })
+  assert.match(clerkCalls(on.calls, 'verdict:plan')[0].prompt, /--json --full/)
+  const off = await runWorkflow(ARGS45, { discoverTasks: chainTasks(1), plan: fullPlan() })
+  assert.doesNotMatch(clerkCalls(off.calls, 'verdict:plan')[0].prompt, /--full/)
+})
+
+test('phase 45 C3f: a full plan gives no narrowed preamble; an empty plan-clerk return logs a warning and runs full', async () => {
+  const a = await runWorkflow(ARGS45, { discoverTasks: chainTasks(1), plan: fullPlan('CRITERIA.md changed since the saved verdict') })
+  assert.doesNotMatch(verifierCalls(a.calls)[0].prompt, /NARROWED RE-VERIFY/)
+  const b = await runWorkflow(ARGS45, { discoverTasks: chainTasks(1), plan: {} })
+  assert.doesNotMatch(verifierCalls(b.calls)[0].prompt, /NARROWED RE-VERIFY/)
+  assert.ok(b.logs.some((l) => l.startsWith('⚠') && /verdict plan/.test(l)), b.logs.join('\n'))
+})
+
+test('phase 45 C4(1): a narrowed re-verify that carries criteria is never a PASS, however the verifier set passed', async () => {
+  const carried = await runWorkflow(ARGS45, {
+    discoverTasks: chainTasks(1),
+    verify: [vdict(IDS9, { failed: ['C3'], mode: 'full' }), vdict(IDS9, { carried: IDS9.filter((id) => id !== 'C3'), passed: true, mode: 'narrowed' })],
+    plan: [fullPlan(), narrowPlan(['C3'])], record: recOk(), remediate: moving(0),
+  })
+  assert.equal(carried.result.verdict.passed, false)
+  assert.notEqual(carried.result.stoppedReason, 'passed')
+  // the same when the others are simply absent and the plan supplied the id set
+  const absent = await runWorkflow(ARGS45, {
+    discoverTasks: chainTasks(1),
+    verify: [vdict(IDS9, { failed: ['C3'], mode: 'full' }), { ...vdict(IDS9, { omit: IDS9.filter((id) => id !== 'C3'), mode: 'full' }), passed: true }],
+    plan: [fullPlan(), narrowPlan(['C3'])], record: recOk(), remediate: moving(0),
+  })
+  assert.equal(absent.result.verdict.passed, false)
+  assert.notEqual(absent.result.stoppedReason, 'passed')
+})
+
+test('phase 45 C4(2)+C6: when the unmet criteria now pass the SAME run covers everything: one re-verify spawn, a full record', async () => {
+  const { calls, result } = await runWorkflow(ARGS45, {
+    discoverTasks: chainTasks(1),
+    verify: [vdict(IDS9, { failed: ['C4'], mode: 'full' }), vdict(IDS9, { mode: 'full' })],
+    plan: [fullPlan(), narrowPlan(['C4'])],
+    record: (p, n) => ({ recorded: true, run: n + 1, mode: 'full', passed: n > 0, failing: [] }),
+    remediate: moving(0),
+  })
+  assert.equal(result.verdict.passed, true)
+  assert.equal(result.stoppedReason, 'passed')
+  assert.equal(verifierCalls(calls).length, 2, 'two verifier spawns for the whole phase')
+  const rec = clerkCalls(calls, 'verdict:record')[1].prompt
+  assert.match(rec, /"mode":"full"/)
+  for (const id of IDS9) assert.ok(rec.includes(`"id":"${id}"`), `record carries ${id}`)
+})
+
+test('phase 45 C6: a criterion newly failing in the continuation is a FAIL, reported failed, not carried', async () => {
+  const { calls, result } = await runWorkflow(ARGS45, {
+    discoverTasks: chainTasks(1),
+    verify: [vdict(IDS9, { failed: ['C4'], mode: 'full' }), vdict(IDS9, { failed: ['C6'], mode: 'full' })],
+    plan: [fullPlan(), narrowPlan(['C4'])], record: recOk(), remediate: moving(0),
+  })
+  assert.equal(result.verdict.passed, false)
+  assert.ok(result.verdict.criteria.some((c) => c.id === 'C6' && c.passed === false && c.status !== 'carried'))
+  assert.match(clerkCalls(calls, 'verdict:record')[1].prompt, /\{"id":"C6","passed":false\}/)
+})
+
+test('phase 45 C5: a narrowed FAIL records every checked criterion, none carried, and cites the saved run', async () => {
+  const carried = IDS9.filter((id) => !['C2', 'C5', 'C8'].includes(id))
+  const { calls, result } = await runWorkflow(ARGS45, {
+    discoverTasks: chainTasks(1),
+    verify: [vdict(IDS9, { failed: ['C2', 'C5', 'C8'], mode: 'full' }), vdict(IDS9, { failed: ['C2'], carried: carried, mode: 'narrowed' })],
+    plan: [fullPlan(), { ...narrowPlan(['C2', 'C5', 'C8'], 1, 'aaa1111abc'), total: 9 }],
+    record: recOk({ mode: 'narrowed', carried: carried.length, carriedFrom: { run: 1, commit: 'aaa1111abc' } }),
+    remediate: moving(0),
+  })
+  const rec = clerkCalls(calls, 'verdict:record')[1].prompt
+  for (const id of ['C2', 'C5', 'C8']) assert.ok(rec.includes(`"id":"${id}"`), id)
+  for (const id of carried) assert.ok(!rec.includes(`"id":"${id}"`), `${id} must not be recorded as checked`)
+  assert.match(rec, /"mode":"narrowed"/)
+  assert.match(result.verdict.summary, /carried, not re-checked: 6 criteria \(run 1 @ aaa1111\)/)
+  assert.match(verifierCalls(calls)[1].prompt, /Check ALL of them before you stop/)
+})
+
+test('phase 45 C7: no-progress compares the complete failing set (last-seen), carried criteria included', async () => {
+  const base = (verify) => runWorkflow({ ...ARGS45, effort: 'deep' }, {
+    discoverTasks: chainTasks(1), verify,
+    plan: [fullPlan(), narrowPlan(['C2', 'C5']), narrowPlan(['C5'])], record: recOk(), remediate: (p, n) => moving(n),
+  })
+  const rest = IDS9.filter((id) => !['C2', 'C5'].includes(id))
+  // 1: both still unmet -> bail after exactly one remediation
+  const one = await base([vdict(IDS9, { failed: ['C2', 'C5'], mode: 'full' }), vdict(IDS9, { failed: ['C2', 'C5'], carried: rest, mode: 'narrowed' })])
+  assert.equal(one.result.stoppedReason, 'no-progress')
+  assert.equal(one.result.remediationCycles, 1)
+  assert.equal(one.result.verdict.passed, false)
+  // 2: C2 fixed, C5 unmet -> the set shrank, a second remediation runs
+  const two = await base([
+    vdict(IDS9, { failed: ['C2', 'C5'], mode: 'full' }),
+    vdict(IDS9, { failed: ['C5'], carried: rest, mode: 'narrowed' }),
+    vdict(IDS9, { failed: ['C5'], carried: rest, mode: 'narrowed' }),
+  ])
+  assert.equal(two.result.remediationCycles, 2)
+  // 3: C5 omitted entirely while C2 stays failing -> C5 is not treated as fixed, so it bails
+  const three = await base([vdict(IDS9, { failed: ['C2', 'C5'], mode: 'full' }), { ...vdict(IDS9, { failed: ['C2'], carried: rest, mode: 'narrowed' }), criteria: items(['C2', ...rest], ['C2'], rest) }])
+  assert.equal(three.result.stoppedReason, 'no-progress')
+  assert.equal(three.result.remediationCycles, 1)
+})
+
+test('phase 45 C8: the narrowed prompt carries the range and a broad-fix instruction; a broad full verdict records full; broad+narrowed is not a pass', async () => {
+  const run = (second) => runWorkflow(ARGS45, {
+    discoverTasks: chainTasks(1),
+    verify: [vdict(IDS9, { failed: ['C3'], mode: 'full' }), second],
+    plan: [fullPlan(), narrowPlan(['C3'])], record: recOk(), remediate: moving(0),
+  })
+  const full = await run(vdict(IDS9, { mode: 'full', broad: true }))
+  const p = verifierCalls(full.calls)[1].prompt
+  assert.match(p, /aaa1111\.\.HEAD/)
+  assert.match(p, /BROAD[^.]*do not narrow: run a FULL verify/s)
+  assert.match(clerkCalls(full.calls, 'verdict:record')[1].prompt, /"mode":"full","broad":true/)
+  const bad = await run(vdict(IDS9, { mode: 'narrowed', broad: true, passed: true }))
+  assert.equal(bad.result.verdict.passed, false)
+})
+
+test('phase 45: the record clerk derived passed:false overrides a verifier PASS', async () => {
+  const { result } = await runWorkflow(ARGS45, {
+    discoverTasks: chainTasks(1), verify: vdict(IDS9, { mode: 'full' }),
+    plan: fullPlan(), record: { recorded: true, run: 1, mode: 'full', passed: false, failing: [] },
+  })
+  assert.equal(result.verdict.passed, false)
+})
+
+test('phase 45: an absent record clerk answer logs a warning and leaves the verifier verdict standing', async () => {
+  const { result, logs } = await runWorkflow(ARGS45, { discoverTasks: chainTasks(1), verify: vdict(IDS9, { mode: 'full' }), plan: fullPlan(), record: {} })
+  assert.equal(result.verdict.passed, true)
+  assert.ok(logs.some((l) => l.startsWith('⚠ verdict not saved')), logs.join('\n'))
 })
