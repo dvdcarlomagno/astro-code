@@ -308,3 +308,85 @@ test('signSegments: a quoted or continued gate verb is still signed as the agent
   assert.strictEqual(signSegments('ac phase accept "41" --agent bot'), null, 'a declared agent is left alone');
   assert.strictEqual(signSegments('ls -la'), null);
 });
+
+// ── phase 46: quoted mention behind an ac head, variable verbs, --witnessed dropping, Bash marker ──
+
+test('C11: an ADR title that quotes a gate with escaped quotes is a mention, not a gate (ADR-080 corruption)', async () => {
+  const { onlyQuotedMention, findGates } = await gates();
+  const adr = 'ac decision add "A human gate (phase accept/reject, fix accept) may cite a decision made elsewhere with --evidence \\"<id or URL>\\", stored beside the record; a citation never makes the signer human"';
+  assert.strictEqual(onlyQuotedMention(adr), true);
+  assert.strictEqual(findGates(adr).kind, 'none');
+  assert.strictEqual(onlyQuotedMention('git commit -m "docs: say \\"ac phase accept 41\\" in the manual"'), true);
+  assert.strictEqual(onlyQuotedMention('ac decision add "say \\"phase accept 41\\" here"'), true);
+});
+
+test('C11: a real gate stays a non-mention, however it hides', async () => {
+  const { onlyQuotedMention, findGates } = await gates();
+  assert.strictEqual(onlyQuotedMention('ac "phase" "accept" 4'), false);
+  assert.strictEqual(onlyQuotedMention('ac decision add x; ac phase accept 4'), false);
+  assert.strictEqual(onlyQuotedMention('ac $X accept 41'), false);
+  const hit = findGates('echo "say \\"hi\\"" && ac phase accept 41');
+  assert.strictEqual(hit.kind, 'one');
+  assert.strictEqual(hit.ref, '41');
+});
+
+test('C10: a gate verb held in a variable is ambiguous, VAR_VERB, and signed as the agent on the ac segment only', async () => {
+  const { findGates, VAR_VERB, signSegments } = await gates();
+  const cases = [
+    ['V=accept; ac phase $V 41', 'V=accept; ac phase $V 41 --agent claude'],
+    ['V=accept && ac phase "$V" 41', 'V=accept && ac phase "$V" 41 --agent claude'],
+    ['export V=reject; ac phase $V 41 --reason x', 'export V=reject; ac phase $V 41 --reason x --agent claude'],
+    ['G=accept; ac fix $G 2026-10-01-foo', 'G=accept; ac fix $G 2026-10-01-foo --agent claude'],
+    ['ac $X accept 41', 'ac $X accept 41 --agent claude'],
+  ];
+  for (const [cmd, signed] of cases) {
+    assert.strictEqual(findGates(cmd).kind, 'ambiguous', cmd);
+    assert.ok(VAR_VERB.test(cmd), cmd);
+    assert.strictEqual(signSegments(cmd), signed, cmd);
+  }
+  assert.notStrictEqual(findGates('ac phase show $N').kind, 'ambiguous');
+  assert.ok(!VAR_VERB.test('ac phase show $N'));
+});
+
+test('C9: dropWitnessed removes every --witnessed form and says null when there was none', async () => {
+  const { dropWitnessed, rewriteRaw } = await gates();
+  assert.strictEqual(dropWitnessed('ac phase accept 41 --witnessed composer'), 'ac phase accept 41');
+  assert.strictEqual(dropWitnessed('ac phase accept 41 --witnessed=composer'), 'ac phase accept 41');
+  assert.strictEqual(dropWitnessed('ac phase accept 41 --witnessed "composer"'), 'ac phase accept 41');
+  assert.strictEqual(dropWitnessed("ac phase accept 41 --witnessed 'composer' --reason x"), 'ac phase accept 41 --reason x');
+  assert.strictEqual(dropWitnessed('ac phase accept 41 --witnessed --reason x'), 'ac phase accept 41 --reason x', 'a bare flag never eats the next flag');
+  assert.strictEqual(dropWitnessed('ac phase accept 41'), null);
+  assert.strictEqual(rewriteRaw('ac phase accept 41 --witnessed composer && ls'), 'ac phase accept 41 --agent claude && ls');
+});
+
+test('C8: a Bash write of the human CONTEXT.md marker is rewritten to the agent marker, every other byte intact', async () => {
+  const { bashMarkerRewrite, AGENT_MARKER } = await gates();
+  const H = '<!-- astro-discuss: captured -->';
+  const ctx = '.astrocode/phases/41-x/CONTEXT.md';
+  for (const cmd of [
+    `printf '${H}\\nbody\\n' > ${ctx}`,
+    `sed -i '1s/.*/${H}/' ${ctx}`,
+    `cat > ${ctx} <<'EOF'\n${H}\nbody\nEOF`,
+  ]) {
+    const r = bashMarkerRewrite(cmd);
+    assert.deepStrictEqual(r.phases, [41], cmd);
+    assert.strictEqual(r.command, cmd.replace(H, AGENT_MARKER));
+  }
+  assert.strictEqual(bashMarkerRewrite(`printf 'hello' > ${ctx}`), null, 'no marker');
+  assert.strictEqual(bashMarkerRewrite(`printf '${H}' > notes/CONTEXT.md`), null, 'not a phase CONTEXT.md');
+  assert.strictEqual(bashMarkerRewrite(`printf '${AGENT_MARKER}' > ${ctx}`), null, 'already the agent marker');
+});
+
+test('C4: rewriteGate leaves a --evidence citation byte-identical, and a citation never hides or fakes a gate', async () => {
+  const { findGates, rewriteGate } = await gates();
+  const ev = '--evidence "https://board.example/d/42?x=1&y=2"';
+  const cmd = `ac phase accept 41 ${ev}`;
+  const hit = findGates(cmd);
+  assert.strictEqual(hit.kind, 'one');
+  assert.strictEqual(rewriteGate(cmd, hit, { add: '--witnessed composer' }), `ac phase accept 41 --witnessed composer ${ev}`);
+  const both = `ac phase accept 41 --witnessed composer --agent bob ${ev}`;
+  assert.strictEqual(rewriteGate(both, findGates(both), { strip: ['--witnessed', '--agent'], add: '--agent claude' }), `ac phase accept 41 --agent claude ${ev}`);
+  const sneaky = findGates('ac phase accept 41 --evidence "see phase accept 12"');
+  assert.strictEqual(sneaky.kind, 'one');
+  assert.strictEqual(sneaky.ref, '41');
+});

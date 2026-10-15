@@ -20,6 +20,13 @@
 // alias or wrapper script is not recognised; Remote Control prompts (`bridge`) carry no human
 // signal, so a human accepting from a phone is recorded as an agent.
 //
+// Phase 46 closed three holes in this file (the debts are named where each rule lives): a gate verb
+// held in a shell variable (`V=accept; ac phase $V 41`) is now VAR_VERB and is signed; a quoted
+// mention behind an `ac` head (`ac decision add "… \"phase accept 41\" …"`) is left alone; and a
+// Bash write of the human CONTEXT.md marker is rewritten like a Write/Edit (`bashMarkerRewrite`).
+// Still gaps, and the safe direction: a CONTEXT.md path held in a variable, a `cd` followed by a
+// bare `CONTEXT.md`, a marker split across quoting, and a quoted runner word (`"bash" -c …`).
+//
 // Why an EMPTY id is undetermined, not agent. `/astro-accept` with no number is still a gate
 // command a human typed; the phase it means is unknown, so the id cannot be matched. Recording
 // "agent" would be false, so the caller leaves it as declared (ADR-071 e).
@@ -130,6 +137,11 @@ function readGate(words) {
   if (at === null) return null
   const a = words[at]?.text
   const b = words[at + 1]?.text
+  // A verb held in a variable (`ac phase $V 41`, `ac $X accept 41`) cannot be read: ambiguous, so the
+  // caller signs it as the agent (debt 2026-10-12-witness-assigning-the-gate-verb-to-a). `ac phase show $N`
+  // has a plain verb and stays a non-gate.
+  const dyn = (w) => /[$`]/.test(w ?? '')
+  if (((a === 'phase' || a === 'fix') && dyn(b)) || (dyn(a) && (b === 'accept' || b === 'reject'))) return { bad: true }
   const gate = a === 'phase' && (b === 'accept' || b === 'reject') ? `phase ${b}` : a === 'fix' && b === 'accept' ? 'fix accept' : null
   if (!gate) return null
   const ref = words[at + 2]
@@ -346,6 +358,9 @@ export const RAW_SEES = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\s+[^\s'"`;
 export const GATE_VERBS = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\b/
 // What the shell will see once quotes and line continuations are gone: `phase "accept" 41` and
 // `phase \\<newline>accept` are the same gate (phase 41 verify, C2/C3).
+// A gate verb held in a shell variable: `ac phase $V 41`, `ac fix "$G" id`, `ac $X accept 41`. witness
+// cannot know which verb runs, so such a call is signed as the agent (phase 46, ADR-081 hole closed).
+export const VAR_VERB = /(?:^|[\s;&|(])(?:\S*\/)?(?:ac|ac\.mjs)\s+(?:(?:phase|fix)\s+["']?[$`]|["']?[$`]\S*\s+(?:accept|reject)\b)/
 export const shellText = (s) => String(s).replace(/\\\r?\n/g, ' ').replace(/["'\\]/g, '')
 
 // Anything that can run text it was handed: a shell or interpreter, eval, a remote or deferred
@@ -361,9 +376,17 @@ const RUNS_TEXT = /(?:^|[\s;&|(])(?:sh|bash|zsh|dash|ksh|fish|eval|exec|source|\
 export function onlyQuotedMention(command) {
   const s = String(command)
   if (RUNS_TEXT.test(s)) return false
-  const unquoted = s.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, ' ')
-  // `ac "phase" "accept" 4` quotes the words of a real call: an unquoted ac is never a mention --agent claude
-  if (/(?:^|[\s;&|(])(?:\S*\/)?(?:ac|astrocode|ac\.mjs)(?=[\s;&|)]|$)/.test(unquoted)) return false
+  // Quoted spans become a placeholder TOKEN, not a space, so `ac "phase" "accept" 4` still reads as an
+  // `ac` followed by something that is not a plain subcommand word.
+  const unquoted = s.replace(/'[^']*'|"(?:[^"\\]|\\.)*"/g, ' \u0001 ')
+  // An unquoted `ac` is a mention only when the word right after it is a plain subcommand other than
+  // `phase`/`fix` (`ac decision add "… \"phase accept 41\" …"`): the ADR-080 corruption was witness
+  // splicing `--agent` into such a title. `ac $X accept 41`, `ac "phase" …`, a bare trailing `ac` stay
+  // unreadable.
+  const head = /(?:^|[\s;&|(])(?:\S*\/)?(?:ac|astrocode|ac\.mjs)(?=[\s;&|)]|$)\s*(\S*)/g
+  for (const m of unquoted.matchAll(head)) {
+    if (!/^[a-z][a-z-]*$/.test(m[1]) || m[1] === 'phase' || m[1] === 'fix') return false
+  }
   return !GATE_VERBS.test(shellText(unquoted))
 }
 
@@ -372,14 +395,27 @@ export function onlyQuotedMention(command) {
  * not) and append ` --agent <name>` to every top-level segment whose shell text names a gate and
  * declares no agent. Never a human sign-off by default.
  */
+/**
+ * The command with every `--witnessed[=v| v]` removed (the value may be quoted), or null when it held
+ * none. The ONE place that regex lives: a `--witnessed` witness did not put there is a forged human
+ * claim. A following word is eaten only when it is a value, never the next flag.
+ */
+export function dropWitnessed(command) {
+  if (typeof command !== 'string') return null
+  const out = command.replace(/\s--witnessed(?:=(?:"[^"]*"|'[^']*'|[^\s;&|)]+)|\s+(?:"[^"]*"|'[^']*'|[^\s'"`;&|)-][^\s'"`;&|)]*))?/g, '')
+  return out === command ? null : out
+}
+
 export function signSegments(command, name = AGENT_NAME) {
   const parts = String(command).split(/(&&|\|\||;|\||(?<!\\)\n)/) // a backslash-newline continues the segment
   let changed = false
   const out = parts.map((p, i) => {
     if (i % 2 === 1) return p
     const t = shellText(p)
-    if (!GATE_VERBS.test(t)) return p
-    let q = p.replace(/\s--witnessed(?:=\S+|\s+["']?[^\s"';&|)]*["']?)?/g, () => { changed = true; return '' })
+    if (!GATE_VERBS.test(t) && !VAR_VERB.test(p)) return p
+    const dropped = dropWitnessed(p)
+    if (dropped !== null) changed = true
+    const q = dropped ?? p
     if (/(^|\s)--agent(=|\s|$)/.test(shellText(q))) return q
     changed = true
     const trail = /\s*$/.exec(q)[0]
@@ -397,10 +433,11 @@ const RAW_GATE = /\b(?:phase\s+(?:accept|reject)|fix\s+accept)\s+(?:\$\{?\w+\}?|
  */
 export function rewriteRaw(command, name = AGENT_NAME, keep = () => false) {
   if (typeof command !== 'string') return null
-  let changed = false
   // A --witnessed in a call witness cannot read was not put there by witness: drop it, so a chained
   // or wrapped gate can never carry a forged human sign-off (phase 41 verify, C2).
-  const bare = command.replace(/\s--witnessed(?:=[^\s'"]+|\s+[^\s'"`;&|)]+)?/g, () => { changed = true; return '' })
+  const dropped = dropWitnessed(command)
+  let changed = dropped !== null
+  const bare = dropped ?? command
   const out = bare.replace(RAW_GATE, (m, at) => {
     if (keep(m.trim().split(/\s+/).pop())) return m
     const after = bare.slice(at + m.length).split(/[;&|\n"')]/)[0]
@@ -409,4 +446,26 @@ export function rewriteRaw(command, name = AGENT_NAME, keep = () => false) {
     return `${m} --agent ${name}`
   })
   return changed ? out : null
+}
+
+/**
+ * A Bash command that writes the human CONTEXT.md marker into a phase's CONTEXT.md (`printf '…' > ctx`,
+ * `sed -i '1s/^.*$/<marker>/' ctx`, `cat > ctx <<'EOF'`), as `{ command, phases }` with every inline
+ * human marker replaced by the agent marker, or null. Write/Edit were witnessed already; a Bash
+ * write was not (debt 2026-10-12-witness-a-bash-write-of-the-human). Both must hold: the raw text
+ * carries the marker AND some token (split on whitespace, quotes and `;&|<>()`) is a phase CONTEXT.md
+ * path. A `grep` that merely reads the marker is a false positive that writes no file. The agent
+ * marker has no `/ & ' " % \`, so it stays valid inside `sed s///`, `printf` and a heredoc. Gaps (safe
+ * direction): a path in a variable, `cd` then a bare `CONTEXT.md`, a marker split across quoting.
+ */
+export function bashMarkerRewrite(command) {
+  if (typeof command !== 'string') return null
+  if (!new RegExp(HUMAN_INLINE.source, 'i').test(command)) return null
+  const phases = new Set()
+  for (const tok of command.split(/[\s'"`;&|<>()]+/)) {
+    const n = isPhaseContextPath(tok)
+    if (n !== null) phases.add(n)
+  }
+  if (!phases.size) return null
+  return { command: command.replace(HUMAN_INLINE, AGENT_MARKER), phases: [...phases].sort((x, y) => x - y) }
 }
