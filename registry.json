@@ -620,6 +620,16 @@
       "branch": "develop",
       "claimed_at": "2026-10-12T09:51:16.736Z",
       "status": "active"
+    },
+    {
+      "type": "phase",
+      "number": 45,
+      "milestone": 5,
+      "name": "Targeted re-verify after a FAIL: re-check the unmet criteria and only the passed ones the fix can affect, carry the rest over (GitHub #129)",
+      "owner": "matteo.alvazzi@gmail.com",
+      "branch": "develop",
+      "claimed_at": "2026-10-15T05:47:00.947Z",
+      "status": "active"
     }
   ]
 }
