@@ -518,3 +518,10 @@ _2026-10-15 · at ca74200_
 
 **Rejected:** Haiku for discover (a silent wrong file costs more than it saves); haiku in a profile for any judgement role; dropping the prompt paragraph to save tokens; lowering the unset-key floor to haiku (a project that never set the key should not change tier unannounced).
 
+## ADR-079 — A re-verify after a FAIL checks the previously unmet criteria first and stops with a cheap FAIL when any is still unmet; only a run that checked every criterion can mark a phase verified, and each verdict is saved in the phase folder so the next run can narrow (amends ADR-031)
+_2026-10-15 · at 3ef3f5b_
+
+**Why:** Full Opus re-runs after 1-3 small local failures were 33% of verifier cost (#129); astro-forge phase 222 was re-verified in full four times over one criterion. Checking the unmet criteria first, in the same run that goes on to full coverage when they pass, makes a still-failing re-verify cheap without a PASS ever resting on carried evidence, so ADR-031's guarantee (no false PASS from a fix that breaks another criterion) holds. A full run is forced when many criteria are unmet, CRITERIA.md changed, the saved verdict's commit is not an ancestor of HEAD, the verifier judges the fix broad, or --full is passed.
+
+**Rejected:** Carrying a PASS into verified with a diff-impact check (a fix's indirect side effect could reach /astro-accept); a narrowed run followed by a separate full run (every pass costs two runs); narrowing only the execute loop (at standard effort it has one cycle, the repeats are hand-run /astro-verify); keeping the verdict local only (lost on a fresh clone, not auditable).
+
