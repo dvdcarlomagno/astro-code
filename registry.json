@@ -630,6 +630,16 @@
       "branch": "develop",
       "claimed_at": "2026-10-15T05:47:00.947Z",
       "status": "active"
+    },
+    {
+      "type": "phase",
+      "number": 46,
+      "milestone": 5,
+      "name": "witness: cite proof of a human choice made elsewhere (an --evidence id or URL stored with the acceptance), and a list of machine-typed prompt prefixes that never count as human (GitHub #132)",
+      "owner": "matteo.alvazzi@gmail.com",
+      "branch": "develop",
+      "claimed_at": "2026-10-15T05:47:04.976Z",
+      "status": "active"
     }
   ]
 }
