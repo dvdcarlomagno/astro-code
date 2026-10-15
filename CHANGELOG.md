@@ -4,7 +4,11 @@ Release notes in full live on the [GitHub releases page](https://github.com/uubl
 
 ## Unreleased
 
+## v0.44.0
+
+- A re-verify after a FAIL re-checks the criteria that failed first and stops with FAIL while any is still unmet, so a still-failing phase no longer pays a full verifier run each time. A pass still checks every criterion in that same run. The verdict is saved and committed as `VERDICT.json` beside CRITERIA.md (written only by `ac verdict record`, protected by canon-guard), `ac phase verify` refuses without a full recorded pass, and a full run is forced when many criteria are unmet, CRITERIA.md changed, history moved, the fix is broad, or with `/astro-verify <n> --full` (ADR-079, #129)
 - `git-guard` never asks any more: a destructive git call it cannot show to be scoped is denied, so the agent gets the reason and the scoped form at once instead of an unattended workflow waiting on a prompt until you come back. A call it cannot read at all (a subcommand that is an expansion, a script fed to a shell on stdin) runs; it no longer refuses a script just because its text mentions git and a word like "restore" (ADR-082)
+- `git-guard` lets a probe in a scratch copy reset and then run its test in one command (assignments, `cd`, a `lean-ctx -c` wrapper); the same command aimed back at the project is still refused
 
 ## v0.43.0
 
