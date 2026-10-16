@@ -14,6 +14,10 @@
 // whether a prompt is a standing rule, in one
 // `$.model.complete` call that also lifts it, picks its kind and gives its why (D1).
 //
+// Machine-typed prompts (phase 46, ADR-081). A prompt that starts with one of the user's
+// machine-typed prefixes (`mods.machinePrefixes`, the one check in lib/machine.js) was typed by a
+// tool, so it is the tool's words and never the owner's rules (f8d0: only what the human typed).
+//
 // After the primary effect (spec §6). livePromptSubmit awaits `next(e)` first, so the prompt enters
 // unchanged, and only then starts the capture DETACHED with its own catch. It never delays,
 // rewrites or denies the prompt.
@@ -33,7 +37,8 @@
 //
 // The validator follows `$` only through functions declared in the same file (F6), so every
 // `$.*` call is spelled here and `$` is never handed to an import.
-import { isOn } from '../lib/switches.js'
+import { isOn, getPrefixes } from '../lib/switches.js'
+import { isMachineTyped } from '../lib/machine.js'
 import { setBadge, badgesClaimed, releaseBadges } from '../lib/badges.js'
 
 export const FEATURE = 'live-capture'
@@ -145,7 +150,7 @@ export async function liveTurnComplete($, e, next) {
 function qualifies(e) {
   if (kindOf(e) !== 'composer' || typeof e.text !== 'string') return false
   const t = e.text.trim()
-  return t !== '' && !t.startsWith('/')
+  return t !== '' && !t.startsWith('/') && !isMachineTyped(e.text, getPrefixes())
 }
 
 async function capture($, s, text) {

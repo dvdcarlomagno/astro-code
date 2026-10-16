@@ -30,9 +30,9 @@ test('the execute-phase Verify spawn is CRITERIA.md-based, plan-blind, adversari
   const vi = execPhase.indexOf("phase('Verify')");
   assert.ok(vi !== -1, "phase('Verify') not found");
   // Window spans the Verify section (both the integrationFailed branch and the else spawn).
-  // Widened for ADR-031's re-verify focus preamble, and again for the non-blocking
-  // findings rule; assertions below are unchanged.
-  const window = execPhase.slice(vi, vi + 7200);
+  // Widened for ADR-031's re-verify focus preamble, again for the non-blocking
+  // findings rule, and again for ADR-079's verdict clerks and narrowed preamble; assertions below are unchanged.
+  const window = execPhase.slice(vi, vi + 16000);
   assert.match(window, /CRITERIA\.md/, 'spawn prompt must reference CRITERIA.md');
   assert.match(window, /do NOT read[^.\n]*PLAN\.md/i, 'spawn prompt must forbid reading PLAN.md');
   assert.match(window, /assume[^.\n]*FAIL/i, 'spawn prompt must be adversarial (assume FAIL)');
@@ -71,4 +71,18 @@ test('non-blocking findings cannot become a back door out of failing a phase', (
   assert.match(execPhase, /Uncertain whether it is covered\? FAIL/i, 'doubt resolves to FAIL');
   assert.match(verifier, /Uncertain whether a criterion covers it\? FAIL/i, 'same rule in the agent doc');
   assert.match(verifier, /never \*instead\* of one/i, 'findings never substitute for a verdict');
+});
+
+test('astro-verifier.md has a narrowed re-verify section that keeps full coverage for a PASS (ADR-079)', () => {
+  const verifier = readFileSync(new URL('../agents/astro-verifier.md', import.meta.url), 'utf8');
+  const i = verifier.indexOf('## Narrowed re-verify');
+  assert.ok(i !== -1, 'narrowed section present');
+  const sec = verifier.slice(i, verifier.indexOf('## Non-blocking findings'));
+  assert.match(sec, /\*\*ALL\*\*\s+the\s+previously\s+unmet\s+criteria\s+first/i);
+  assert.match(sec, /continue in the SAME run to EVERY other criterion/i);
+  assert.match(sec, /never reported as passed/i);
+  assert.match(sec, /<saved>\.\.HEAD/);
+  assert.match(sec, /broad/i);
+  const frontmatter = verifier.split('---')[1] || '';
+  assert.doesNotMatch(frontmatter, /Write/);
 });

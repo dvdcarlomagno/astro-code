@@ -100,11 +100,12 @@ function noteLocalModel() {
 }
 import { profileReasoning, REASONING_LEVELS, validateReasoning } from '../lib/reasoning.mjs';
 import { loadState, updateState } from '../lib/state.mjs';
+import { checkCitation } from '../lib/util.mjs';
 import { loadRoadmap, addPhase, renderRoadmap, setMilestone, findPhase, setPhaseStatus, rejectPhase, setPhaseEffort, setPhaseNote, setPhaseMilestone, isPhasePlanned } from '../lib/roadmap.mjs';
 import { resolveEffort, DEFAULT_EFFORT } from '../lib/effort.mjs';
 import { gitIdentity, git, isRepo } from '../lib/git.mjs';
 import { claim, readRegistry, registryBranch, markComplete, findNameMatches, initRegistry, claimFix, markFixComplete, repointPhaseClaim, claimDrift, activateMilestone, milestoneClaims, waitingMilestones, renameMilestone } from '../lib/registry.mjs';
-import { addFix, acceptFix, setFixStatus, findFix, openFixes, loadFixes, FIX_STATUSES } from '../lib/fixes.mjs';
+import { addFix, acceptFix, setFixStatus, resolveFix, openFixes, loadFixes, FIX_STATUSES } from '../lib/fixes.mjs';
 import {
   addDebt, openDebt, findDebt, payDebt, dropDebt, dismissDebt, closeDebtFor, staleDebt, setDebtNote,
   debtAgeDays, debtScore, loadDebt, DEBT_COSTS, STALE_DAYS,
@@ -125,6 +126,7 @@ import {
 import { inForceText } from '../lib/decisions.mjs';
 import { completeMilestone, belongsToMilestone } from '../lib/milestone.mjs';
 import { recordSurprise } from '../lib/surprises.mjs';
+import { planReverify, recordVerdict, verifiedGate } from '../lib/verdict.mjs';
 import { milestoneHarvest } from '../lib/harvest.mjs';
 import { flowInit, flowBranch, flowPR, flowRelease, flowTag, flowHotfixStart, flowHotfixFinish } from '../lib/flow.mjs';
 import { installClaude, uninstallClaude, installStatusline, baseConfigDir, ASTRO_HOME, refreshAgents, agentNames, republishHost } from '../lib/install.mjs';
@@ -223,15 +225,25 @@ const ALLOWED_FLAGS = {
   'canon stats': [],
   'registry init': ['force'],
   // ADR-074 — `witnessed` is the optional witness mod TELLING ac what it saw; ac never detects.
-  'phase accept': ['by', 'force', 'agent', 'witnessed'],
+  // ADR-081 — `evidence` is a CITATION of a decision made elsewhere, stored beside the record; it never signs.
+  'phase accept': ['by', 'force', 'agent', 'witnessed', 'evidence'],
   'phase show': ['json'],
+  // Phase 45 (ADR-079) — `--force` is the escape from the full-verdict gate, mirroring
+  // `phase accept`; a typo'd flag must not silently verify without the gate's say.
+  'phase verify': ['force'],
+  // `--full` forces a full re-verify; a typo (`--fulll`) must not degrade into a narrowed run.
+  'verdict plan': ['full', 'json'],
+  // `--result` is the verifier's checked criteria; a typo must not record an empty verdict.
+  'verdict record': ['result'],
   // Phase 23 (P2) — a stand-in agent rejects on the human's behalf; `agent` is the
   // declared signer, mirroring `phase accept --agent` (ADR-033, now symmetric).
-  'phase reject': ['reason', 'agent', 'witnessed'],
+  'phase reject': ['reason', 'agent', 'witnessed', 'evidence'],
   // Phase 23 (P3) — execute calls this unconditionally; a typo'd flag must not
   // silently drop the very signal the milestone sweep exists to catch.
   'phase surprise': ['healed', 'remediation-cycles', 'stopped-reason', 'note'],
-  'fix accept': ['by', 'agent', 'witnessed'],
+  'fix accept': ['by', 'agent', 'witnessed', 'evidence'],
+  // Phase 46 — `--all` lists accepted fixes too; a typo'd flag must not silently list the open ones only.
+  'fix list': ['json', 'all'],
   // `drop` is the one debt verb that removes something from the list on a human's
   // say-so, so a typo'd flag must not degrade into "dropped with no reason".
   'debt drop': ['reason'],
@@ -333,6 +345,27 @@ function witnessedEvidence(flags) {
   return flags.witnessed;
 }
 const WITNESSED_NOTE = ' (witnessed: typed at the composer)';
+
+// ASTRO_SIGNER_AGENT=<name> in the environment declares the agent signer when the call itself names
+// neither --agent nor --witnessed. The witness mod exports it in front of a gate call it cannot read
+// fully (a shell -c string, a variable verb), so every nested ac inherits it however the command is
+// quoted (phase 46, C10). It can only make a signer an agent, never a human.
+// ASTRO_WITNESS_DROP=1 does the same for a forged claim: witness exports it in front of a call it cannot
+// read that mentions --witnessed, which witness itself never adds there, so ac ignores the flag however
+// it was quoted (phase 46, C9). It can only remove a witnessed claim, never add one.
+function signerFromEnv(flags) {
+  if (process.env.ASTRO_WITNESS_DROP === '1') delete flags.witnessed;
+  const name = typeof process.env.ASTRO_SIGNER_AGENT === 'string' ? process.env.ASTRO_SIGNER_AGENT.trim() : '';
+  if (name && flags.agent === undefined && flags.witnessed === undefined) flags.agent = name;
+}
+// ADR-081 — `--evidence "<id or URL>"` cites a decision made elsewhere. The rule (one line, at most
+// 200 characters) lives in lib/util.mjs `checkCitation`; this only turns its throw into a `die`, and
+// runs BEFORE any write. A citation is stored beside the record and never touches who signed.
+function citedEvidence(flags) {
+  if (flags.evidence === undefined) return undefined;
+  try { return checkCitation(flags.evidence); } catch (e) { return die(e.message); }
+}
+const CITES_NOTE = (v) => (v !== undefined ? ` (cites: ${v})` : '');
 // #106 — `ac phase note` / `ac backlog note` text and write mode. The flags are booleans,
 // but the parser hands a flag the next word as its value, so `--append "<text>"` and
 // `"<text>" --append` must both read the same.
@@ -496,15 +529,18 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac phase check "<name>"             see if a phase with a similar name exists
   ac phase context <phase>            discuss-gate status: missing | stub | ready
   ac phase context <phase> --author   who captured it: human | agent <name> | none
-  ac phase verify <phase>             mark a phase verified (AI gate passed)
+  ac phase verify <phase> [--force]   mark a phase verified (AI gate passed; needs a full recorded verdict)
+  ac verdict plan <phase> [--full] [--json]  should the next verify narrow? (ADR-079)
+  ac verdict record <phase> --result '<json>'  save + commit a verify verdict
   ac phase accept <phase> [--by N]    UAT sign-off → complete (requires verified)
   ac phase accept <p> --agent <name>  machine-signed sign-off (records accepted_kind=agent)
   ac phase accept <p> --witnessed composer  record that a human typed the gate command (set by the witness mod, ADR-074)
+  ac phase accept <p> … --evidence "<id or URL>"  cite a decision made elsewhere (stored as cited_evidence; never makes the signer human, ADR-081)
   ac phase show <phase>               print the raw roadmap entry as JSON
   ac fix add "<what is broken>"       open a bugfix (dated id, no phase number)
-  ac fix list                         open fixes
+  ac fix list [--all]                 open fixes (--all: accepted too)
   ac fix status <id> [<status>]       read or move the lifecycle
-  ac fix accept <id> [--agent <name> | --witnessed composer] human gate → accepted + archived
+  ac fix accept <id> [--agent <name> | --witnessed composer] [--evidence "<id or URL>"] human gate → accepted + archived
   ac debt list [--phase N|--file p|--stale]  open technical debt (the verifier files it)
   ac debt add "<what>" [--why …] [--phase N] [--file p] [--cost small|medium|large]
   ac debt note <id> ["<text>"] [--append|--replace]  read/set/clear a debt's note (title and id stay fixed)
@@ -547,7 +583,7 @@ const HELP = `astro-code — lean, multi-developer planning for Claude Code
   ac principles mine [--all|--project <path>] [--rescan] [--json]   hand over a batch of past human turns (read-only)
   ac principles mine --advance <sweep-id> [--keep <id,id,...>]   mark that sweep processed, carrying the kept turns forward
   ac principles list|show … --no-sync   read-only: skip the git sync entirely (no lock, no write) — for a read-only consumer
-  ac phase reject <phase> --reason … [--agent name | --witnessed composer]  UAT failed → rejected + record a blocker
+  ac phase reject <phase> --reason … [--agent name | --witnessed composer] [--evidence "<id or URL>"]  UAT failed → rejected + record a blocker
                                        (--agent: machine-signed rejection, not human UAT)
   ac phase surprise <phase> [--healed n] [--remediation-cycles n] [--stopped-reason r] [--note "…"]
                                        record what an /astro-execute run hit sideways (silent; for the milestone sweep)
@@ -663,10 +699,20 @@ async function main() {
       const sub = pos[0];
 
       if (!sub || sub === 'list') {
-        const open = openFixes(r);
+        checkFlags('fix list', flags);
+        // `--all` adds the accepted fixes (their citation shows here); plain `list` and `--json`
+        // stay open-only because phase-band reads `fix list --json`.
+        const open = flags.all
+          ? [...loadFixes(r).fixes].sort((a, b) => String(b.id).localeCompare(String(a.id)))
+          : openFixes(r);
         if (flags.json) { json(open); return; }
         if (!open.length) { console.log('• no open fixes'); return; }
-        for (const f of open) console.log(`  ${f.id}  ${f.status}  ${f.title}`);
+        for (const f of open) {
+          const acc = f.status === 'accepted'
+            ? `  · by ${f.accepted_by || 'unknown'}${f.accepted_kind === 'agent' ? ' (agent)' : ''}${f.cited_evidence ? ` · cites ${f.cited_evidence}` : ''}`
+            : '';
+          console.log(`  ${f.id}  ${f.status}  ${f.title}${acc}`);
+        }
         return;
       }
 
@@ -687,7 +733,13 @@ async function main() {
         return;
       }
 
-      const fix = findFix(r, pos[1]);
+      const res = resolveFix(r, pos[1]);
+      if (res.ambiguous) {
+        const shown = res.ambiguous.slice(0, 5).join(', ');
+        const more = res.ambiguous.length > 5 ? `, … (+${res.ambiguous.length - 5} more)` : '';
+        die(`ambiguous fix "${pos[1]}": matches ${shown}${more} — use the full id`);
+      }
+      const fix = res.fix;
       if (!fix) die(`no such fix: ${pos[1] || '(none given)'} — see \`ac fix list\``);
 
       if (sub === 'show') { json(fix); return; }
@@ -702,14 +754,17 @@ async function main() {
 
       if (sub === 'accept') {
         checkFlags('fix accept', flags);
+        signerFromEnv(flags);
         // A bare or empty --agent on an ACCEPT would otherwise record a human sign-off (agentSigner
         // falsy): refuse it rather than guess. A reject keeps declaring agent on a bare flag (below).
         if (flags.agent !== undefined && (typeof flags.agent !== 'string' || !flags.agent.trim())) die('fix accept --agent needs a name, e.g. --agent claude (ADR-033: an agent signer is declared by name)');
         const evidence = witnessedEvidence(flags);
+        const cite = citedEvidence(flags);
         const done = await acceptFix(r, fix.id, {
           by: typeof flags.by === 'string' ? flags.by : gitIdentity(r).owner,
           agent: typeof flags.agent === 'string' ? flags.agent : '',
           evidence,
+          cite,
         });
         markFixComplete({ root: r, id: fix.id });
         reportFleetOutcome(r, {
@@ -717,7 +772,7 @@ async function main() {
           first_try: fix.status !== 'rejected' && !fix.rejections,
         });
         const who = done.accepted_kind === 'agent' ? `agent ${done.accepted_by}` : done.accepted_by;
-        console.log(`✓ accepted ${done.id} by ${who}${done.archived ? ' → archived' : ''}${evidence ? WITNESSED_NOTE : ''}`);
+        console.log(`✓ accepted ${done.id} by ${who}${done.archived ? ' → archived' : ''}${evidence ? WITNESSED_NOTE : ''}${CITES_NOTE(cite)}`);
         // Draining the debt register is a SIDE EFFECT of the gate that already exists.
         // This is the anti-rot mechanism: an item closes because the work was accepted,
         // never because someone remembered to delete a line (see lib/debt.mjs).
@@ -2271,7 +2326,14 @@ async function main() {
         }
         console.log(phaseContextStatus(r, ph.slug));
       } else if (sub === 'verify') {
-        if (!ph) die('usage: ac phase verify <phase>');
+        if (!ph) die('usage: ac phase verify <phase> [--force]');
+        checkFlags('phase verify', flags);
+        // ADR-079 — a phase is verified only by a full run. Enforced here in code, so a
+        // carried or narrowed verdict cannot reach `verified` however the prose reads.
+        const gate = verifiedGate(r, ph.slug);
+        if (!gate.ok && !flags.force) {
+          die(`phase ${ph.number}: ${gate.reason} — run /astro-verify ${ph.number} (or pass --force)`);
+        }
         await setPhaseStatus(r, ph.slug, 'verified');
         // `verified` is the AI verifier's verdict by definition (REQ-006), so by: agent.
         reportFleetOutcome(r, { kind: 'phase_verified', ref: ph.number, title: ph.name, by: 'agent' });
@@ -2283,9 +2345,11 @@ async function main() {
         checkFlags('phase show', flags);
         json(ph);
       } else if (sub === 'accept') {
-        if (!ph) die('usage: ac phase accept <phase> [--by name | --agent name | --witnessed composer] [--force]');
+        if (!ph) die('usage: ac phase accept <phase> [--by name | --agent name | --witnessed composer] [--evidence "<id or URL>"] [--force]');
         checkFlags('phase accept', flags);
+        signerFromEnv(flags);
         const evidence = witnessedEvidence(flags);
+        const cite = citedEvidence(flags);
         if (ph.status !== 'verified' && !flags.force) {
           die(`phase ${ph.number} is "${ph.status}", not verified — run /astro-verify first (or pass --force)`);
         }
@@ -2323,6 +2387,7 @@ async function main() {
           accepted_kind: kind,
           accepted_at: new Date().toISOString(),
           ...(evidence ? { accepted_evidence: evidence } : {}),
+          ...(cite !== undefined ? { cited_evidence: cite } : {}),
         });
         await updateState(r, (s) => ({ ...s, active_phase: s.active_phase === ph.slug ? null : s.active_phase }));
         reportFleetOutcome(r, {
@@ -2330,7 +2395,7 @@ async function main() {
           first_try: !(ph.rejections && ph.rejections.length) && ph.status !== 'rejected',
         });
         console.log(
-          `✓ phase ${ph.number} "${ph.name}" accepted by ${by}${agentSigner ? ' (AGENT — machine-signed, not human UAT)' : ''}${evidence ? WITNESSED_NOTE : ''} → complete`,
+          `✓ phase ${ph.number} "${ph.name}" accepted by ${by}${agentSigner ? ' (AGENT — machine-signed, not human UAT)' : ''}${evidence ? WITNESSED_NOTE : ''}${CITES_NOTE(cite)} → complete`,
         );
         // Same drain as `ac fix accept`: debt paid by this phase closes here, on the
         // acceptance, so the register can never claim work is done on a promise.
@@ -2344,9 +2409,11 @@ async function main() {
           console.log(`✓ backlog ${b.id} absorbed`);
         }
       } else if (sub === 'reject') {
-        if (!ph) die('usage: ac phase reject <phase> --reason "…" [--agent name | --witnessed composer]');
+        if (!ph) die('usage: ac phase reject <phase> --reason "…" [--agent name | --witnessed composer] [--evidence "<id or URL>"]');
         checkFlags('phase reject', flags);
+        signerFromEnv(flags);
         const evidence = witnessedEvidence(flags);
+        const cite = citedEvidence(flags);
         const reason = typeof flags.reason === 'string' ? flags.reason : '';
         // ADR-033, now symmetric on reject (P2, phase 23) — a stand-in agent rejects
         // on the human's behalf; `kind` is DECLARED via `--agent`, never detected, for
@@ -2360,17 +2427,18 @@ async function main() {
         // stand-in agent's rejection masquerade as genuine human UAT.
         const isAgentSigner = flags.agent !== undefined;
         const agentSigner = typeof flags.agent === 'string' ? flags.agent : '';
-        await rejectPhase(r, ph.slug, { reason, agent: isAgentSigner ? agentSigner : undefined, evidence });
+        await rejectPhase(r, ph.slug, { reason, agent: isAgentSigner ? agentSigner : undefined, evidence, cite });
         reportFleetOutcome(r, { kind: 'phase_rejected', ref: ph.number, title: ph.name, by: isAgentSigner ? 'agent' : 'human' });
         await updateState(r, (s) => ({
           ...s,
           blockers: [...(s.blockers || []), {
             phase: ph.slug, reason, kind: isAgentSigner ? 'agent' : 'human', at: new Date().toISOString(),
+            ...(cite !== undefined ? { cited_evidence: cite } : {}),
           }],
         }));
         console.log(
           `✗ phase ${ph.number} "${ph.name}" → rejected${reason ? `: ${reason}` : ''}` +
-            `${isAgentSigner ? ' (AGENT — machine-signed, not human UAT)' : ''}${evidence ? WITNESSED_NOTE : ''}`,
+            `${isAgentSigner ? ' (AGENT — machine-signed, not human UAT)' : ''}${evidence ? WITNESSED_NOTE : ''}${CITES_NOTE(cite)}`,
         );
         // Q1: a linked item whose phase is REJECTED reverts to open rather than being
         // stranded as `linked` forever — nothing is silently lost either way.
@@ -2487,6 +2555,31 @@ async function main() {
       } else {
         die('usage: ac phase <add|check|context|show|verify|accept|reject|surprise|effort|note|milestone> …');
       }
+      return;
+    }
+
+    case 'verdict': {
+      const r = root();
+      const sub = pos[0];
+      if (sub !== 'plan' && sub !== 'record') die('usage: ac verdict <plan|record> <phase> …');
+      checkFlags(`verdict ${sub}`, flags);
+      const ph = findPhase(r, pos[1]);
+      if (!ph) die(`usage: ac verdict plan <phase> [--full] [--json] | ac verdict record <phase> --result '<json>'`);
+      if (sub === 'plan') {
+        const plan = planReverify(r, ph.slug, { full: flags.full !== undefined });
+        if (flags.json) json(plan);
+        else if (plan.mode === 'narrowed') {
+          console.log(`• narrowed: re-check ${plan.first.join(', ')} first (run ${plan.saved.run} @ ${String(plan.saved.commit).slice(0, 7)})`);
+        } else console.log(`• full: ${plan.reason}`);
+        return;
+      }
+      if (typeof flags.result !== 'string') die(`usage: ac verdict record <phase> --result '<json>'`);
+      let result;
+      try { result = JSON.parse(flags.result); } catch { die('--result is not valid JSON'); }
+      let out;
+      try { out = await recordVerdict(r, ph.slug, result); } catch (e) { die(e.message); }
+      if (out.ignored) console.error(`⚠ ${out.ignored} reported criterion id(s) are not in CRITERIA.md and were ignored`);
+      json(out);
       return;
     }
 
@@ -3117,7 +3210,7 @@ async function main() {
         if (flags['switches-only']) {
           // the hot path (the plugin's session.start, the settings hooks): the file and nothing else
           const r = readMods();
-          json({ switches: r.switches, warnings: r.warnings });
+          json({ switches: r.switches, warnings: r.warnings, machinePrefixes: r.machinePrefixes });
           return;
         }
         const st = modsStatus();

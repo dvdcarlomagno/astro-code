@@ -1018,3 +1018,28 @@ test('every command that asks the user references templates/asking.md, and the s
     assert.match(spec, rule);
   }
 });
+
+
+// ── Phase 45 (ADR-079): narrowed re-verify in the command docs ───────────────────────────────────
+
+test('phase 45: /astro-verify takes --full, plans before the verifier and records before ac phase verify', () => {
+  const src = readFileSync(join(COMMANDS, 'astro-verify.md'), 'utf8');
+  assert.match(src.split('---')[1], /argument-hint:.*--full/);
+  const plan = src.indexOf('ac verdict plan');
+  const spawn = src.indexOf('spawn **ONE**');
+  const record = src.indexOf('ac verdict record');
+  const gate = src.indexOf('ac phase verify <slug>');
+  assert.ok(plan !== -1 && spawn !== -1 && plan < spawn, 'ac verdict plan comes before the verifier spawn');
+  assert.ok(record !== -1 && gate !== -1 && record < gate, 'ac verdict record comes before ac phase verify');
+  assert.match(src, /carried, not re-checked: <n> \(run <R> @ <sha7>\)/);
+  assert.match(src, /ONE\*\*\s+\*\*astro-verifier\*\*\s+invocation/);
+  assert.match(src, /continue\s+in\s+the\s+same\s+run/i);
+});
+
+test('phase 45: /astro-execute passes full to the Workflow and records verdicts in the non-Workflow tiers', () => {
+  const src = readFileSync(EXECUTE_MD, 'utf8');
+  assert.match(src, /full: <true only when the user passed --full/);
+  assert.match(src, /ac verdict record <slug>/);
+  assert.match(src, /ac verdict plan/);
+  assert.match(src, /\/astro-verify <number>/);
+});

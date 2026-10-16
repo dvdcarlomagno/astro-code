@@ -146,7 +146,7 @@ lines: the `ac` verb to use for that file (with the rule's source as a short tag
   profile added later gets it; a stale entry is removed).
 
 **git-guard** refuses unscoped destructive git, the rule ADR-035 and ADR-038 put in every
-executor prompt. The prompt is two plain lines: what the command would do (e.g. "throws away
+executor prompt. The refusal reason is two plain lines: what the command would do (e.g. "throws away
 every uncommitted change in the repo"), then the scoped alternative and the off switch:
 
 - Refused: `git stash` with no `-- <path>` pathspec (bare, `-u`/`-a`/`-k`, `save`, `push` without
@@ -158,12 +158,13 @@ every uncommitted change in the repo"), then the scoped alternative and the off 
   `worktree remove --force` are out of scope without an ADR).
 - Parsing: a mistake-catcher, not a sandbox. Compound commands, `cd`/env/`command`/`exec`/`sudo`
   prefixes, `git -C/-c/--git-dir`, `sh -c`/`bash -c`, `<(…)` and the lean-ctx `-c` wrapper are seen;
-  aliases, `eval`, scripts, `$(…)` and lean-ctx's `ctx_shell` are not. A git command merely quoted
+  scripts, a subcommand that is an expansion (`git $SUB`), a shell fed on stdin, nesting three
+  shells deep and lean-ctx's `ctx_shell` are not, and those run. A git command merely quoted
   in `echo`, `grep` or a commit message never trips it. A variable set once in the same command to
   a plain path (`F=src/a.js; …; git checkout -- $F`) is read as that path, a loop over plain paths
   (`for f in a.md b.md; do …; git checkout -- $f; done`) is judged path by path, and a glob below a named
-  folder (`git checkout src/components/*.css`) counts as scoped; any other expansion asks.
-- Not asked when nothing can be lost. A refused call goes through without a prompt when git, asked
+  folder (`git checkout src/components/*.css`) counts as scoped; any other expansion in a destructive call is refused.
+- Not refused when nothing can be lost. A refused call goes through when git, asked
   read-only, shows it would destroy nothing: no uncommitted change for `reset --hard` (bare or to
   `HEAD` only; a reset to another commit can drop commits), `stash`, a whole-tree
   `checkout`/`restore` or `-f`; no untracked file for `git clean` (no ignored file either with
@@ -171,13 +172,16 @@ every uncommitted change in the repo"), then the scoped alternative and the off 
   (`TMPDIR`, else `/tmp`), or whose `.git` holds an `astrocode-scratch` file: a throwaway copy that must
   live where the host can see it is marked on purpose (`touch .git/astrocode-scratch`, which the
   verifier does for its probe copies). A worktree of a real project still counts as the project.
-  Only the plain shape qualifies, `git <subcommand> …` alone or after `cd <literal path>`; with
-  prefixes, global options, other segments, unreadable words, or git not answering, it asks.
-- Verdict: Claude Code **asks**; a headless or Workflow agent cannot answer, so for it an ask is a
-  refusal. Cursor **denies**, because it cannot ask from `preToolUse`. `ac mods status` says
-  which (`asks` / `denies`) per place.
-- Escapes: approve the prompt if you meant it, or `ac mods disable git-guard`. There is no
-  environment-variable escape.
+  Only the plain shape qualifies, `git <subcommand> …` alone or after literal assignments and
+  `cd <literal path>` segments, optionally inside one `lean-ctx -c`/`bash -c`. In a scratch repo the
+  segments after it may run too (a probe resets, then runs its test), unless one is refused itself; with
+  prefixes, global options, other segments, unreadable words, or git not answering, it is refused.
+- Verdict: it **denies**, on Claude Code and Cursor alike, and never asks (ADR-082). An ask from
+  a Workflow agent waits for you, so an unattended run stalled until you came back; a deny
+  reaches the agent at once with the scoped form to use instead. `ac mods status` says
+  `denies` per place.
+- Escapes: run the command yourself if you meant it (`! <command>` in the prompt), or
+  `ac mods disable git-guard`. There is no environment-variable escape.
 - Where it is enforced, and the re-sync on `ac install` / `ac update`: as for canon-guard.
 - Not seen: `ac`'s and the workflow's own git calls run through `child_process`, not the Bash tool.
   That is why `NO_BROAD_STASH` stays in the prompts.
@@ -247,12 +251,33 @@ already state. Optionally, on Claude Code, `ac mods enable blindfold` enforces i
   typed `/astro-discuss <n>` or `/astro-accept <n>` stays witnessed while a workflow finishes.
 - `accepted_evidence`: `--witnessed composer` is stored as `accepted_evidence: "composer"`
   (`ac phase show <n> --json`). `ac` never detects; it records what the caller declares.
+- Citing a decision made elsewhere: a gate (`ac phase accept|reject`, `ac fix accept`) takes
+  `--evidence "<id or URL>"` (one line, at most 200 characters), stored as `cited_evidence` beside the
+  record and shown by `ac phase show` and `ac fix list --all`. It is a citation, never a signer: it
+  does not make the acceptance human (ADR-081), works with the mod off, and combines with `--agent` or
+  `--witnessed composer`, which keep their own meaning.
+- Machine-typed prompts: a prompt (or typed slash command) that starts with one of your
+  `mods.machinePrefixes` (see the switches paragraph below) is a tool's, not yours, so a gate in that turn is
+  signed `--agent claude` and a human CONTEXT.md marker becomes the agent marker.
+- A `--witnessed` with no known turn (a fresh session, a reload, a typed gate with no id) is dropped; the call
+  is otherwise left as declared. A gate verb held in a shell variable (`V=accept; ac phase $V 41`) and a Bash
+  write of the human CONTEXT.md marker (`printf … >`, `sed -i`, a heredoc) are judged like their direct forms.
+  A Bash call that can write a phase CONTEXT.md it names is also judged by its effect: if line 1 becomes the
+  human marker during it, witness sets line 1 to the agent marker afterwards (the call's exit status is kept).
+  Where splicing `--agent` into the text can miss (a verb in a variable, a nested `bash -c`, `eval`, `xargs`),
+  witness also puts `export ASTRO_SIGNER_AGENT=claude;` in front: `ac` reads it as `--agent claude` on any gate
+  call that names neither `--agent` nor `--witnessed`, so a nested call is signed however it is quoted. The
+  variable can only make a signer an agent, never a human. Likewise, a call it cannot read that mentions
+  `--witnessed` (which witness never adds there) gets `export ASTRO_WITNESS_DROP=1;`, and `ac` then ignores
+  the flag however it is quoted.
 - Fail open: an unknown turn, an empty typed id or a command it cannot parse is left declared, with
   one notice.
 - Known gaps: a typed `! ac phase accept <n>` line (the host shows it to no hook, so it is never
   witnessed; use the slash command), MCP shell tools (`ctx_shell`), an `ac` alias or script, a subagent's call (never
   witnessed), and Remote Control (`bridge`, counts as no signal so it is recorded as agent). The UAT
-  question's answer is not attestable (phase 41 `PROBE.md`).
+  question's answer is not attestable (phase 41 `PROBE.md`). A CONTEXT.md path held in a variable or reached by
+  a `cd` and a bare `CONTEXT.md` gets no effect check, and a verb fed through `xargs` stdin or a script is not
+  read: witness is a record, not a sandbox (ADR-074).
 
 **phase-band** draws a quiet band above the prompt in an astro-code project, and offers ids as you
 type. Optionally, on Claude Code, `ac mods enable phase-band` (off by default; headless `-p` and any
@@ -295,6 +320,8 @@ directory outside an astro-code project draw nothing):
   the count rises, or in the phase band when that is drawing; never a toast, nothing at zero. A
   failure gives at most one `⚠ principle capture failed` line per session and never touches your
   prompt.
+- Machine-typed prompts (a tool typing into your session, see the switches paragraph below) are never
+  looked at.
 - The escape: `ac mods disable live-capture`.
 - The rules (gate, lift, kinds, `--from-ref`, reporting) live once in
   `templates/principle-capture.md`; this section does not restate them.
@@ -310,6 +337,13 @@ The switches live in **`~/.astro/config.json`** under `mods`, beside `agent_tool
 not per project (`{ "mods": { "blindfold": true } }`; a missing key is off). `ac mods` is the only
 writer; an unparseable file is refused, never overwritten, and an unknown feature name changes
 nothing.
+
+Beside the switches, `mods.machinePrefixes: ["[relay] "]` lists strings a tool of yours types at the head
+of a prompt. A prompt whose trimmed text starts with one is machine-typed: **witness** never counts it as you
+and **live-capture** never reads it. It is per user, a plain case-sensitive prefix match (no regex, so `.*`
+is just those two characters), read at session start, so run `/reload-plugins` after a change. A malformed
+list (not a list of non-empty strings, over 50 entries or 200 characters) means no prefixes and one `⚠` in
+`ac mods status`; nothing else changes.
 
 Mods need **Claude Code 2.1.292 or newer**. On an older (or no) Claude Code, `ac mods enable`
 still records the switch and warns once, but installs nothing. The first `mod` you enable adds
@@ -527,6 +561,15 @@ evidence per criterion, never by trusting the plan or the task summaries.
 
 `/astro-accept` is the **human gate**: UAT against the acceptance checklist written at plan
 time. The AI never auto-closes its own work; `ac phase accept` requires a prior `verified`.
+
+Each phase keeps one saved `VERDICT.json` beside its `CRITERIA.md`, written and committed only by
+`ac verdict record` (canon-guard blocks hand edits). A re-verify after a FAIL reads it and checks
+the unmet criteria first, failing cheaply when they are still unmet; when they now pass, the same
+run continues over every other criterion, so a PASS always rests on a full run. It falls back to a
+full run when many criteria are unmet, `CRITERIA.md` changed, the history does not line up, the
+fix is broad, or you pass `--full` (`ac verdict plan <phase>` shows the decision and the
+thresholds live in `lib/verdict.mjs`). `ac phase verify` refuses without a full all-passed
+verdict (`--force` is the escape).
 
 > **A phase's goal is the bar, not its task list.** Every task passing while the goal is
 > unmet is a failed phase.
@@ -1086,6 +1129,7 @@ ac phase add "Foundation"      # claim + add a phase
 ac phase check "<name>"        # is someone already building this?
 ac phase accept <n>            # human gate — requires a prior `verified`
 ac phase accept <n> --witnessed composer  # evidence the witness mod adds; also on `phase reject` and `fix accept`. `ac` never detects: it records what is declared
+ac phase accept <n> --evidence "<id or URL>"  # cite a decision made elsewhere (cited_evidence; never makes the signer human); also on `phase reject` and `fix accept`
 ac phase show <n> [--json]     # one phase's record, incl. accepted_kind / accepted_evidence
 ac phase reject <n> --reason … [--agent name]  # UAT failed → rejected + a blocker (--agent: machine-signed)
 ac phase surprise <n> [--healed n] [--remediation-cycles n] [--stopped-reason r] [--note "…"]  # execute records a run surprise
@@ -1102,7 +1146,7 @@ ac milestone complete          # archive the current milestone's phases (refuses
 ac milestone harvest [<n>] [--json]  # retrospective sweep material for the principle sweep
 
 ac fix add "<what is broken>"  # open a bugfix (dated id, no phase number)
-ac fix list                    # what is open
+ac fix list [--all]            # what is open (--all: accepted too, with who signed and any citation)
 ac fix accept <id>             # human gate — archives it
 ac fix accept <id> --agent <n> # machine-signed (ADR-033): records accepted_kind=agent
 

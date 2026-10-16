@@ -27,18 +27,31 @@
 // fixed: PROBE.md (phase 36) found no field joining an `agentId` to a subagent type, so every
 // agent, main loop included, is `claude`.
 //
+// Machine-typed turns (phase 46, ADR-081). A composer prompt (or typed slash command) that STARTS with
+// one of the user's machine-typed prefixes (`mods.machinePrefixes`, handed over by `ac` at session
+// start; the one match is hooks/lib/machine.js) was typed by a tool, not the human. Its turn gets the
+// origin 'machine', which is never 'composer', so no gate call in it is witnessed: it is signed
+// `--agent claude`, and a human CONTEXT.md marker becomes the agent marker. A missing or malformed
+// list is no prefixes (fail soft), so nothing changes without the config.
+//
+// A cold `--witnessed` (no known turn, or a typed gate with no id) is DROPPED but gets no `--agent`:
+// witness cannot say who signed, so the call stays as declared (ADR-071 e) minus a claim only
+// witness may make. Variable gate verbs (`V=accept; ac phase $V 41`) and Bash writes of the human
+// CONTEXT.md marker (`printf … > CONTEXT.md`, `sed -i`, a heredoc) are judged like their direct forms.
+//
 // UAT. PROBE.md's verdict is not-observable: nothing on an AskUserQuestion event or result says
 // who answered, so witness registers nothing for it and the typed command alone is the signal.
 //
 // `$.ui.toast` is spelled here, in this file's own hooks, and `$` is never handed to an imported
 // helper (the plugin validator follows `$` only through functions declared in the file).
-import { isOn } from '../lib/switches.js'
-import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath, GATE_VERBS, shellText, signSegments, RAW_SEES, onlyQuotedMention } from '../lib/gates.js'
+import { isOn, getPrefixes } from '../lib/switches.js'
+import { isMachineTyped, commandText } from '../lib/machine.js'
+import { AGENT_NAME, findGates, rewriteGate, parseTyped, parseBang, idsMatch, segmentHas, segmentDeclaresAgent, rewriteRaw, markerRewrite, editRewrite, isPhaseContextPath, GATE_VERBS, shellText, signSegments, RAW_SEES, onlyQuotedMention, VAR_VERB, dropWitnessed, bashMarkerRewrite, effectGuard, contextPathsIn, withSignerEnv, withDropEnv, notLiteral, claimTrace, NESTS } from '../lib/gates.js'
 
 const NOTICE = {
   agent: 'witness: no typed /astro-accept|/astro-fix-accept for this id this turn — recorded as agent (--agent claude). ADR-074, ADR-033.',
   marker: 'witness: CONTEXT.md marker written outside a typed /astro-discuss <n> — recorded as captured by agent: claude. ADR-074.',
-  undetermined: 'witness: could not tell who started this turn — left as declared. ADR-074, ADR-071(e).',
+  undetermined: 'witness: could not tell who started this turn — left as declared (a self-supplied --witnessed is dropped). ADR-074, ADR-071(e).',
 }
 
 // null (unknown) | { origin, typed, expansion }
@@ -71,6 +84,7 @@ export async function witnessCommand($, e, next) {
   if (!isOn('witness')) return next(e)
   const kind = kindOf(e)
   if (kind === null) turn = null
+  else if (kind === 'composer' && isMachineTyped(commandText(e.command, e.args), getPrefixes())) turn = { origin: 'machine', typed: null, expansion: true }
   else if (kind === 'composer') turn = { origin: 'composer', typed: parseTyped(e.command, e.args), expansion: true }
   else turn = { origin: kind, typed: null, expansion: false }
   return next(e)
@@ -87,6 +101,8 @@ export async function witnessPrompt($, e, next) {
   if (kind === null) turn = null
   else if (kind !== 'composer') turn = { origin: kind, typed: null, expansion: false }
   else if (turn && turn.expansion) turn.expansion = false // the slash expansion keeps the typed signal
+  // checked BEFORE parseBang: `   [relay] ! ac phase accept 41` is a tool's line, not the human's bang
+  else if (isMachineTyped(e.text, getPrefixes())) turn = { origin: 'machine', typed: null, expansion: false }
   else turn = { origin: 'composer', typed: parseBang(e.text), expansion: false }
   return next(e)
 }
@@ -112,10 +128,39 @@ export async function witnessTool($, e, next) {
 
 function decideBash(e) {
   if (typeof e.command !== 'string') return { out: e, say: null }
+  // The marker pass first: a Bash write of the human CONTEXT.md marker is judged like a Write/Edit.
+  // The gate pass then runs on whatever this left; the first notice wins.
+  let cur = e
+  let markSay = null
+  const mk = bashMarkerRewrite(e.command)
+  if (mk !== null) {
+    if (turn === null || undeterminedFor('discuss marker')) markSay = 'undetermined'
+    else if (mk.unknown || !mk.phases.every((n) => witnessed('discuss marker', String(n), e))) {
+      cur = { ...e, command: mk.command }
+      markSay = 'marker'
+    }
+  }
+  const g = decideGateBash(cur)
+  // Then the effect: whatever the text says, a call that leaves the human marker on line 1 of a phase
+  // CONTEXT.md the human did not discuss in this turn ends with the agent marker there (phase 46 C8).
+  let out = g.out
+  if (turn !== null && !undeterminedFor('discuss marker')) {
+    const phases = contextPathsIn(out.command).map(isPhaseContextPath)
+    const guarded = phases.every((n) => witnessed('discuss marker', String(n), e)) ? null : effectGuard(out.command)
+    if (guarded !== null) out = { ...out, command: guarded }
+  }
+  return { out, say: markSay ?? g.say }
+}
+
+// A gate whose verb or arguments a shell will build (`ac phase $V 1`, `ac phase accept $(printf …)`,
+// `${A}essed`): what reaches ac cannot be read here, so it can never be a witnessed claim (phase 46 C9).
+const dynGate = (s) => VAR_VERB.test(s) || /\b(?:phase|fix)\s+(?:accept|reject)\s+[^;&|\n]*[$`\\]/.test(s)
+
+function decideGateBash(e) {
   const hit = findGates(e.command)
   // findGates found no gate, yet the gate verbs are there (`node --no-warnings bin/ac.mjs phase accept`,
   // `$(which ac) phase accept`): unreadable, not innocent.
-  if (hit.kind === 'none' && !GATE_VERBS.test(shellText(e.command))) return { out: e, say: null }
+  if (hit.kind === 'none' && !GATE_VERBS.test(shellText(e.command)) && !VAR_VERB.test(e.command)) return { out: e, say: null }
   // Named only inside quoted text nothing can run (`echo "… phase accept 12 --agent claude"`, a grep pattern, a
   // commit message): a mention, left exactly as written.
   if (hit.kind === 'none' && onlyQuotedMention(e.command)) return { out: e, say: null }
@@ -123,24 +168,67 @@ function decideBash(e) {
     // unreadable: every gate the human did not type is the agent's, and no gate keeps a --witnessed
     // it did not get from witness (phase 41 verify, C2: `ac phase accept 41 && ac phase accept 55
     // --witnessed composer` after a typed /astro-accept 41). The typed gate itself stays declared.
-    if (turn === null) return { out: e, say: 'undetermined' }
+    // A --witnessed here was never put there by witness, however it is quoted (`"--witnessed" composer`,
+    // inside a nested string): beyond the text drop, ASTRO_WITNESS_DROP makes ac ignore it (phase 46 C9).
+    // Only when the text drop left one behind, so the plain spellings keep their exact rewrite.
+    const forged = (s) => /--witnessed/.test(s)
+    if (turn === null) {
+      // cold: nothing here can be witnessed, so anything not plainly literal gets the drop (phase 46 C9)
+      const dropped = dropWitnessed(e.command)
+      const rest = dropped ?? e.command
+      return undetermined(e, claimTrace(rest) || dynGate(e.command) ? withDropEnv(rest) : dropped)
+    }
     const typed = turn.origin === 'composer' && turn.typed ? turn.typed : null
     const keep = (ref) => typed !== null && idsMatch(typed.kind, typed.id, ref)
     // the raw-text pass first; if a quoted verb or ref hides the gate from it, sign every segment
     let command = rewriteRaw(e.command, AGENT_NAME, keep)
-    if (GATE_VERBS.test(shellText(command ?? e.command)) && !RAW_SEES.test(command ?? e.command)) command = signSegments(command ?? e.command) ?? command
+    // a gate verb held in a variable cannot be read at all (VAR_VERB): sign it too, never leave it human
+    const c = command ?? e.command
+    // and in the environment, which every nested ac inherits however the command is quoted (`bash
+    // --norc -c`, `-c --`, adjacent quotes, backticks, xargs, a script): text splicing cannot reach all
+    // of those. Only where splicing can miss: a variable verb, or a nested shell, substitution, eval or
+    // xargs. A typed gate in the same command keeps its declared form unless a verb is held in a variable.
+    // (a gate word built from an expansion, `ac phase accept ${A}essed`, counts as nested too)
+    const viaEnv = VAR_VERB.test(e.command) || (typed === null && (NESTS.test(e.command) || dynGate(e.command)))
+    // A nested form signed through the environment gets no segment splice: appended after a
+    // here-string or a substitution it breaks the command (`bash <<< "…" --agent claude`).
+    const nested = viaEnv && NESTS.test(e.command)
+    if (!nested && ((GATE_VERBS.test(shellText(c)) && !RAW_SEES.test(c)) || VAR_VERB.test(c))) command = signSegments(c) ?? command
+    if (viaEnv) command = withSignerEnv(command ?? e.command)
+    // nothing on this path is witnessed: a claim left behind, or arguments a shell could rebuild into one
+    if (forged(command ?? e.command) || claimTrace(command ?? e.command) || dynGate(e.command)) command = withDropEnv(command ?? e.command)
     return command === null ? { out: e, say: 'undetermined' } : { out: { ...e, command }, say: 'agent' }
   }
   // Any --agent word, even bare or empty, already DECLARES agent provenance (ac's own reject code):
   // never add --witnessed to it, never rename it (phase 41 verify, C4).
   if (segmentHas(hit, '--agent')) return { out: e, say: null }
-  if (turn === null || undeterminedFor(hit.gate)) return { out: e, say: 'undetermined' }
+  // Outside a witnessed gate, a claim may still hide in a variable (`W=--witnessed; ac phase accept 1 $W
+  // composer`): when --witnessed text survives the strip, or a flag word is an expansion, ac is told to
+  // ignore the flag too (ASTRO_WITNESS_DROP, phase 46 C9).
+  const dynFlag = hit.words.some((w) => !w.ref && !w.verb && /[$`]/.test(w.text) && hit.words.indexOf(w) > hit.words.findIndex((x) => x.verb))
+  const guardForged = (s) => (dynFlag || /--witnessed/.test(s) ? withDropEnv(s) : s)
+  if (turn === null || undeterminedFor(hit.gate)) {
+    const dropped = segmentHas(hit, '--witnessed') ? rewriteGate(e.command, hit, { strip: ['--witnessed'] }) : null
+    // Nothing on a cold or undetermined turn is witnessed, so any argument that is not a plain literal
+    // (an expansion, a quote, a backslash: `${A}essed`, `--witn""essed`) gets the drop as well.
+    const verbEnd = hit.words.find((w) => w.verb)?.end ?? hit.refEnd
+    const rest = dropped ?? e.command
+    const after = dropped === null ? e.command.slice(verbEnd, hit.segEnd) : (() => { const h = findGates(dropped); return h.kind === 'one' ? dropped.slice(h.words.find((w) => w.verb)?.end ?? h.refEnd, h.segEnd) : dropped })()
+    const out = notLiteral(after) ? withDropEnv(rest) : guardForged(rest)
+    return undetermined(e, out === e.command ? null : out)
+  }
   if (witnessed(hit.gate, hit.ref, e)) {
     const command = segmentHas(hit, '--witnessed') ? e.command : rewriteGate(e.command, hit, { add: '--witnessed composer' })
     return { out: command === e.command ? e : { ...e, command }, say: null }
   }
-  const command = rewriteGate(e.command, hit, { add: `--agent ${AGENT_NAME}`, strip: ['--witnessed', '--agent'] })
+  const command = guardForged(rewriteGate(e.command, hit, { add: `--agent ${AGENT_NAME}`, strip: ['--witnessed', '--agent'] }))
   return { out: { ...e, command }, say: 'agent' }
+}
+
+// Who started the turn is unknown: the call stays as declared, minus a self-supplied --witnessed (a
+// claim only witness may make). `dropped` is the command without it, or null when it held none.
+function undetermined(e, dropped) {
+  return { out: dropped === null ? e : { ...e, command: dropped }, say: 'undetermined' }
 }
 
 // An Edit whose own text looks harmless can still make line 1 of the file the human marker

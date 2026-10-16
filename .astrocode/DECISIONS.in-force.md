@@ -517,3 +517,30 @@ _2026-10-15 · at ca74200_
 **Why:** ADR-035's premise was Haiku 4.5 (a bare git stash -u in the shared tree; branches[] filled with the target). Haiku 5.5, at about a twentieth of Sonnet's price, was 20/20 on benchmark #2's scenario as a fixture against Sonnet low's 19/20, with no destructive git in 141 integrator runs, and never stashed under a stash-inviting prompt (0/21; Sonnet stashed a path 19/20). It is not good enough for judgement: hard coding tasks 9/16 against 14/16, and in discover 6/20 runs put a task's file at the plan file. The ADR-035 prohibition paragraph in the integrator prompt is load-bearing (branches[] shape wrong 5/20 without it, 0/20 with it) and stays. An unset models.integrator still floors to sonnet. Haiku on any other role remains the user's per-role choice (ADR-073). Evidence: PR #133, issue #125.
 
 **Rejected:** Haiku for discover (a silent wrong file costs more than it saves); haiku in a profile for any judgement role; dropping the prompt paragraph to save tokens; lowering the unset-key floor to haiku (a project that never set the key should not change tier unannounced).
+
+## ADR-079 — A re-verify after a FAIL checks the previously unmet criteria first and stops with a cheap FAIL when any is still unmet; only a run that checked every criterion can mark a phase verified, and each verdict is saved in the phase folder so the next run can narrow (amends ADR-031)
+_2026-10-15 · at 3ef3f5b_
+
+**Why:** Full Opus re-runs after 1-3 small local failures were 33% of verifier cost (#129); astro-forge phase 222 was re-verified in full four times over one criterion. Checking the unmet criteria first, in the same run that goes on to full coverage when they pass, makes a still-failing re-verify cheap without a PASS ever resting on carried evidence, so ADR-031's guarantee (no false PASS from a fix that breaks another criterion) holds. A full run is forced when many criteria are unmet, CRITERIA.md changed, the saved verdict's commit is not an ancestor of HEAD, the verifier judges the fix broad, or --full is passed.
+
+**Rejected:** Carrying a PASS into verified with a diff-impact check (a fix's indirect side effect could reach /astro-accept); a narrowed run followed by a separate full run (every pass costs two runs); narrowing only the execute loop (at standard effort it has one cycle, the repeats are hand-run /astro-verify); keeping the verdict local only (lost on a fresh clone, not auditable).
+
+## ADR-081 — A human gate (phase accept/reject, fix accept) may cite a decision made elsewhere with --evidence "<id or URL>", stored beside the record; a citation never makes the signer human, and prompts starting with a user-configured machine-typed prefix never count as human in any composer-gated mod (refines ADR-074)
+_2026-10-15 · at 5ecfb98_
+
+**Why:** #132: owners who approve on a separate decision board had no way to tie the agent's acceptance to their real decision, and tools that type fixed lines through tmux arrive as composer like a human. An agent can write any citation, so treating one as proof would let automation sign for the human (personal principle 1a0d); storing it as a citation keeps the record auditable while the signer stays what witness saw. The prefix list is per user (their machine's tools type the lines) and matched as a plain prefix, so one bad pattern cannot silently mark the owner's own prompts as machine-typed.
+
+**Rejected:** Counting --evidence as human (an agent could fabricate it); regular expressions for prefixes; a per-project prefix list; honouring the prefixes in witness only (live-capture would capture machine-typed lines as the owner's rules).
+
+## ADR-082 — git-guard denies and never asks, on every host; a destructive git call it cannot show to be scoped is refused, and a call it cannot read at all (an expanded subcommand, a shell fed on stdin, nesting three deep) runs (amends phase 38 and ADR-076)
+_2026-10-15 · at c98cbd1_
+
+**Why:** Phase 38 chose ask on Claude Code from a -p probe where an ask acted as a refusal. A Workflow agent inside an interactive session is not -p: its ask goes to the user and the whole run waits, so unattended runs stalled for hours on false alarms (a mutation-test script refused because a comment said restore and the script started with $P). A deny reaches the agent at once with the scoped alternative, and nothing waits. Matching the text for git plus a destructive word anywhere caused most false alarms, so unreadable calls now run; destructive calls the parser does see stay refused.
+
+**Rejected:** Removing git-guard (loses the guard against the bare stash that destroyed a completed plan); keeping ask with fewer false alarms (any ask still stalls an unattended run); denying unreadable calls too (an agent cannot rephrase a refusal it cannot understand).
+
+## Not in force
+
+These decisions no longer apply — follow the decision each one names. They are listed so a citation still resolves; the full text is in DECISIONS.md.
+
+- ADR-080 — A human gate (phase accept/reject, fix accept) may cite a decision made elsewhere with --evidence "<id or URL>", stored beside the record --agent claude; a citation never makes the signer human, and prompts starting with a user-configured machine-typed prefix never count as human in any composer-gated mod (refines ADR-074) · superseded by ADR-081 (2026-10-15)

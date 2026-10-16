@@ -153,7 +153,8 @@ test('witness: a gate run through node, a path or $(which ac) is unreadable, nev
   await prompt($, '/astro-autonomous')
   await $.tool.call({ tool: 'Bash', command: 'node --no-warnings bin/ac.mjs phase accept 41 --witnessed composer' })
   await $.tool.call({ tool: 'Bash', command: '$(which ac) phase accept 41' })
-  expect(rig.bash()).toEqual(['node --no-warnings bin/ac.mjs phase accept 41 --agent claude', '$(which ac) phase accept 41 --agent claude'])
+  // a substitution also gets the signer in the environment (phase 46 C10: nested calls inherit it)
+  expect(rig.bash()).toEqual(['node --no-warnings bin/ac.mjs phase accept 41 --agent claude', 'export ASTRO_SIGNER_AGENT=claude; $(which ac) phase accept 41 --agent claude'])
 })
 
 test('witness: a quoted verb or ref is still a gate: never witnessed in an autonomous turn (phase 41 C2/C3)', async ($, on) => {

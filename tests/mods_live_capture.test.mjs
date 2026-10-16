@@ -585,3 +585,36 @@ test('C1/C8: a capture in flight across session.start keeps its own session ref 
   assert.equal(badges().length, 0, 'no badge for the old session in the new one')
   for (const p of w.list('--proposed')) assert.equal(p.source.ref, 'live sess-1')
 })
+
+// ── phase 46 (ADR-081): a machine-typed prompt is the tool's, never the owner's rule ───────────
+
+const withPrefixes = (machinePrefixes) =>
+  setSwitches({ exitCode: 0, stdout: JSON.stringify({ switches: { 'live-capture': true }, machinePrefixes }), stderr: '' })
+
+test('C7 (phase 46): a prompt starting with a machine-typed prefix is never judged or proposed, and passes through unchanged', async () => {
+  const w = world()
+  const m = await boot(w)
+  withPrefixes(['[relay] '])
+  w.replies(rule('Always run the full suite before pushing'))
+  for (const text of ['[relay] always run the full suite before pushing', '   [relay] always run the full suite before pushing']) {
+    const e = typed(text)
+    const out = await submit(m, w, e)
+    assert.equal(out, e, 'the prompt passes through unchanged')
+  }
+  assert.equal(w.models.length, 0, 'no model call')
+  assert.equal(w.principlesArgv().length, 0, 'no ac principles argv')
+})
+
+test('C7 (phase 46) control: the unprefixed text still reaches the judge, and a payload without prefixes keeps today\'s behaviour', async () => {
+  const w = world()
+  const m = await boot(w)
+  withPrefixes(['[relay] '])
+  w.replies(NOT_RULE)
+  await submit(m, w, typed('always run the full suite before pushing'))
+  assert.equal(w.models.length, 1, 'the human\'s own text is still considered')
+  const w2 = world()
+  const m2 = await boot(w2)
+  w2.replies(NOT_RULE)
+  await submit(m2, w2, typed('[relay] always run the full suite before pushing'))
+  assert.equal(w2.models.length, 1, 'with no prefix list nothing is machine-typed')
+})

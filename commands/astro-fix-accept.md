@@ -64,6 +64,10 @@ declares it. Declare honestly either way. This matters more
 for a bug than for a phase — a bug wrongly marked fixed stops being looked for, which is
 worse than a bug known to be open.
 
+If the user relayed a decision made elsewhere and gave you its id or URL, add
+`--evidence "<id or URL>"` to the same command, verbatim. It is stored as a citation beside the
+record. It never replaces `--agent` and never makes the record human (ADR-081).
+
 ## After
 
 The record stays in `.astrocode/fixes.json` with `accepted_at` — what broke and when is

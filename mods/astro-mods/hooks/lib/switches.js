@@ -14,14 +14,21 @@
 // The `$.process.run` call itself is spelled in register.js: the plugin validator follows `$`
 // only into functions declared in the same file, never across an import, so this module takes
 // the RESULT of the call and stays free of `$`.
+//
+// `machinePrefixes` rides in the same payload (ADR-081): the strings a tool of the user's own types
+// at the head of a prompt. `ac` validates the list (lib/mods.mjs); this module only keeps what it
+// was handed, behind a shape guard, and a bad or missing field means no prefixes and never touches
+// the switches (fail soft). The match itself lives in machine.js.
 export const SWITCHES_ARGV = ['ac', 'mods', 'status', '--json', '--switches-only']
 export const SWITCHES_TIMEOUT_MS = 5000
 
 let state = {}
+let prefixes = []
 
 /** Take what `ac` answered. Starts from all-off, so a throw leaves every mod off. */
 export function setSwitches(ran) {
   state = {}
+  prefixes = []
   if (ran.exitCode !== 0) throw new Error(`ac exited ${ran.exitCode}`)
   let parsed
   try {
@@ -34,6 +41,14 @@ export function setSwitches(ran) {
   }
   // only a literal `true` is on: anything else, a typo included, is off
   state = Object.fromEntries(Object.entries(parsed.switches).map(([name, on]) => [name, on === true]))
+  // a shape guard, not the validity rule: anything but a list of non-empty strings is no prefixes
+  const mp = parsed.machinePrefixes
+  prefixes = Array.isArray(mp) && mp.every((p) => typeof p === 'string' && p !== '') ? [...mp] : []
+}
+
+/** The machine-typed prefixes `ac` handed over at session.start; `[]` when none or malformed. */
+export function getPrefixes() {
+  return prefixes
 }
 
 /** Is this feature switched on, as `ac` said it at session.start? Unknown names are off. */
@@ -44,4 +59,5 @@ export function isOn(name) {
 /** Every switch off -- a fresh registration, or a failure. */
 export function resetSwitches() {
   state = {}
+  prefixes = []
 }

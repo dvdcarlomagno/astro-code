@@ -84,16 +84,40 @@ test('mods status <feature> covers only that feature; a config without a mods ke
   assert.equal(sha(b.cfg), before);
 });
 
-test('--switches-only prints {switches, warnings} and never spawns claude', () => {
+test('--switches-only prints {switches, warnings, machinePrefixes} and never spawns claude', () => {
   const b = box({ config: { mods: { witness: true } } });
   const r = b.ac(['mods', 'status', '--json', '--switches-only']);
   assert.equal(r.status, 0, out(r));
   const s = JSON.parse(r.stdout);
-  assert.deepEqual(Object.keys(s).sort(), ['switches', 'warnings']);
+  assert.deepEqual(Object.keys(s).sort(), ['machinePrefixes', 'switches', 'warnings']);
   assert.deepEqual(Object.keys(s.switches), NAMES);
   assert.equal(s.switches.witness, true);
   assert.equal(s.switches.blindfold, false);
   assert.equal(b.log(), '', 'the hot path never touches claude');
+});
+
+test('--switches-only carries the configured machine-typed prefixes (ADR-081)', () => {
+  const b = box({ config: { mods: { witness: true, machinePrefixes: ['[relay] '] } } });
+  const r = b.ac(['mods', 'status', '--json', '--switches-only']);
+  assert.equal(r.status, 0, out(r));
+  assert.deepEqual(JSON.parse(r.stdout).machinePrefixes, ['[relay] ']);
+});
+
+test('--switches-only with a malformed prefix list prints [] and one warning, exit 0', () => {
+  const b = box({ config: { mods: { witness: true, machinePrefixes: 'x' } } });
+  const r = b.ac(['mods', 'status', '--json', '--switches-only']);
+  assert.equal(r.status, 0, out(r));
+  const s = JSON.parse(r.stdout);
+  assert.deepEqual(s.machinePrefixes, []);
+  assert.equal(s.warnings.length, 1);
+  assert.equal(s.switches.witness, true);
+});
+
+test('ac mods status prints the malformed prefix list warning once, as a warning line', () => {
+  const b = box({ config: { mods: { machinePrefixes: [''] } } });
+  const r = b.ac(['mods', 'status']);
+  assert.equal(r.status, 0, out(r));
+  assert.equal(r.stderr.split('\n').filter((l) => l.startsWith('⚠ mods.machinePrefixes')).length, 1, out(r));
 });
 
 test('witness is built: enable and status say so, it is a mod with no settings hook and no Cursor hooks.json', () => {
@@ -570,7 +594,7 @@ function feedBash(b, hookCmd, bashCommand) {
 }
 const decisionOf = (r) => { try { return JSON.parse(r.stdout).hookSpecificOutput?.permissionDecision; } catch { return undefined; } };
 
-test('enable git-guard registers exactly one Bash entry per profile; it asks on git stash -u and stays silent on a scoped stash; guards coexist', () => {
+test('enable git-guard registers exactly one Bash entry per profile; it denies git stash -u and stays silent on a scoped stash; guards coexist', () => {
   const b = box();
   const { dirs, saved } = twoProfiles(b);
   for (let i = 0; i < 2; i++) assert.equal(b.ac(['mods', 'enable', 'git-guard']).status, 0);
@@ -580,7 +604,7 @@ test('enable git-guard registers exactly one Bash entry per profile; it asks on 
     assert.equal(g.length, 1, `${d}: one git-guard entry`);
     assert.ok(g[0].matcher.split('|').includes('Bash'));
     assert.ok(s.hooks.PreToolUse.some((e) => e.hooks.some((h) => h.command === 'echo user-hook')), 'user hook kept');
-    assert.equal(decisionOf(feedBash(b, cmdOf(s, GGUARD), 'git stash -u')), 'ask');
+    assert.equal(decisionOf(feedBash(b, cmdOf(s, GGUARD), 'git stash -u')), 'deny');
     assert.equal(feedBash(b, cmdOf(s, GGUARD), 'git stash push -- src/a.js').stdout.trim(), '');
   }
   assert.equal(b.ac(['mods', 'enable', 'canon-guard']).status, 0);
@@ -601,7 +625,7 @@ test('enable git-guard registers exactly one Bash entry per profile; it asks on 
   dirs.forEach((dir, i) => assert.deepEqual(jread(join(dir, 'settings.json')), saved[i], dir));
 });
 
-test('status git-guard is available and off before enable, then on, enforced and "asks" per profile; a deleted entry reads missing', () => {
+test('status git-guard is available and off before enable, then on, enforced and "denies" per profile; a deleted entry reads missing', () => {
   const b = box();
   const { dirs } = twoProfiles(b);
   const before = b.ac(['mods', 'status', 'git-guard']);
@@ -614,7 +638,7 @@ test('status git-guard is available and off before enable, then on, enforced and
   const feature = () => b.status().features.find((f) => f.name === 'git-guard');
   assert.equal(feature().on, true);
   assert.deepEqual(feature().enforcement.filter((x) => x.host === 'claude').map((x) => [x.dir, x.state]), dirs.map((d) => [d, 'enforced']));
-  assert.match(b.ac(['mods', 'status', 'git-guard']).stdout, /asks/);
+  assert.match(b.ac(['mods', 'status', 'git-guard']).stdout, /denies/);
   const file = join(dirs[1], 'settings.json');
   const s = jread(file);
   s.hooks.PreToolUse = s.hooks.PreToolUse.filter((e) => gitEntries({ hooks: { x: [e] } }).length === 0);
