@@ -80,7 +80,20 @@ test('resolveAgentModel: user tier → opencode.models id; ids verbatim; inherit
   assert.equal(resolveAgentModel('astro-researcher', T), undefined, 'tier with no mapping → inherit');
   assert.equal(resolveAgentModel('astro-verifier', T), undefined, 'inherit → no model');
   writeUserConfig(T, { models: { executor: 'openrouter/x/y' } });
-  assert.equal(resolveAgentModel('astro-executor', T), 'openrouter/x/y', 'a provider id is used verbatim');
+  assert.equal(resolveAgentModel('astro-executor', T), undefined, 'a provider id in the (user-level) models tier is ignored, not used');
+  assert.match(resolveRoleModels({ home: T }).sources.executor, /ignored/);
+  writeUserConfig(T, { opencode: { roles: { executor: 'openrouter/x/y' } } });
+  assert.equal(resolveAgentModel('astro-executor', T), 'openrouter/x/y', 'a role pin is the way to use a provider id');
+});
+
+test('read-only agents (derived from source tools:) get permission edit: deny; writers do not', () => {
+  for (const n of ['astro-verifier', 'astro-researcher', 'astro-mapper']) {
+    const out = getHost('opencode').renderAgent(n, readAgent(n))[0].content;
+    assert.match(out, /\npermission:\n  edit: deny\n/, `${n} must be read-only`);
+  }
+  for (const n of ['astro-executor', 'astro-planner', 'astro-criteria-author']) {
+    assert.doesNotMatch(getHost('opencode').renderAgent(n, readAgent(n))[0].content, /permission:/, `${n} writes files`);
+  }
 });
 
 // --- install / uninstall -------------------------------------------------------

@@ -470,8 +470,16 @@ the controller to run `ac opencode models --json` and pass the role's id as the 
 run with no reinstall. The agent files are also stamped with your user-level result, as a
 fallback (`ac opencode map|set|unset` re-stamps them at once). Both keys are user-level on
 purpose — never put a provider id in `.astrocode/config.json`, which Claude teammates share.
-`/astro-config` walks all of this on OpenCode. Hooks and the status line are not wired on
-OpenCode yet. Headless: `opencode run "/astro-status"`.
+A provider id in `.astrocode/config.json` is ignored on purpose; `ac opencode models` says so.
+The read-only agents (`astro-verifier`, `astro-researcher`, `astro-mapper`) get a
+`permission: edit: deny` block, derived from their source `tools:`.
+`/astro-config` walks all of this on OpenCode.
+
+**Not wired on OpenCode yet:** hooks and the status line, and with them the guards —
+canon-guard (which protects `VERDICT.json`) and git-guard never run, so nothing blocks a
+write the agent decides to make through `shell`. Follow-ups: those plugins, headless
+`execCommand`/`parseResult` (`opencode run "/astro-status"` works by hand), and `agent_tools`
+MCP extras (ADR-068), which are dropped.
 
 ---
 

@@ -130,6 +130,7 @@ import { planReverify, recordVerdict, verifiedGate } from '../lib/verdict.mjs';
 import { milestoneHarvest } from '../lib/harvest.mjs';
 import { flowInit, flowBranch, flowPR, flowRelease, flowTag, flowHotfixStart, flowHotfixFinish } from '../lib/flow.mjs';
 import { installClaude, uninstallClaude, installStatusline, baseConfigDir, ASTRO_HOME, refreshAgents, agentNames, republishHost } from '../lib/install.mjs';
+// Imported directly (not via getHost) for the model-mapping helpers, which are not part of the host contract.
 import opencodeHost, { resolveRoleModels, setOpencodeModel, TIERS as OPENCODE_TIERS, ROLES as OPENCODE_ROLES } from '../lib/hosts/opencode.mjs';
 import { readAgentTools, updateAgentTools } from '../lib/agenttools.mjs';
 import { GAUGES, GAUGE_MODES, readGaugeModes, setGaugeMode, statuslineDedupe, setStatuslineDedupe } from '../lib/statuslinegauges.mjs';
